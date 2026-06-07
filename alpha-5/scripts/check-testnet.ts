@@ -21,7 +21,7 @@ async function main() {
 
   const campIface = new Interface([
     "function nextCampaignId() view returns (uint256)",
-    "function getCampaignForSettlement(uint256 id) view returns (uint8 status, address publisher, uint256 bidCpmPlanck, uint16 snapshotTakeRateBps)",
+    "function getCampaignForSettlement(uint256 id) view returns (uint8 status, address publisher, uint256 bidCpmWei, uint16 snapshotTakeRateBps)",
     "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
     "function minimumCpmFloor() view returns (uint256)",
     "function MINIMUM_BUDGET_PLANCK() view returns (uint256)",

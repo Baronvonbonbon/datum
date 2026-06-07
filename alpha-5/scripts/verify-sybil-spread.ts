@@ -62,7 +62,7 @@ async function main() {
   const BUDGET = parseDOT("100");
   const DAILY  = parseDOT("50");
   const CPM    = parseDOT("0.5");
-  const pots = [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }];
+  const pots = [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }];
   const activationBond = parseDOT("0.5");
   const totalValue = BUDGET + activationBond;
 
@@ -118,7 +118,7 @@ async function main() {
 
     const claim: any = {
       campaignId: cid, publisher: diana.address, user: user.address,
-      eventCount: events, ratePlanck: CPM, actionType: 0,
+      eventCount: events, rateWei: CPM, actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce: (userNextNonce as any)[chainKey],
       previousClaimHash: (userPrevHash as any)[chainKey],
@@ -129,7 +129,7 @@ async function main() {
     };
     claim.claimHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
       ["uint256","address","address","uint256","uint256","uint8","bytes32","uint256","bytes32","bytes32"],
-      [claim.campaignId, claim.publisher, claim.user, claim.eventCount, claim.ratePlanck, claim.actionType,
+      [claim.campaignId, claim.publisher, claim.user, claim.eventCount, claim.rateWei, claim.actionType,
        claim.clickSessionHash, claim.nonce, claim.previousClaimHash, claim.stakeRootUsed],
     ));
     const target = await settlement.powTargetForUser(user.address, events);

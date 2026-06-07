@@ -450,9 +450,9 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // Compute payment
             uint256 totalPayment;
             if (claim.actionType == 0) {
-                totalPayment = (claim.ratePlanck * claim.eventCount) / 1000;
+                totalPayment = (claim.rateWei * claim.eventCount) / 1000;
             } else {
-                totalPayment = claim.ratePlanck * claim.eventCount;
+                totalPayment = claim.rateWei * claim.eventCount;
             }
 
             uint256 publisherPayment = (totalPayment * cTakeRate) / BPS_DENOMINATOR;
@@ -495,7 +495,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 user,
                 claim.publisher,
                 claim.eventCount,
-                claim.ratePlanck,
+                claim.rateWei,
                 claim.actionType,
                 claim.nonce,
                 publisherPayment,

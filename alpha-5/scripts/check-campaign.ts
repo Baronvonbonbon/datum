@@ -20,10 +20,10 @@ async function rawCall(to: string, data: string) {
 
 async function main() {
   const campIface = new Interface([
-    "function getCampaignPot(uint256 campaignId, uint8 actionType) view returns (tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier))",
+    "function getCampaignPot(uint256 campaignId, uint8 actionType) view returns (tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier))",
     "function getCampaignStatus(uint256) view returns (uint8)",
     "function nextCampaignId() view returns (uint256)",
-    "function getCampaignPots(uint256 campaignId) view returns (tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[])",
+    "function getCampaignPots(uint256 campaignId) view returns (tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[])",
   ]);
 
   // Campaign 493 (ECO-$2DOT)

@@ -4,7 +4,7 @@ export interface Claim {
   campaignId: bigint;
   publisher: string;
   impressionCount: bigint;
-  clearingCpmPlanck: bigint;
+  clearingCpmWei: bigint;
   nonce: bigint;
   previousClaimHash: string; // bytes32 hex
   claimHash: string;         // bytes32 hex
@@ -35,7 +35,7 @@ export interface Campaign {
   publisher: string;
   remainingBudget: bigint;  // planck
   dailyCap: bigint;         // planck
-  bidCpmPlanck: bigint;
+  bidCpmWei: bigint;
   snapshotTakeRateBps: number;
   status: CampaignStatus;
   categoryId: number;       // 0=uncategorized, 1-26 top-level, 101+ subcategories

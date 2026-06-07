@@ -20,7 +20,7 @@ export interface CampaignInfo {
   advertiser: string;       // 0x address, lowercase
   publisher: string;        // 0x address (0x00... for open campaigns)
   status: number;           // 0=Pending 1=Active 2=Paused etc
-  viewBidPlanck: string;    // serialized bigint
+  viewBidWei: string;    // serialized bigint
   requiredTags: string[];   // bytes32 hashes
   metadataHash: string;     // bytes32 hex
   ts: number;               // cache timestamp
@@ -88,7 +88,7 @@ export async function fetchCampaignInfo(opts: {
 
   const empty: CampaignInfo = {
     campaignId, title: "", advertiser: "", publisher: "",
-    status: 0, viewBidPlanck: "0", requiredTags: [], metadataHash: ZERO_HASH,
+    status: 0, viewBidWei: "0", requiredTags: [], metadataHash: ZERO_HASH,
     ts: Date.now(),
   };
   if (!campaignsAddr) return cached ?? empty;
@@ -120,7 +120,7 @@ export async function fetchCampaignInfo(opts: {
       advertiser: String(advertiser).toLowerCase(),
       publisher: String(cfs[1] ?? "0x0000000000000000000000000000000000000000").toLowerCase(),
       status: Number(cfs[0] ?? 0),
-      viewBidPlanck: String(viewBid),
+      viewBidWei: String(viewBid),
       requiredTags: Array.isArray(tags) ? tags.map(String) : [],
       metadataHash: mhStr,
       ts: Date.now(),

@@ -14,7 +14,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   filterMode: "all",
   allowedTopics: [],
   sweepAddress: "",
-  sweepThresholdPlanck: "0",
+  sweepThresholdWei: "0",
   contextualMode: false,
 };
 

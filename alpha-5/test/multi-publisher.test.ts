@@ -74,7 +74,7 @@ describe("Multi-publisher campaigns", function () {
     const value = BUDGET + bondAmount;
     const tx = await campaigns.connect(advertiser).createCampaign(
       initialPublisher,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, bondAmount,
       { value }
     );

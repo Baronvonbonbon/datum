@@ -119,7 +119,7 @@ describe("Settlement Nullifier (inline)", function () {
       campaignId: cid,
       publisher: publisher.address,
       eventCount: IMPRESSIONS,
-      ratePlanck: BID_CPM,
+      rateWei: BID_CPM,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,

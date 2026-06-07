@@ -15,7 +15,7 @@ import { CampaignStatus } from "@shared/types";
 interface CampaignSummary {
   id: number;
   status: number;
-  budgetPlanck: bigint;
+  budgetWei: bigint;
   publisher: string;
 }
 
@@ -70,7 +70,7 @@ export function AdvertiserProfile() {
           campaigns.push({
             id,
             status: Number(c.status ?? c[4] ?? 0),
-            budgetPlanck: BigInt(c.budget ?? c[2] ?? 0),
+            budgetWei: BigInt(c.budget ?? c[2] ?? 0),
             publisher: (c.publisher ?? c[1] ?? ZERO) as string,
           });
         } catch { /* skip */ }
@@ -95,7 +95,7 @@ export function AdvertiserProfile() {
           }, 0n);
       } catch { /* ignore */ }
 
-      const totalBudget = campaigns.reduce((s, c) => s + c.budgetPlanck, 0n);
+      const totalBudget = campaigns.reduce((s, c) => s + c.budgetWei, 0n);
 
       setStats({
         total: campaigns.length,

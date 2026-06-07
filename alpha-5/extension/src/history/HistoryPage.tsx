@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { ImpressionLogEntry } from "../background/impressionLog";
+import { formatDotWei } from "@shared/dot";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -10,18 +11,12 @@ const ACTION_COLORS: Record<number, string> = {
   2: "rgba(251,191,36,0.8)",
 };
 
-/** Format planck → human-readable DOT with suffix. */
-function fmtPlanck(planckStr: string): string {
-  if (!planckStr || planckStr === "0") return "—";
-  const p = BigInt(planckStr);
-  if (p === 0n) return "—";
-  // 1 DOT = 10^10 planck
-  const dot = Number(p) / 1e10;
-  if (dot >= 0.001) return `${dot.toFixed(4)} DOT`;
-  // Show in µDOT (micro)
-  const micro = Number(p) / 1e4;
-  if (micro >= 0.001) return `${micro.toFixed(2)} µDOT`;
-  return `${p.toString()} planck`;
+/** Format an 18-decimal wei amount → human-readable PAS with suffix. */
+function fmtWei(weiStr: string): string {
+  if (!weiStr || weiStr === "0") return "—";
+  const w = BigInt(weiStr);
+  if (w === 0n) return "—";
+  return `${formatDotWei(w)} PAS`;
 }
 
 function fmtTime(ts: number): string {
@@ -50,7 +45,7 @@ function shortId(id: string): string {
 interface CampaignSummary {
   campaignId: string;
   count: number;
-  totalPayoutPlanck: bigint;
+  totalPayoutWei: bigint;
   lastSeen: number;
   actionTypes: Set<number>;
 }
@@ -61,14 +56,14 @@ function buildCampaignSummary(log: ImpressionLogEntry[]): CampaignSummary[] {
     const existing = map.get(e.campaignId);
     if (existing) {
       existing.count++;
-      existing.totalPayoutPlanck += BigInt(e.payoutPlanck ?? "0");
+      existing.totalPayoutWei += BigInt(e.payoutWei ?? "0");
       if (e.timestamp > existing.lastSeen) existing.lastSeen = e.timestamp;
       existing.actionTypes.add(e.actionType);
     } else {
       map.set(e.campaignId, {
         campaignId: e.campaignId,
         count: 1,
-        totalPayoutPlanck: BigInt(e.payoutPlanck ?? "0"),
+        totalPayoutWei: BigInt(e.payoutWei ?? "0"),
         lastSeen: e.timestamp,
         actionTypes: new Set([e.actionType]),
       });
@@ -144,7 +139,7 @@ export function HistoryPage() {
       copy.sort((a, b) => b.timestamp - a.timestamp);
     } else {
       copy.sort((a, b) => {
-        const diff = BigInt(b.payoutPlanck ?? "0") - BigInt(a.payoutPlanck ?? "0");
+        const diff = BigInt(b.payoutWei ?? "0") - BigInt(a.payoutWei ?? "0");
         return diff > 0n ? 1 : diff < 0n ? -1 : 0;
       });
     }
@@ -156,7 +151,7 @@ export function HistoryPage() {
     const summaries = buildCampaignSummary(log);
     if (sortCamp === "count") summaries.sort((a, b) => b.count - a.count);
     else if (sortCamp === "payout") summaries.sort((a, b) => {
-      const diff = b.totalPayoutPlanck - a.totalPayoutPlanck;
+      const diff = b.totalPayoutWei - a.totalPayoutWei;
       return diff > 0n ? 1 : diff < 0n ? -1 : 0;
     });
     else summaries.sort((a, b) => b.lastSeen - a.lastSeen);
@@ -165,7 +160,7 @@ export function HistoryPage() {
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const totalPayout = useMemo(() =>
-    log.reduce((acc, e) => acc + BigInt(e.payoutPlanck ?? "0"), 0n), [log]);
+    log.reduce((acc, e) => acc + BigInt(e.payoutWei ?? "0"), 0n), [log]);
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -223,7 +218,7 @@ export function HistoryPage() {
           </span>
           <span>
             <span style={{ color: "var(--text-muted)" }}>Est. Earnings </span>
-            <span style={{ color: "var(--ok)", fontWeight: 600 }}>{fmtPlanck(totalPayout.toString())}</span>
+            <span style={{ color: "var(--ok)", fontWeight: 600 }}>{fmtWei(totalPayout.toString())}</span>
           </span>
           <span>
             <span style={{ color: "var(--text-muted)" }}>Campaigns </span>
@@ -347,7 +342,7 @@ export function HistoryPage() {
                     {shortId(e.campaignId)}
                   </td>
                   <td style={{ ...cellStyle, color: "var(--ok)", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                    {fmtPlanck(e.payoutPlanck)}
+                    {fmtWei(e.payoutWei)}
                   </td>
                   <td style={cellStyle}>
                     <span style={pill(ACTION_COLORS[e.actionType] ?? "var(--text-muted)")}>
@@ -355,7 +350,7 @@ export function HistoryPage() {
                     </span>
                   </td>
                   <td style={{ ...cellStyle, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-                    {fmtPlanck(e.ratePlanck)}
+                    {fmtWei(e.rateWei)}
                   </td>
                   <td style={{ ...cellStyle, color: "var(--text-muted)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     title={e.url}>
@@ -402,7 +397,7 @@ export function HistoryPage() {
                     {c.count}
                   </td>
                   <td style={{ ...cellStyle, color: "var(--ok)", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                    {fmtPlanck(c.totalPayoutPlanck.toString())}
+                    {fmtWei(c.totalPayoutWei.toString())}
                   </td>
                   <td style={cellStyle}>
                     <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>

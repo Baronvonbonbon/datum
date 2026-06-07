@@ -22,7 +22,7 @@ describe("Upgrade E2E — bump version with loaded data (DatumPublisherStake)", 
   let pubA: HardhatEthersSigner, pubB: HardhatEthersSigner, pubC: HardhatEthersSigner;
   let router: any, v1: any, v2: any;
 
-  const BASE = 1_000_000n;       // baseStakePlanck
+  const BASE = 1_000_000n;       // baseStakeWei
   const PER_IMP = 1_000n;        // planckPerImpression
   const DELAY = 10n;             // unstakeDelayBlocks
 
@@ -82,7 +82,7 @@ describe("Upgrade E2E — bump version with loaded data (DatumPublisherStake)", 
     expect(await v2.staked(pubB.address)).to.equal(expectB);
     expect(await v2.stakerCount()).to.equal(stakerCount);
     // config params copied
-    expect(await v2.baseStakePlanck()).to.equal(BASE);
+    expect(await v2.baseStakeWei()).to.equal(BASE);
     expect(await v2.planckPerImpression()).to.equal(PER_IMP);
     expect(await v2.unstakeDelayBlocks()).to.equal(DELAY);
     // pending-unstake record copied
@@ -147,7 +147,7 @@ describe("Upgrade E2E — Campaigns carve-out, loaded via createCampaign", funct
   const CAT = ethers.encodeBytes32String("news");
 
   function pot(): any {
-    return { actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress };
+    return { actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress };
   }
 
   // Read one campaign's FULL state from a contract into the importCampaignFull shape.
@@ -235,8 +235,8 @@ describe("Upgrade E2E — Campaigns carve-out, loaded via createCampaign", funct
       expect(after.core.requiresZkProof).to.equal(before.core.requiresZkProof);
       expect(after.core.viewBid).to.equal(before.core.viewBid);
       expect(after.pots.length).to.equal(before.pots.length);
-      expect(after.pots[0].ratePlanck).to.equal(before.pots[0].ratePlanck);
-      expect(after.pots[0].budgetPlanck).to.equal(before.pots[0].budgetPlanck);
+      expect(after.pots[0].rateWei).to.equal(before.pots[0].rateWei);
+      expect(after.pots[0].budgetWei).to.equal(before.pots[0].budgetWei);
       expect(after.assuranceLevel).to.equal(before.assuranceLevel);
       expect(after.minStake).to.equal(before.minStake);
       expect(after.requiredCategory).to.equal(before.requiredCategory);
@@ -352,7 +352,7 @@ describe("Upgrade E2E — multi-contract rewire (Campaigns -> Publishers)", func
 
   const MIN_CPM = 0n, PENDING_TIMEOUT = 50n, RATE = 5000;
   const BUDGET = parseDOT("2"), DAILY_CAP = parseDOT("1"), BID_CPM = parseDOT("0.01");
-  function pot(): any { return { actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }; }
+  function pot(): any { return { actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }; }
   function create(who: HardhatEthersSigner, publisher: string) {
     return campaigns.connect(advertiser).createCampaign(publisher, [pot()], [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET });
   }

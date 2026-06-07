@@ -603,7 +603,7 @@ export function ProtocolParams() {
         const ayePct = total > 0n ? Number(p.ayeWeight * 100n / total) : 0;
         const myVote = myVotes.find((v) => v.proposalId === p.id);
         const amountStr = voteAmount[p.id] ?? "0.1";
-        const amountPlanck = (() => { try { return parseDotWeiSafe(amountStr); } catch { return 0n; } })();
+        const amountWei = (() => { try { return parseDotWeiSafe(amountStr); } catch { return 0n; } })();
         const txState = voteTxState[p.id] ?? "idle";
         const txMsg = voteTxMsg[p.id] ?? "";
         const isActive = p.state === 0;
@@ -740,7 +740,7 @@ export function ProtocolParams() {
                   <ConvictionSlider
                     value={voteConviction[p.id] ?? 1}
                     onChange={(v) => setVoteConviction((s) => ({ ...s, [p.id]: v }))}
-                    amount={amountPlanck}
+                    amount={amountWei}
                     symbol={sym}
                   />
                 </div>

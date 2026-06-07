@@ -213,14 +213,14 @@ library XcmTransactEncoder {
     /// @notice Encode the full VersionedXcm::V4(Xcm(vec![...])) message used by
     ///         the bridge.
     /// @param  user        AccountId32 of the user whose identity to query.
-    /// @param  feePlanck   Fee amount in relay-native planck.
+    /// @param  feeWei   Fee amount in relay-native planck.
     /// @param  refTime     Weight::refTime for the Transact instruction.
     /// @param  proofSize   Weight::proofSize for the Transact instruction.
     /// @param  palletIndex Index of the datum_identity_relay pallet on People Chain.
     /// @param  callIndex   Index of the identity_query dispatchable on that pallet.
     function encodeIdentityQueryXcm(
         bytes32 user,
-        uint128 feePlanck,
+        uint128 feeWei,
         uint64  refTime,
         uint64  proofSize,
         uint8   palletIndex,
@@ -232,8 +232,8 @@ library XcmTransactEncoder {
         //   [WithdrawAsset, PayFees, Transact]
         bytes memory instructions = abi.encodePacked(
             compact(3),
-            withdrawAsset(feePlanck),
-            payFees(feePlanck),
+            withdrawAsset(feeWei),
+            payFees(feeWei),
             transactSovereign(refTime, proofSize, callData)
         );
 

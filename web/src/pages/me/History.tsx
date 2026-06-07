@@ -30,7 +30,7 @@ import {
 } from "@ext/shared/earningsIndex";
 
 const SORT_LABELS: Record<TopSortKey, string> = {
-  totalUserPlanck: "Total earned",
+  totalUserWei: "Total earned",
   claimCount: "Claims",
   totalEvents: "Events",
   lastBlock: "Recently active",
@@ -47,7 +47,7 @@ export function History() {
   const { push } = useToast();
 
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
-  const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
+  const [sortBy, setSortBy] = useState<TopSortKey>("totalUserWei");
   const [campaignAdvertisers, setCampaignAdvertisers] = useState<Record<string, string>>({});
 
   // PaymentVault DOT balance + withdraw state
@@ -366,7 +366,7 @@ export function History() {
                     </div>
                   </div>
                   <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                    +{formatDotWei(BigInt(r.userPaymentPlanck))}
+                    +{formatDotWei(BigInt(r.userPaymentWei))}
                   </span>
                   <span style={{ color: "var(--text-muted)" }}>
                     {r.actionType === 0 ? "view" : r.actionType === 1 ? "click" : "action"}
@@ -424,7 +424,7 @@ export function History() {
                     <CampaignChip campaignId={row.campaignId} size="sm" />
                   </div>
                   <span style={{ color: "var(--ok)", fontFamily: "monospace", textAlign: "right" }}>
-                    {formatDotWei(BigInt(row.totals.totalUserPlanck))}
+                    {formatDotWei(BigInt(row.totals.totalUserWei))}
                   </span>
                   <span style={{ color: "var(--text-dim)", fontFamily: "monospace", textAlign: "right" }}>
                     {row.totals.claimCount} claims

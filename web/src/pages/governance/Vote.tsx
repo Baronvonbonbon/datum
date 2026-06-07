@@ -59,7 +59,7 @@ export function Vote() {
         contracts.campaigns.getCampaignViewBid(BigInt(cid)).catch(() => 0n),
       ]);
 
-      setCampaign({ id: cid, status: Number(c[0]), advertiser: adv, bidCpmPlanck: BigInt(viewBid) });
+      setCampaign({ id: cid, status: Number(c[0]), advertiser: adv, bidCpmWei: BigInt(viewBid) });
       setGov({ ayeWeighted: BigInt(aye), nayWeighted: BigInt(nay), resolved: Boolean(resolved), quorum: BigInt(quorum) });
 
       if (address) {
@@ -129,7 +129,7 @@ export function Vote() {
 
   const total = gov ? gov.ayeWeighted + gov.nayWeighted : 0n;
   const ayePct = total > 0n ? Number(gov!.ayeWeighted * 100n / total) : 0;
-  const amountPlanck = (() => { try { return parseDotWeiSafe(amount); } catch { return 0n; } })();
+  const amountWei = (() => { try { return parseDotWeiSafe(amount); } catch { return 0n; } })();
 
   return (
     <div style={{ maxWidth: 640 }}>
@@ -240,7 +240,7 @@ export function Vote() {
 
           <div>
             <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 6 }}>Conviction</label>
-            <ConvictionSlider value={conviction} onChange={setConviction} amount={amountPlanck} symbol={sym} />
+            <ConvictionSlider value={conviction} onChange={setConviction} amount={amountWei} symbol={sym} />
           </div>
 
           <TransactionStatus state={txState} message={txMsg} />

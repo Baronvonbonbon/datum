@@ -26,7 +26,7 @@ const campAbi = [
   "function challengeBonds() view returns (address)",
   "function lifecycleContract() view returns (address)",
   "function pauseRegistry() view returns (address)",
-  "function createCampaign(address publisher, (uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  "function createCampaign(address publisher, (uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
 ];
 
 const campIface = new Interface(campAbi);
@@ -60,7 +60,7 @@ async function main() {
   const diana = new Wallet("0x40d6fab8165a332c4319f25682c480748a01bb1e06808ffe8fd34e8cd56230d0", provider);
   const BUDGET = 200_000_000_000n; // 20 DOT
   const CPM = 2_000_000_000n; // 0.2 DOT CPM
-  const pot = { actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: BUDGET, ratePlanck: CPM, actionVerifier: ZeroAddress };
+  const pot = { actionType: 0, budgetWei: BUDGET, dailyCapWei: BUDGET, rateWei: CPM, actionVerifier: ZeroAddress };
   const calldata = campIface.encodeFunctionData("createCampaign", [
     diana.address, [pot], [], false, ZeroAddress, 0, 0,
   ]);

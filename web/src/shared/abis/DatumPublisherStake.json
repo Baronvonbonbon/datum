@@ -3,7 +3,7 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_baseStakePlanck",
+        "name": "_baseStakeWei",
         "type": "uint256"
       },
       {
@@ -179,7 +179,7 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "baseStakePlanck",
+        "name": "baseStakeWei",
         "type": "uint256"
       },
       {
@@ -383,7 +383,7 @@
   },
   {
     "inputs": [],
-    "name": "baseStakePlanck",
+    "name": "baseStakeWei",
     "outputs": [
       {
         "internalType": "uint256",

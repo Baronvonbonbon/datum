@@ -10,7 +10,7 @@ import {
 
 describe("claimCore", () => {
   // GOLDEN: pins the claim-hash preimage to DatumClaimValidator.sol validateClaim()
-  // (keccak256(abi.encode(campaignId, publisher, user, eventCount, ratePlanck,
+  // (keccak256(abi.encode(campaignId, publisher, user, eventCount, rateWei,
   //  actionType, clickSessionHash, nonce, previousClaimHash, stakeRootUsed))).
   // If CLAIM_HASH_TYPES changes, this breaks — re-verify against the contract before
   // updating the constant. This guard would have caught the 9-field drift that made
@@ -21,7 +21,7 @@ describe("claimCore", () => {
     publisher: "0x00000000000000000000000000000000000000a9",
     user: "0x00000000000000000000000000000000000000ae",
     eventCount: 3n,
-    ratePlanck: 6605036446n,
+    rateWei: 6605036446n,
     actionType: 0,
     clickSessionHash: ZeroHash,
     nonce: 1n,

@@ -69,7 +69,7 @@ export function formatDOT(planck: bigint): string {
 }
 
 // ── 18-decimal wei helpers (the pallet-revive EVM scale) ────────────────────
-// EVM contract amounts (ratePlanck/budget/userBalance/userPayment/…) and
+// EVM contract amounts (rateWei/budget/userBalance/userPayment/…) and
 // eth_getBalance are 18-decimal wei. Use these for any value that comes from or
 // goes to a contract call / native transfer. 1 PAS = 10^18 wei; 1 planck = 10^8 wei.
 const WEI_PER_DOT = 10n ** 18n;

@@ -72,7 +72,7 @@ describe("Audit F-001 / F-002: single-publisher per batch enforcement", function
         campaignId,
         publisher: publisherAddr,
         eventCount: IMPRESSIONS,
-        ratePlanck: BID_CPM,
+        rateWei: BID_CPM,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,

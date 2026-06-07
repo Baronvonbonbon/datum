@@ -16,7 +16,7 @@ interface SerializedClaim {
   campaignId: string;
   publisher: string;
   eventCount: string;
-  ratePlanck: string;
+  rateWei: string;
   actionType: string;
   clickSessionHash: string;
   nonce: string;
@@ -188,7 +188,7 @@ function deserializeClaim(c: SerializedClaim): Claim {
     campaignId: BigInt(c.campaignId),
     publisher: c.publisher,
     eventCount: BigInt(c.eventCount),
-    ratePlanck: BigInt(c.ratePlanck),
+    rateWei: BigInt(c.rateWei),
     actionType: Number(c.actionType ?? 0),
     clickSessionHash: c.clickSessionHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
     nonce: BigInt(c.nonce),

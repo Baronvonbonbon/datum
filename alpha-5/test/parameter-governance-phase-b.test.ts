@@ -23,7 +23,7 @@ async function pauseRegistry() {
 describe("Phase B — DatumAdvertiserStake parameter governance", () => {
   async function deploy() {
     const Stake = await ethers.getContractFactory("DatumAdvertiserStake");
-    // Constructor: (baseStakePlanck, planckPerDOTSpent, unstakeDelayBlocks)
+    // Constructor: (baseStakeWei, planckPerDOTSpent, unstakeDelayBlocks)
     return await Stake.deploy(parseDOT("1"), 10n ** 8n, 14_400n);
   }
 
@@ -43,11 +43,11 @@ describe("Phase B — DatumAdvertiserStake parameter governance", () => {
 
     // Owner path
     await c.connect(owner).setParams(parseDOT("2"), 10n ** 9n, 28_800n);
-    expect(await c.baseStakePlanck()).to.equal(parseDOT("2"));
+    expect(await c.baseStakeWei()).to.equal(parseDOT("2"));
 
     // PG path
     await c.connect(pgSigner).setParams(parseDOT("3"), 10n ** 10n, 43_200n);
-    expect(await c.baseStakePlanck()).to.equal(parseDOT("3"));
+    expect(await c.baseStakeWei()).to.equal(parseDOT("3"));
 
     // Attacker path
     await expect(c.connect(attacker).setParams(parseDOT("4"), 0n, 14_400n)).to.be.revertedWith("E18");

@@ -13,7 +13,7 @@ function defaultPrefs(overrides: Partial<UserPreferences> = {}): UserPreferences
     filterMode: "all",
     allowedTopics: [],
     sweepAddress: "",
-    sweepThresholdPlanck: "0",
+    sweepThresholdWei: "0",
     ...overrides,
   };
 }

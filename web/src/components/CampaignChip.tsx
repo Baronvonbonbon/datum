@@ -138,9 +138,9 @@ export function CampaignChip({
           <BrandChip address={info.advertiser} size="sm" role="advertiser" />
         </div>
       )}
-      {showCpm && info && info.viewBidPlanck && info.viewBidPlanck !== "0" && (
+      {showCpm && info && info.viewBidWei && info.viewBidWei !== "0" && (
         <span style={{ fontSize: s.sub, color: "var(--text-muted)" }}>
-          CPM {formatDotWei(BigInt(info.viewBidPlanck))}
+          CPM {formatDotWei(BigInt(info.viewBidWei))}
         </span>
       )}
       {loading && !hasTitle && (

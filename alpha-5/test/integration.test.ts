@@ -89,7 +89,7 @@ describe("Integration", function () {
         campaignId,
         publisher: publisherAddr,
         eventCount: impressions,
-        ratePlanck: cpm,
+        rateWei: cpm,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,
@@ -109,7 +109,7 @@ describe("Integration", function () {
   async function createTestCampaign(budget = BUDGET, dailyCap = DAILY_CAP, bidCpm = BID_CPM, pub = publisher) {
     const tx = await campaigns.connect(advertiser).createCampaign(
       pub.address,
-      [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: bidCpm, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: budget, dailyCapWei: dailyCap, rateWei: bidCpm, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
     await tx.wait();
@@ -680,7 +680,7 @@ describe("Integration", function () {
     // Create open campaign (publisher=address(0))
     const tx = await campaigns.connect(advertiser).createCampaign(
       ethers.ZeroAddress,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -733,7 +733,7 @@ describe("Integration", function () {
   it("H6: open campaign attested settlement with wrong signer reverts E34", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
       ethers.ZeroAddress,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -820,7 +820,7 @@ describe("Integration", function () {
     // Create a campaign with ERC-20 reward token
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false,
       await mockERC20.getAddress(), REWARD_PER_IMP, 0n,
       { value: BUDGET }
@@ -885,7 +885,7 @@ describe("Integration", function () {
 
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false,
       USDT_PRECOMPILE, REWARD_PER_IMP, 0n,
       { value: BUDGET }
@@ -929,7 +929,7 @@ describe("Integration", function () {
     async function makeCompetingCampaign(cpm: bigint): Promise<bigint> {
       const tx = await campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: COMP_BUDGET, dailyCapPlanck: COMP_DAILY, ratePlanck: cpm, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: COMP_BUDGET, dailyCapWei: COMP_DAILY, rateWei: cpm, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: COMP_BUDGET }
       );
       await tx.wait();

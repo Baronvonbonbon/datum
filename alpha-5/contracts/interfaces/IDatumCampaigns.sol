@@ -27,9 +27,9 @@ interface IDatumCampaigns {
     /// @notice Configuration for a single action-type pot within a campaign.
     struct ActionPotConfig {
         uint8   actionType;      // 0=view (CPM), 1=click (CPC), 2=remote-action (CPA)
-        uint256 budgetPlanck;    // DOT budget allocated to this pot
-        uint256 dailyCapPlanck;  // daily spend cap for this pot
-        uint256 ratePlanck;      // rate: per-1000 events for view, flat per-event for click/action
+        uint256 budgetWei;    // DOT budget allocated to this pot
+        uint256 dailyCapWei;  // daily spend cap for this pot
+        uint256 rateWei;      // rate: per-1000 events for view, flat per-event for click/action
         address actionVerifier;  // type-2 only: EOA whose ECDSA sig is required; address(0) for type-0/1
     }
 
@@ -47,7 +47,7 @@ interface IDatumCampaigns {
         bool    requiresZkProof;    // ZK proof required for view claims
         address rewardToken;        // optional ERC-20 reward token
         uint256 rewardPerImpression; // token reward per settled view event
-        uint256 viewBid;            // ratePlanck from the view (type-0) pot
+        uint256 viewBid;            // rateWei from the view (type-0) pot
     }
 
     // -------------------------------------------------------------------------
@@ -58,7 +58,7 @@ interface IDatumCampaigns {
         uint256 indexed campaignId,
         address indexed advertiser,
         address indexed publisher,
-        uint256 totalBudgetPlanck,
+        uint256 totalBudgetWei,
         uint16  snapshotTakeRateBps
     );
     /// @notice A3: AssuranceLevel changed for a campaign. Levels:
@@ -154,7 +154,7 @@ interface IDatumCampaigns {
     /// @notice People Chain identity gate (0=disabled, 1=Reasonable, 2=KnownGood).
     function getCampaignMinIdentityLevel(uint256 campaignId) external view returns (uint8);
 
-    /// @notice Returns campaign settlement data (3-tuple — no bidCpmPlanck, pots handle rates).
+    /// @notice Returns campaign settlement data (3-tuple — no bidCpmWei, pots handle rates).
     function getCampaignForSettlement(uint256 campaignId) external view returns (
         uint8 status, address publisher, uint16 snapshotTakeRateBps
     );
@@ -165,7 +165,7 @@ interface IDatumCampaigns {
     /// @notice Returns all configured action pots for a campaign.
     function getCampaignPots(uint256 campaignId) external view returns (ActionPotConfig[] memory);
 
-    /// @notice Returns ratePlanck from the view (type-0) pot. Used by the auction.
+    /// @notice Returns rateWei from the view (type-0) pot. Used by the auction.
     ///         Returns 0 if no view pot is configured.
     function getCampaignViewBid(uint256 campaignId) external view returns (uint256);
 

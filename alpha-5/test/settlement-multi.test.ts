@@ -68,7 +68,7 @@ describe("DatumSettlement.settleClaimsMulti", function () {
         campaignId,
         publisher: publisherAddr,
         eventCount: IMPRESSIONS,
-        ratePlanck: BID_CPM,
+        rateWei: BID_CPM,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,

@@ -48,7 +48,7 @@ const TOPIC_MUTED = ethersId("Muted(uint256,address,uint256)");
 
 // Interfaces for decoding
 const CAMPAIGN_IFACE = new Interface([
-  "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 totalBudgetPlanck, uint16 snapshotTakeRateBps)",
+  "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 totalBudgetWei, uint16 snapshotTakeRateBps)",
   "event CampaignActivated(uint256 indexed campaignId)",
 ]);
 const BOND_IFACE = new Interface([

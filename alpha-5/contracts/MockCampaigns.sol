@@ -16,7 +16,7 @@ contract MockCampaigns {
     struct MockCampaign {
         address advertiser;
         address publisher;
-        uint256 bidCpmPlanck;
+        uint256 bidCpmWei;
         uint16 snapshotTakeRateBps;
         CampaignStatus status;
         uint256 pendingExpiryBlock;
@@ -25,9 +25,9 @@ contract MockCampaigns {
 
     struct ActionPotConfig {
         uint8 actionType;
-        uint256 budgetPlanck;
-        uint256 dailyCapPlanck;
-        uint256 ratePlanck;
+        uint256 budgetWei;
+        uint256 dailyCapWei;
+        uint256 rateWei;
         address actionVerifier;
     }
 
@@ -55,14 +55,14 @@ contract MockCampaigns {
         uint256 id,
         address advertiser,
         address publisher,
-        uint256 bidCpmPlanck,
+        uint256 bidCpmWei,
         uint16 takeRate,
         uint8 status
     ) external {
         campaigns[id] = MockCampaign({
             advertiser: advertiser,
             publisher: publisher,
-            bidCpmPlanck: bidCpmPlanck,
+            bidCpmWei: bidCpmWei,
             snapshotTakeRateBps: takeRate,
             status: CampaignStatus(status),
             pendingExpiryBlock: block.number + 100,
@@ -140,7 +140,7 @@ contract MockCampaigns {
     function initBudget(uint256 campaignId, uint8 actionType, uint256 budget, uint256 dailyCap) external payable {
         require(msg.value == budget, "E16");
         // Store pot rate from campaign config for getCampaignPot
-        campaignPotRate[campaignId][actionType] = campaigns[campaignId].bidCpmPlanck;
+        campaignPotRate[campaignId][actionType] = campaigns[campaignId].bidCpmWei;
         budgetLedger.initializeBudget{value: budget}(campaignId, actionType, budget, dailyCap);
     }
 
@@ -148,9 +148,9 @@ contract MockCampaigns {
     function getCampaignPot(uint256 campaignId, uint8 actionType) external view returns (ActionPotConfig memory) {
         return ActionPotConfig({
             actionType: actionType,
-            budgetPlanck: 0,
-            dailyCapPlanck: 0,
-            ratePlanck: campaignPotRate[campaignId][actionType],
+            budgetWei: 0,
+            dailyCapWei: 0,
+            rateWei: campaignPotRate[campaignId][actionType],
             actionVerifier: address(0)
         });
     }

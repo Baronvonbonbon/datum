@@ -113,7 +113,7 @@ function buildClaims(
       campaignId,
       publisher: publisherAddr,
       eventCount: impressions,
-      ratePlanck: cpm,
+      rateWei: cpm,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -308,7 +308,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     const pubAddr = typeof pub === "string" ? pub : pub.address;
     const tx = await campaigns.connect(advertiser).createCampaign(
       pubAddr,
-      [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: budget, dailyCapWei: dailyCap, rateWei: cpm, actionVerifier: ethers.ZeroAddress }],
       requiredTags, requireZk, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
     await tx.wait();
@@ -564,7 +564,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         campaignId: cid2,
         publisher:  publisher.address,
         eventCount: 200n,
-        ratePlanck: RL_CPM,
+        rateWei: RL_CPM,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce: 1n,
@@ -727,7 +727,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await expect(
         campaigns.connect(advertiser).createCampaign(
           publisher2.address,
-          [{ actionType: 0, budgetPlanck: TAG_BUDGET, dailyCapPlanck: TAG_DAILY, ratePlanck: TAG_CPM, actionVerifier: ethers.ZeroAddress }],
+          [{ actionType: 0, budgetWei: TAG_BUDGET, dailyCapWei: TAG_DAILY, rateWei: TAG_CPM, actionVerifier: ethers.ZeroAddress }],
           [cryptoTag], false, ethers.ZeroAddress, 0n, 0n, { value: TAG_BUDGET }
         )
       ).to.be.reverted; // E66 or validator rejection
@@ -785,7 +785,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await gasFor("createCampaign (fixed publisher)", () =>
         campaigns.connect(advertiser).createCampaign(
           publisher.address,
-          [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+          [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
           [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
         )
       );
@@ -795,7 +795,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       // Create a campaign to vote on
       const tx = await campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       );
       await tx.wait();
@@ -868,7 +868,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       it(`BM-LC: ${s.label} — full lifecycle (create→vote→activate→settle→complete)`, async function () {
         const tx = await campaigns.connect(advertiser).createCampaign(
           publisher.address,
-          [{ actionType: 0, budgetPlanck: s.budget, dailyCapPlanck: s.dailyCap, ratePlanck: s.cpm, actionVerifier: ethers.ZeroAddress }],
+          [{ actionType: 0, budgetWei: s.budget, dailyCapWei: s.dailyCap, rateWei: s.cpm, actionVerifier: ethers.ZeroAddress }],
           [], false, ethers.ZeroAddress, 0n, 0n, { value: s.budget }
         );
         await tx.wait();
@@ -1007,7 +1007,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       const pubAddr = publisher.address;
       const tx = await campaigns.connect(advertiser).createCampaign(
         pubAddr,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
         [], false,
         await mockERC20.getAddress(),
         REWARD_PER_IMP,
@@ -1129,7 +1129,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       // createCampaign with native asset address — should not revert (no metadata validation in contract)
       const tx = await campaigns.connect(advertiser).createCampaign(
         pubAddr,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
         [], false,
         USDT_PRECOMPILE,
         REWARD_PER_IMP,
@@ -1247,7 +1247,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
       await mockERC20.mint(advertiser.address, tokenBudget);
       const txB = await campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM_PREMIUM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM_PREMIUM, actionVerifier: ethers.ZeroAddress }],
         [], false,
         await mockERC20.getAddress(), rewardPerImp, 0n, { value: BUDGET }
       );

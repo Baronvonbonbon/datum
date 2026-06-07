@@ -56,14 +56,14 @@ interface ICampaignsZkKnobs {
 /// @notice Validates settlement claims — extracted from Settlement (SE-1).
 ///
 ///         Alpha-3 multi-pricing changes:
-///           - Claim struct: impressionCount→eventCount, clearingCpmPlanck→ratePlanck,
+///           - Claim struct: impressionCount→eventCount, clearingCpmWei→rateWei,
 ///             plus actionType and clickSessionHash fields.
 ///           - Hash preimage is now 9 fields (was 7): adds actionType + clickSessionHash.
 ///           - Rate check calls getCampaignPot(campaignId, actionType) instead of
-///             reading bidCpmPlanck from getCampaignForSettlement.
+///             reading bidCpmWei from getCampaignForSettlement.
 ///           - Type-1 (click): checks clickRegistry.hasUnclaimed for session validity.
 ///           - Type-2 (remote-action): ecrecover checks actionSig against pot.actionVerifier.
-///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmPlanck).
+///           - getCampaignForSettlement now returns a 3-tuple (no bidCpmWei).
 contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     function version() public pure override returns (uint256) { return 1; }
 
@@ -414,13 +414,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         uint256 potRate;
         address potActionVerifier;
         try campaigns.getCampaignPot(claim.campaignId, claim.actionType) returns (IDatumCampaigns.ActionPotConfig memory pot) {
-            potRate = pot.ratePlanck;
+            potRate = pot.rateWei;
             potActionVerifier = pot.actionVerifier;
         } catch {
             return (false, 3, 0, bytes32(0)); // pot not found
         }
         if (potRate == 0) return (false, 3, 0, bytes32(0));
-        if (claim.ratePlanck > potRate) return (false, 6, 0, bytes32(0));
+        if (claim.rateWei > potRate) return (false, 6, 0, bytes32(0));
 
         // Check 6: nonce chain
         if (claim.nonce != expectedNonce) return (false, 7, 0, bytes32(0));
@@ -433,7 +433,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         }
 
         // Check 8: claim hash (9-field preimage: campaignId, publisher, user,
-        // eventCount, ratePlanck, actionType, clickSessionHash, nonce, prevHash).
+        // eventCount, rateWei, actionType, clickSessionHash, nonce, prevHash).
         // L-2: Uses abi.encode (32-byte aligned) rather than abi.encodePacked so the
         // schema is unambiguous if fields are added later. Off-chain mirrors must use
         // ethers AbiCoder.defaultAbiCoder().encode(...) — not solidityPacked.
@@ -442,7 +442,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             claim.publisher,
             user,
             claim.eventCount,
-            claim.ratePlanck,
+            claim.rateWei,
             claim.actionType,
             claim.clickSessionHash,
             claim.nonce,

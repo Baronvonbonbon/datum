@@ -56,7 +56,7 @@ export function PublisherStake() {
         contracts.publisherStake.cumulativeImpressions(address),
         contracts.publisherStake.isAdequatelyStaked(address),
         contracts.publisherStake.pendingUnstake(address),
-        contracts.publisherStake.baseStakePlanck(),
+        contracts.publisherStake.baseStakeWei(),
         contracts.publisherStake.planckPerImpression(),
         contracts.publisherStake.unstakeDelayBlocks(),
       ]);

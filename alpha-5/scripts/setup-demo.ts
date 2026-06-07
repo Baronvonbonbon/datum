@@ -358,7 +358,7 @@ const tagSystemAbi = ["function setPublisherTags(bytes32[] tagHashes)"];
 // to DatumCampaignCreative. Old single-pot createCampaign + governance-vote
 // activation are gone.
 const campaignsAbi = [
-  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
 ];
@@ -649,7 +649,7 @@ async function main() {
     const rewardPer  = reward?.rewardPerImpression ?? 0n;
     // CPM and budget are both 18-decimal wei (PAS) now — no cross-scale fudge.
     const rate = cfg.bidCpm;
-    const pots = [{ actionType: 0, budgetPlanck: cfg.budget, dailyCapPlanck: cfg.budget, ratePlanck: rate, actionVerifier: ethers.ZeroAddress }];
+    const pots = [{ actionType: 0, budgetWei: cfg.budget, dailyCapWei: cfg.budget, rateWei: rate, actionVerifier: ethers.ZeroAddress }];
     const cid = baseCampaignId + BigInt(campaignIds.length);
 
     try {
@@ -658,7 +658,7 @@ async function main() {
         cfg.budget + BigInt(minBond),
       );
       campaignIds.push(cid);
-      log("7", `  ${cfg.label} → ID ${cid} (CPM ${fmt(ratePlanck)} PAS)`);
+      log("7", `  ${cfg.label} → ID ${cid} (CPM ${fmt(rateWei)} PAS)`);
     } catch (err) {
       console.error(`  FAILED to create ${cfg.label}: ${String(err).slice(0, 200)}`);
       process.exitCode = 1; return;

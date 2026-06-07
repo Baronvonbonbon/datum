@@ -69,7 +69,7 @@ export function PublisherStakeAdmin() {
     if (!contracts.publisherStake) return;
     try {
       const [base, perImp, delay] = await Promise.all([
-        contracts.publisherStake.baseStakePlanck(),
+        contracts.publisherStake.baseStakeWei(),
         contracts.publisherStake.planckPerImpression(),
         contracts.publisherStake.unstakeDelayBlocks(),
       ]);

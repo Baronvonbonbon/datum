@@ -434,7 +434,7 @@ export function PublisherFraud() {
         const ayePct = total > 0n ? Number(p.ayeWeighted * 100n / total) : 0;
         const myVote = myVotes.find((v) => v.proposalId === p.id);
         const amountStr = voteAmount[p.id] ?? "0.1";
-        const amountPlanck = (() => { try { return parseDotWeiSafe(amountStr); } catch { return 0n; } })();
+        const amountWei = (() => { try { return parseDotWeiSafe(amountStr); } catch { return 0n; } })();
         const txState = voteTxState[p.id] ?? "idle";
         const txMsg = voteTxMsg[p.id] ?? "";
 
@@ -538,7 +538,7 @@ export function PublisherFraud() {
                   <ConvictionSlider
                     value={voteConviction[p.id] ?? 1}
                     onChange={(v) => setVoteConviction((s) => ({ ...s, [p.id]: v }))}
-                    amount={amountPlanck}
+                    amount={amountWei}
                     symbol={sym}
                   />
                 </div>

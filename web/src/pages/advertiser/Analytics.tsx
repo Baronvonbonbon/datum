@@ -20,7 +20,7 @@ interface CampaignStats {
   originalBudget: bigint;
   uniqueUsers: number;
   settlementCount: number;
-  bidCpmPlanck: bigint;
+  bidCpmWei: bigint;
 }
 
 export function CampaignAnalytics() {
@@ -91,7 +91,7 @@ export function CampaignAnalytics() {
             id, status: Number(c[0]),
             totalImpressions, totalUserPaid, totalPublisherPaid, totalProtocolFees,
             remaining, originalBudget, uniqueUsers, settlementCount,
-            bidCpmPlanck: BigInt(viewBid),
+            bidCpmWei: BigInt(viewBid),
           });
         } catch { /* skip */ }
       }));
@@ -159,7 +159,7 @@ export function CampaignAnalytics() {
                 Spent: c.originalBudget > 0n ? formatDotWei(c.originalBudget - c.remaining) : "",
                 "User Payments": formatDotWei(c.totalUserPaid),
                 "Publisher Payments": formatDotWei(c.totalPublisherPaid),
-                "Bid CPM": formatDotWei(c.bidCpmPlanck),
+                "Bid CPM": formatDotWei(c.bidCpmWei),
               }));
               downloadCSV("campaign-analytics.csv", toCSV(["Campaign","Status","Impressions","Unique Users","Settlements","Original Budget","Remaining","Spent","User Payments","Publisher Payments","Bid CPM"], rows));
             }} className="nano-btn" style={{ fontSize: 12 }}>Export CSV</button>

@@ -2,7 +2,7 @@
 
 // Messages sent FROM content script TO background
 export type ContentToBackground =
-  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmPlanck?: string; campaignTags?: string[] }
+  | { type: "IMPRESSION_RECORDED"; campaignId: string; url: string; category: string; publisherAddress: string; clearingCpmWei?: string; campaignTags?: string[] }
   | { type: "AD_CLICK"; campaignId: string; publisherAddress: string; impressionNonce: string }
   | { type: "REMOTE_ACTION"; campaignId: string; publisherAddress: string }
   | { type: "GET_ACTIVE_CAMPAIGNS" }

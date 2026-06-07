@@ -182,10 +182,10 @@ const publishersAbi = [
 ];
 
 const campaignsAbi = [
-  "function createCampaign(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  "function createCampaign(address publisher, tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
   // Optimistic-activation entrypoint: locks an activation bond in
   // DatumActivationBonds at creation and skips the always-vote governance path.
-  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher)",
   // setPublisherTags moved to DatumTagSystem (alpha-4 EIP-170 carve-out).
@@ -788,13 +788,13 @@ async function main() {
       if (useOptimistic) {
         await sendCall(
           adv, rawProvider, addrs.campaigns, campIface, "createCampaignWithActivation",
-          [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n, activationMinBond],
+          [ethers.ZeroAddress, [{ actionType: 0, budgetWei: spec.budget, dailyCapWei: spec.dailyCap, rateWei: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n, activationMinBond],
           spec.budget + activationMinBond,
         );
       } else {
         await sendCall(
           adv, rawProvider, addrs.campaigns, campIface, "createCampaign",
-          [ethers.ZeroAddress, [{ actionType: 0, budgetPlanck: spec.budget, dailyCapPlanck: spec.dailyCap, ratePlanck: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n],
+          [ethers.ZeroAddress, [{ actionType: 0, budgetWei: spec.budget, dailyCapWei: spec.dailyCap, rateWei: spec.bidCpm, actionVerifier: ethers.ZeroAddress }], tags, false, rewardToken, rewardPerImpression, 0n],
           spec.budget,
         );
       }

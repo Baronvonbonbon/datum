@@ -30,7 +30,7 @@ export interface AdSlotConfig {
   metadata: CampaignCreative | null;
   metadataHash?: string;  // bytes32 from on-chain CampaignMetadataSet
   auctionMechanism?: "cpm" | "second-price" | "solo" | "floor";
-  clearingCpmPlanck?: string;
+  clearingCpmWei?: string;
   ipfsGateway?: string;
   currencySymbol?: string;
   /** bytes32 nonce from the view impression; enables click (type-1) claim */
@@ -227,7 +227,7 @@ function creativeBodyHtml(
     <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
       Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
     </div>
-    ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+    ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
   `;
 
   if (isHorizontal && imgUrl) {
@@ -583,7 +583,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
           padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
         ">View Ad Details →</a>
       </div>` : ""}
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+      ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
     `;
   }
 
@@ -661,7 +661,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
           padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
         ">View Ad Details →</a>
       </div>` : ""}
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+      ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
     `;
   }
 

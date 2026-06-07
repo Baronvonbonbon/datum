@@ -48,7 +48,7 @@ export function Settings({ address }: { address: string | null }) {
     filterMode: "all",
     allowedTopics: [],
     sweepAddress: "",
-    sweepThresholdPlanck: "0",
+    sweepThresholdWei: "0",
   });
   const [sweepThresholdDot, setSweepThresholdDot] = useState("");
   const [prefsSaved, setPrefsSaved] = useState(false);
@@ -92,7 +92,7 @@ export function Settings({ address }: { address: string | null }) {
     const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
     if (response?.preferences) {
       setPrefs(response.preferences);
-      const thresh = response.preferences.sweepThresholdPlanck ?? "0";
+      const thresh = response.preferences.sweepThresholdWei ?? "0";
       if (thresh !== "0") {
         setSweepThresholdDot((Number(BigInt(thresh)) / 1e10).toString());
       }
@@ -917,7 +917,7 @@ export function Settings({ address }: { address: string | null }) {
               onChange={(e) => {
                 setSweepThresholdDot(e.target.value);
                 const planck = e.target.value ? String(Math.round(parseFloat(e.target.value) * 1e10)) : "0";
-                setPrefs((p) => ({ ...p, sweepThresholdPlanck: planck }));
+                setPrefs((p) => ({ ...p, sweepThresholdWei: planck }));
               }}
               placeholder="0"
               style={{ ...inputStyle, fontSize: 11, width: 80 }}
@@ -934,11 +934,11 @@ export function Settings({ address }: { address: string | null }) {
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdWei: "0" });
             setSweepThresholdDot("");
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" },
+              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdWei: "0" },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}

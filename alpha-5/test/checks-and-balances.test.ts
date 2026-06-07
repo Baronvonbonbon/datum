@@ -50,7 +50,7 @@ describe("Checks & Balances (CB1-CB7)", function () {
       [campaignId, pubAddr, userAddr, eventCount, BID_CPM, 0, ethers.ZeroHash, nonce, ethers.ZeroHash, ethers.ZeroHash]
     );
     return {
-      campaignId, publisher: pubAddr, eventCount, ratePlanck: BID_CPM,
+      campaignId, publisher: pubAddr, eventCount, rateWei: BID_CPM,
       actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: ethers.ZeroHash,
       claimHash,
       zkProof: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash,

@@ -146,7 +146,7 @@ function minePowNonce(computedHash: string, target: bigint, maxAttempts = 50_000
 
 // ── Claim chain builder (keccak256) ──────────────────────────────────────────
 // Alpha-5 multi-pricing: 10-field preimage (adds stakeRootUsed as field 10).
-// Hash: keccak256(abi.encode(campaignId, publisher, user, eventCount, ratePlanck,
+// Hash: keccak256(abi.encode(campaignId, publisher, user, eventCount, rateWei,
 //                 actionType, clickSessionHash, nonce, previousClaimHash, stakeRootUsed))
 // L-2: abi.encode (32-byte aligned), NOT abi.encodePacked — matches DatumClaimValidator.
 //
@@ -160,7 +160,7 @@ async function buildClaims(
   publisherAddr: string,
   userAddr: string,
   count: number,
-  rate: bigint,         // ratePlanck (CPM for view claims)
+  rate: bigint,         // rateWei (CPM for view claims)
   eventCount: bigint,   // events per claim
   zkProof: string[] = new Array(8).fill(ZeroHash),
   actionType: number = 0,
@@ -194,7 +194,7 @@ async function buildClaims(
       campaignId,
       publisher: publisherAddr,
       eventCount,
-      ratePlanck: rate,
+      rateWei: rate,
       actionType,
       clickSessionHash: ZeroHash,
       nonce,
@@ -288,7 +288,7 @@ const CLAIM_T = [
   "uint256 campaignId",
   "address publisher",
   "uint256 eventCount",
-  "uint256 ratePlanck",
+  "uint256 rateWei",
   "uint8 actionType",
   "bytes32 clickSessionHash",
   "uint256 nonce",
@@ -311,7 +311,7 @@ const publishersAbi = [
 ];
 
 const campaignsAbi = [
-  `function createCampaign(address publisher, (uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)`,
+  `function createCampaign(address publisher, (uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)`,
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
   "function getCampaign(uint256 campaignId) view returns (address advertiser, address publisher, uint256 pendingExpiryBlock, uint256 terminationBlock, uint16 snapshotTakeRateBps, uint8 status)",
@@ -395,7 +395,7 @@ const publisherStakeAbi = [
   "function staked(address publisher) view returns (uint256)",
   "function requiredStake(address publisher) view returns (uint256)",
   "function isAdequatelyStaked(address publisher) view returns (bool)",
-  "function baseStakePlanck() view returns (uint256)",
+  "function baseStakeWei() view returns (uint256)",
   "function planckPerImpression() view returns (uint256)",
   "function unstakeDelayBlocks() view returns (uint256)",
   "function cumulativeImpressions(address publisher) view returns (uint256)",
@@ -516,9 +516,9 @@ async function main() {
     const cid = BigInt(nextRaw[0]);
     const pot = {
       actionType: 0,
-      budgetPlanck: budget,
-      dailyCapPlanck: daily,
-      ratePlanck: cpm,
+      budgetWei: budget,
+      dailyCapWei: daily,
+      rateWei: cpm,
       actionVerifier: ZeroAddress,
     };
     if (!lifecycleGasCaptured) {
@@ -1333,7 +1333,7 @@ async function main() {
     {
       const t0 = Date.now();
       try {
-        const base    = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "baseStakePlanck", []))[0]);
+        const base    = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "baseStakeWei", []))[0]);
         const perImp  = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "planckPerImpression", []))[0]);
         const delay   = BigInt((await readCall(rawProvider, A.publisherStake, stakeIface, "unstakeDelayBlocks", []))[0]);
         const ms = Date.now() - t0;
@@ -1581,7 +1581,7 @@ async function main() {
     return { nonce: ZeroHash, tries: budget };
   };
   const potIface = new Interface([
-    "function getCampaignPots(uint256) view returns (tuple(uint8 actionType,uint256 budgetPlanck,uint256 dailyCapPlanck,uint256 ratePlanck,address actionVerifier)[])",
+    "function getCampaignPots(uint256) view returns (tuple(uint8 actionType,uint256 budgetWei,uint256 dailyCapWei,uint256 rateWei,address actionVerifier)[])",
   ]);
   const CLAIM_BATCH_TYPES = {
     ClaimBatch: [
@@ -1606,7 +1606,7 @@ async function main() {
   const sleepMs = (ms: number) => new Promise(res => setTimeout(res, ms));
   const serializeClaim = (c: any) => ({
     campaignId: c.campaignId.toString(), publisher: c.publisher,
-    eventCount: c.eventCount.toString(), ratePlanck: c.ratePlanck.toString(),
+    eventCount: c.eventCount.toString(), rateWei: c.rateWei.toString(),
     actionType: c.actionType, clickSessionHash: c.clickSessionHash,
     nonce: c.nonce.toString(), previousClaimHash: c.previousClaimHash,
     claimHash: c.claimHash, zkProof: c.zkProof, nullifier: c.nullifier,
@@ -1615,8 +1615,8 @@ async function main() {
 
   interface RelayRound {
     round: number; cid: string;
-    settleMs: number; creditedPlanck: bigint; settleOk: boolean;
-    withdrawMs: number; feePlanck: bigint; netPlanck: bigint; withdrawOk: boolean;
+    settleMs: number; creditedWei: bigint; settleOk: boolean;
+    withdrawMs: number; feeWei: bigint; netWei: bigint; withdrawOk: boolean;
     powTries: number; shuffles: number; hash?: string;
   }
   const relayRounds: RelayRound[] = [];
@@ -1649,7 +1649,7 @@ async function main() {
       let credited = 0n, settleOk = false, note = "";
       try {
         const potsRaw = await readCall(rawProvider, A.campaigns, potIface, "getCampaignPots", [cid]);
-        const rate = BigInt(potsRaw[0][0][3]);       // pots[0].ratePlanck
+        const rate = BigInt(potsRaw[0][0][3]);       // pots[0].rateWei
         const head = await rawProvider.getBlockNumber();
         // Keep PoW enforced: shuffle to a fresh address until this user's bucket is
         // low enough that mining is feasible (expectedTries <= POW_BUDGET).
@@ -1697,7 +1697,7 @@ async function main() {
           const info: any = await (await fetch(`${RELAY_URL}/withdraw-info?user=${user.address}`, { signal: AbortSignal.timeout(10000) })).json();
           if (!info.ok) { wnote = `withdraw-info: ${info.reason}`; }
           else {
-            const maxFee = BigInt(info.recommendedMaxFeePlanck ?? "0");
+            const maxFee = BigInt(info.recommendedMaxFeeWei ?? "0");
             const deadline = BigInt((await rawProvider.getBlockNumber()) + 100);
             const value = { user: user.address, recipient: user.address, maxFee, nonce: BigInt(info.nonce), deadline };
             const sig = await user.signTypedData({ name: "DatumPaymentVault", version: "1", chainId: 420420417, verifyingContract: info.vault }, WITHDRAW_AUTH_TYPES, value);
@@ -1721,7 +1721,7 @@ async function main() {
       if (withdrawOk) pass(`GASLESS-${r}`, `gasless withdraw (${100}bps fee, relay pays gas)`, withdrawMs, `net=${netP} fee=${feeP} tx=${hash?.slice(0, 10)}`);
       else            fail(`GASLESS-${r}`, `gasless withdraw`, withdrawMs, wnote);
 
-      relayRounds.push({ round: r, cid: cid.toString(), settleMs, creditedPlanck: credited, settleOk, withdrawMs, feePlanck: feeP, netPlanck: netP, withdrawOk, powTries, shuffles, hash });
+      relayRounds.push({ round: r, cid: cid.toString(), settleMs, creditedWei: credited, settleOk, withdrawMs, feeWei: feeP, netWei: netP, withdrawOk, powTries, shuffles, hash });
     }
 
     // Restore the section's PoW entry state (it was already enforced live, so this
@@ -1740,11 +1740,11 @@ async function main() {
     for (const r of relayRounds) {
       const pow = `${r.powTries}${r.shuffles ? `/${r.shuffles}` : ""}`;
       console.log(
-        `  ${String(r.round).padStart(3)} ${r.cid.padStart(4)}  ${pow.padStart(14)}  ${(r.settleMs + "ms").padStart(7)}  ${r.creditedPlanck.toString().padStart(15)}  ${(r.withdrawMs + "ms").padStart(8)}  ${r.feePlanck.toString().padStart(7)} ${r.netPlanck.toString().padStart(12)}  ${r.hash?.slice(0, 12) ?? (r.settleOk ? "—" : "(no settle)")}`
+        `  ${String(r.round).padStart(3)} ${r.cid.padStart(4)}  ${pow.padStart(14)}  ${(r.settleMs + "ms").padStart(7)}  ${r.creditedWei.toString().padStart(15)}  ${(r.withdrawMs + "ms").padStart(8)}  ${r.feeWei.toString().padStart(7)} ${r.netWei.toString().padStart(12)}  ${r.hash?.slice(0, 12) ?? (r.settleOk ? "—" : "(no settle)")}`
       );
     }
-    const totNet = relayRounds.reduce((a, r) => a + r.netPlanck, 0n);
-    const totFee = relayRounds.reduce((a, r) => a + r.feePlanck, 0n);
+    const totNet = relayRounds.reduce((a, r) => a + r.netWei, 0n);
+    const totFee = relayRounds.reduce((a, r) => a + r.feeWei, 0n);
     const totShuf = relayRounds.reduce((a, r) => a + r.shuffles, 0);
     const totTries = relayRounds.reduce((a, r) => a + r.powTries, 0);
     console.log("  " + "─".repeat(98));

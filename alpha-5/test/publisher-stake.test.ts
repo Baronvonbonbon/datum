@@ -224,8 +224,8 @@ describe("DatumPublisherStake", function () {
 
   // ── requiredStake() bonding curve ─────────────────────────────────────────────
 
-  // PS20: requiredStake with zero impressions equals baseStakePlanck
-  it("PS20: requiredStake with no impressions = baseStakePlanck", async function () {
+  // PS20: requiredStake with zero impressions equals baseStakeWei
+  it("PS20: requiredStake with no impressions = baseStakeWei", async function () {
     expect(await stake.requiredStake(other.address)).to.equal(BASE_STAKE);
   });
 
@@ -266,7 +266,7 @@ describe("DatumPublisherStake", function () {
     )
       .to.emit(stake, "ParamsUpdated")
       .withArgs(2_000_000_000n, 2_000n, 20n);
-    expect(await stake.baseStakePlanck()).to.equal(2_000_000_000n);
+    expect(await stake.baseStakeWei()).to.equal(2_000_000_000n);
     expect(await stake.planckPerImpression()).to.equal(2_000n);
     expect(await stake.unstakeDelayBlocks()).to.equal(20n);
   });

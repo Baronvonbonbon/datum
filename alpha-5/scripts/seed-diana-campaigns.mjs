@@ -23,7 +23,7 @@ const DIANA_ADDR = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";                
 const COUNT = Number(process.argv[2] || 5);
 
 const campAbi = [
-  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType,uint256 budgetPlanck,uint256 dailyCapPlanck,uint256 ratePlanck,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType,uint256 budgetWei,uint256 dailyCapWei,uint256 rateWei,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function nextCampaignId() view returns (uint256)",
   "function getCampaignStatus(uint256) view returns (uint8)",
   "function getCampaignStruct(uint256) view returns (tuple(address advertiser,address publisher,uint256 a,uint256 b,uint16 c,uint8 status,address relaySigner,bool d,address e,uint256 f,uint256 g))",
@@ -63,7 +63,7 @@ async function main() {
   // All native amounts are 18-decimal wei (the pallet-revive EVM scale). CPM is
   // per 1000 events, so a 1-PAS CPM pays CPM/1000 = 0.001 PAS per impression (gross).
   const budget = parseEther("2"), dailyCap = parseEther("1"), cpm = parseEther("1");
-  const pots = [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ZeroAddress }];
+  const pots = [{ actionType: 0, budgetWei: budget, dailyCapWei: dailyCap, rateWei: cpm, actionVerifier: ZeroAddress }];
 
   const created = [];
   let base = await campRO.nextCampaignId();

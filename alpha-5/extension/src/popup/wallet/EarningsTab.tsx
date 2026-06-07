@@ -59,10 +59,10 @@ type RelayWithdrawInfo = {
   ok: boolean;
   reason?: string;
   nonce: string;
-  userBalancePlanck: string;
+  userBalanceWei: string;
   feeBps: number;
-  recommendedMaxFeePlanck: string;
-  netPlanck: string;
+  recommendedMaxFeeWei: string;
+  netWei: string;
   vault: string;
 };
 
@@ -247,9 +247,9 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
       });
       const info = (await infoResp.json()) as RelayWithdrawInfo;
       if (!info?.ok) throw new Error(`relay: ${info?.reason ?? "withdraw-info failed"}`);
-      const balance = BigInt(info.userBalancePlanck ?? "0");
+      const balance = BigInt(info.userBalanceWei ?? "0");
       if (balance === 0n) throw new Error("Nothing to withdraw — your pending balance is 0.");
-      const maxFee = BigInt(info.recommendedMaxFeePlanck ?? "0");
+      const maxFee = BigInt(info.recommendedMaxFeeWei ?? "0");
 
       // deadline is a block number (contract checks block.number <= deadline).
       const provider = getProvider(settings.rpcUrl);
@@ -361,8 +361,8 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
           <div style={{ ...subText, fontSize: 10, marginTop: -2 }}>
             No gas? The relay can submit for you, charging{" "}
             {(relayInfo.feeBps / 100).toFixed(relayInfo.feeBps % 100 === 0 ? 0 : 2)}% (
-            {formatDot(BigInt(relayInfo.recommendedMaxFeePlanck))} DOT) from your
-            earnings — you receive {formatDot(BigInt(relayInfo.netPlanck))} DOT and
+            {formatDot(BigInt(relayInfo.recommendedMaxFeeWei))} DOT) from your
+            earnings — you receive {formatDot(BigInt(relayInfo.netWei))} DOT and
             pay nothing.
           </div>
           <button

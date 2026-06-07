@@ -199,7 +199,7 @@ function gasForSettle(claimsInTx: number, actionType: ActionType, source: GasSou
 }
 
 // Publisher stake bonding curve (measured by STAKE-1 in the Paseo run).
-const STAKE_BASE_PLANCK = 1;             // baseStakePlanck
+const STAKE_BASE_PLANCK = 1;             // baseStakeWei
 const STAKE_PER_IMP_PLANCK = 1_000;      // planckPerImpression
 const PLANCK_PER_PAS = 1e10;             // substrate-native: 1 PAS = 10^10 planck
 // Bonded relay fee (governance-tunable). Modelled as a flat percentage of
@@ -214,7 +214,7 @@ const PAS_PER_GAS = 1e-6;
 
 // ── Revenue split ──────────────────────────────────────────────────────────
 // Settlement math in DatumSettlementLogicB:
-//   total          = ratePlanck × eventCount / 1000   (CPM normalisation)
+//   total          = rateWei × eventCount / 1000   (CPM normalisation)
 //   publisherPay   = total × takeRateBps / 10_000     (default 50%)
 //   remainder      = total - publisherPay
 //   userPayment    = remainder × userShareBps / 10_000 (default 75% of rem)
@@ -392,8 +392,8 @@ function compute(p: Params) {
   // running floor of p.impsPerMonth × horizonMult (proxy for the horizon's worth
   // of impressions). Opportunity cost = locked × APR / horizon.
   const horizonImps = p.impsPerMonth * horizonMult;
-  const requiredStakePlanck = STAKE_BASE_PLANCK + horizonImps * STAKE_PER_IMP_PLANCK;
-  const requiredStakePAS = requiredStakePlanck / PLANCK_PER_PAS;
+  const requiredStakeWei = STAKE_BASE_PLANCK + horizonImps * STAKE_PER_IMP_PLANCK;
+  const requiredStakePAS = requiredStakeWei / PLANCK_PER_PAS;
   // Annualised opportunity cost prorated to horizon
   const stakeOpportunityCostPAS =
     requiredStakePAS * (STAKE_OPPORTUNITY_APR_PCT / 100) * (horizonMult / 12);
@@ -1545,7 +1545,7 @@ export function AboutEconomics() {
             Bonded stake + opportunity cost
           </summary>
           <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.6, marginTop: 10 }}>
-            From measured params: <code>baseStakePlanck = {STAKE_BASE_PLANCK}</code>, <code>planckPerImpression = {STAKE_PER_IMP_PLANCK}</code>.
+            From measured params: <code>baseStakeWei = {STAKE_BASE_PLANCK}</code>, <code>planckPerImpression = {STAKE_PER_IMP_PLANCK}</code>.
             Required stake = base + cumulativeImpressions × perImp. The locked capital
             doesn't earn the take share but isn't spent either — it's an opportunity cost
             at the prevailing yield. The figure below assumes a {STAKE_OPPORTUNITY_APR_PCT}%

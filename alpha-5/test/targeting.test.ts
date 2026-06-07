@@ -208,7 +208,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
   it("TG7: createCampaign with empty requiredTags succeeds (backward compat)", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -224,7 +224,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     // publisher has [DEFI, EN_US, MOBILE]
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [TAG_DEFI, TAG_EN_US], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
@@ -244,7 +244,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [TAG_GAMING], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
@@ -256,7 +256,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [TAG_DEFI, TAG_DE], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )
@@ -267,7 +267,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     // Open campaigns don't check tags at creation — tags matched at auction time
     const tx = await campaigns.connect(advertiser).createCampaign(
       ethers.ZeroAddress,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [TAG_DEFI, TAG_EN_US], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
@@ -315,7 +315,7 @@ describe("Tag-Based Targeting (TX-1/TX-2)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         tooMany, false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       )

@@ -52,7 +52,7 @@ const iCamp = new Interface([
   "function nextCampaignId() view returns (uint256)",
   "function getCampaignStatus(uint256) view returns (uint8)",
   "function getCampaignRelaySigner(uint256) view returns (address)",
-  "function createCampaign(address publisher, tuple(uint8 actionType,uint256 budgetPlanck,uint256 dailyCapPlanck,uint256 ratePlanck,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  "function createCampaign(address publisher, tuple(uint8 actionType,uint256 budgetWei,uint256 dailyCapWei,uint256 rateWei,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
 ]);
 const iRouter = new Interface([
   "function adminTerminateCampaign(uint256 campaignId)",
@@ -228,7 +228,7 @@ async function main() {
     const svgCid = ipfsAdd(svgFor(cfg));
     // 2b. campaign (Bob → Diana), read id from nextCampaignId
     const cid = Number((await read(A.campaigns, iCamp, "nextCampaignId", []))[0]);
-    const pot = { actionType: 0, budgetPlanck: budget, dailyCapPlanck: budget, ratePlanck: cpm, actionVerifier: ZeroAddress };
+    const pot = { actionType: 0, budgetWei: budget, dailyCapWei: budget, rateWei: cpm, actionVerifier: ZeroAddress };
     await send(bob, A.campaigns, iCamp, "createCampaign", [DIANA, [pot], [], false, ZeroAddress, 0n, 0n], budget);
     // 2c. metadata JSON → IPFS → setMetadata (while Pending: no cooldown)
     const meta = {
@@ -275,7 +275,7 @@ async function main() {
           const envelope = {
             user: user.address, campaignId: String(d.cid), deadlineBlock: dl.toString(), userSig: "0x00", advertiserSig,
             expectedRelaySigner: DIANA, expectedAdvertiserRelaySigner: ZeroAddress,
-            claims: [{ campaignId: String(d.cid), publisher: DIANA, eventCount: ev.toString(), ratePlanck: cpm.toString(), actionType: 0, clickSessionHash: ZeroHash, nonce: "1", previousClaimHash: ZeroHash, claimHash, zkProof: Array(8).fill(ZeroHash), nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: [ZeroHash, ZeroHash, ZeroHash], powNonce }],
+            claims: [{ campaignId: String(d.cid), publisher: DIANA, eventCount: ev.toString(), rateWei: cpm.toString(), actionType: 0, clickSessionHash: ZeroHash, nonce: "1", previousClaimHash: ZeroHash, claimHash, zkProof: Array(8).fill(ZeroHash), nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: [ZeroHash, ZeroHash, ZeroHash], powNonce }],
           };
           const r = await fetch(`${RELAY}/claim`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(envelope), signal: AbortSignal.timeout(20000) });
           const body = await r.json().catch(() => ({}));

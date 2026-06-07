@@ -31,7 +31,7 @@ declare const chrome: any;
 
 export interface AuctionBid {
   id: string;
-  bidCpmPlanck: string;
+  bidCpmWei: string;
   interestWeight: number;
   effectiveBidMicro: string;
 }
@@ -40,7 +40,7 @@ export interface BridgeStatus {
   step: "idle" | "detecting" | "matching" | "auction" | "handshake" | "injected" | "house-ad" | "no-match" | "error";
   campaignId?: string;
   mechanism?: string;
-  clearingCpmPlanck?: string;
+  clearingCpmWei?: string;
   participants?: number;
   totalCampaigns?: number;
   activeCampaigns?: number;
@@ -224,7 +224,7 @@ export async function runContentBridge(
   }
 
   const match = selectionResp?.selected ?? null;
-  const clearingCpmPlanck: string | undefined = selectionResp?.clearingCpmPlanck;
+  const clearingCpmWei: string | undefined = selectionResp?.clearingCpmWei;
   const auctionMechanism: string | undefined = selectionResp?.mechanism;
   const participants: number | undefined = selectionResp?.participants;
   const auctionBids: AuctionBid[] | undefined = selectionResp?.allBids;
@@ -238,7 +238,7 @@ export async function runContentBridge(
   const campaignId = match.id ?? match.campaignId;
 
   // Handshake
-  report({ step: "handshake", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants });
+  report({ step: "handshake", campaignId, mechanism: auctionMechanism, clearingCpmWei, participants });
   let attestation: any = null;
   if (sdkInfo || publisherAddress) {
     const publisher = publisherAddress || sdkInfo?.publisher;
@@ -290,7 +290,7 @@ export async function runContentBridge(
     metadata: validatedMeta,
     metadataHash: match.metadataHash || undefined,
     auctionMechanism: auctionMechanism as any,
-    clearingCpmPlanck,
+    clearingCpmWei,
     ipfsGateway,
     currencySymbol,
     onReport: () => {
@@ -312,11 +312,11 @@ export async function runContentBridge(
       url: window.location.href,
       category,
       publisherAddress: effectivePublisher,
-      clearingCpmPlanck,
+      clearingCpmWei,
       attestation: attestation ?? undefined,
       campaignTags: Array.isArray(match.requiredTags) ? match.requiredTags : [],
     });
   } catch { /* */ }
 
-  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmPlanck, participants, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: pool.length, auctionBids });
+  return report({ step: "injected", campaignId, mechanism: auctionMechanism, clearingCpmWei, participants, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length, matchedPool: pool.length, auctionBids });
 }

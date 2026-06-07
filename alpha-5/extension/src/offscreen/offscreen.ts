@@ -124,7 +124,7 @@ async function handleSubmit(msg: OffscreenSubmitMsg): Promise<OffscreenToBackgro
       campaignId: BigInt(c.campaignId),
       publisher: c.publisher,
       eventCount: BigInt(c.eventCount),
-      ratePlanck: BigInt(c.ratePlanck),
+      rateWei: BigInt(c.rateWei),
       actionType: Number(c.actionType ?? 0),
       clickSessionHash: c.clickSessionHash ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
       nonce: BigInt(c.nonce),

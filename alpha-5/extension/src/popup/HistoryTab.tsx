@@ -12,7 +12,7 @@ import {
 } from "@shared/earningsIndex";
 
 const SORT_LABELS: Record<TopSortKey, string> = {
-  totalUserPlanck: "Total earned",
+  totalUserWei: "Total earned",
   claimCount: "Claims",
   totalEvents: "Events",
   lastBlock: "Recently active",
@@ -25,7 +25,7 @@ interface Props {
 export function HistoryTab({ address }: Props) {
   const [chainId, setChainId] = useState<number>(0);
   const [index, setIndex] = useState<EarningsIndex>(emptyIndex());
-  const [sortBy, setSortBy] = useState<TopSortKey>("totalUserPlanck");
+  const [sortBy, setSortBy] = useState<TopSortKey>("totalUserWei");
   const [webAppUrl, setWebAppUrl] = useState<string>("https://datum.javcon.io");
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -178,7 +178,7 @@ export function HistoryTab({ address }: Props) {
                   </span>
                 </span>
                 <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  +{formatDotWei(BigInt(r.userPaymentPlanck))}
+                  +{formatDotWei(BigInt(r.userPaymentWei))}
                 </span>
               </div>
             ))}
@@ -227,7 +227,7 @@ export function HistoryTab({ address }: Props) {
                   </span>
                 </span>
                 <span style={{ color: "var(--ok)", fontFamily: "monospace" }}>
-                  {formatDotWei(BigInt(row.totals.totalUserPlanck))}
+                  {formatDotWei(BigInt(row.totals.totalUserWei))}
                 </span>
               </div>
             ))}

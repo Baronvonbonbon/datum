@@ -81,7 +81,7 @@ const govV2Abi = [
 ];
 
 const settlementAbi = [
-  "function settleClaims((address user, uint256 campaignId, (uint256 campaignId, address publisher, uint256 impressionCount, uint256 clearingCpmPlanck, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes zkProof)[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount)",
+  "function settleClaims((address user, uint256 campaignId, (uint256 campaignId, address publisher, uint256 impressionCount, uint256 clearingCpmWei, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes zkProof)[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount)",
   "function lastNonce(address user, uint256 campaignId) view returns (uint256)",
   "function lastClaimHash(address user, uint256 campaignId) view returns (bytes32)",
 ];
@@ -161,7 +161,7 @@ async function buildClaims(
       [campaignId, publisherAddr, userAddr, impressions, cpm, nonce, prevHash],
     ));
     const hash = claimHash(packed);
-    claims.push({ campaignId, publisher: publisherAddr, impressionCount: impressions, clearingCpmPlanck: cpm, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" });
+    claims.push({ campaignId, publisher: publisherAddr, impressionCount: impressions, clearingCpmWei: cpm, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: "0x" });
     prevHash = hash;
   }
   return claims;

@@ -31,14 +31,14 @@ function computeClaimHash(
   publisher: string,
   user: string,
   eventCount: bigint,
-  ratePlanck: bigint,
+  rateWei: bigint,
   actionType: number,
   clickSessionHash: string,
   nonce: bigint,
   previousClaimHash: string
 ): string {
   const types = ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"];
-  const values = [campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousClaimHash];
+  const values = [campaignId, publisher, user, eventCount, rateWei, actionType, clickSessionHash, nonce, previousClaimHash];
   return ethersKeccakAbi(types, values);
 }
 
@@ -61,7 +61,7 @@ function buildClaimChain(
       campaignId,
       publisher,
       eventCount: impressions,
-      ratePlanck: cpm,
+      rateWei: cpm,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -255,7 +255,7 @@ async function main() {
 
   // Parse campaign ID from CampaignCreated event
   async function createCampaignAndGetId(signer: any, budget = BUDGET): Promise<bigint> {
-    const pots = [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }];
+    const pots = [{ actionType: 0, budgetWei: budget, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }];
     const tx = await campaigns.connect(signer).createCampaign(
       publisher.address, pots, [], false, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
@@ -287,7 +287,7 @@ async function main() {
   // 1. createCampaign (Campaigns -> BudgetLedger.initializeBudget{value})
   // ---------------------------------------------------------------------------
   console.log("1. createCampaign");
-  const benchPots = [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }];
+  const benchPots = [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }];
   await measure("createCampaign",
     campaigns.connect(advertiser).createCampaign(
       publisher.address, benchPots, [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }

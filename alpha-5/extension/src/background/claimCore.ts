@@ -10,7 +10,7 @@
 // DatumClaimValidator.sol validateClaim():
 //
 //   keccak256(abi.encode(
-//     campaignId, publisher, user, eventCount, ratePlanck, actionType,
+//     campaignId, publisher, user, eventCount, rateWei, actionType,
 //     clickSessionHash, nonce, previousClaimHash, stakeRootUsed))
 //
 // claimCore.test.ts pins the field list with a golden hash — changing the schema
@@ -24,7 +24,7 @@ export const CLAIM_HASH_TYPES = [
   "address", // publisher
   "address", // user
   "uint256", // eventCount
-  "uint256", // ratePlanck
+  "uint256", // rateWei
   "uint8",   // actionType (0=view, 1=click, 2=remote-action)
   "bytes32", // clickSessionHash (type-1 only; ZeroHash otherwise)
   "uint256", // nonce
@@ -39,7 +39,7 @@ export interface ClaimHashInput {
   publisher: string;
   user: string;
   eventCount: bigint;
-  ratePlanck: bigint;
+  rateWei: bigint;
   actionType: number;
   clickSessionHash?: string;
   nonce: bigint;
@@ -55,7 +55,7 @@ export function computeClaimHash(c: ClaimHashInput): string {
       c.publisher,
       c.user,
       c.eventCount,
-      c.ratePlanck,
+      c.rateWei,
       c.actionType,
       c.clickSessionHash ?? ZeroHash,
       c.nonce,
