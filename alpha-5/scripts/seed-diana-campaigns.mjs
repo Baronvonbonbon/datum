@@ -60,10 +60,9 @@ async function main() {
   const timelock = await act.timelockBlocks();
   console.log(`  activation minBond=${formatEther(minBond)} PAS, timelock=${timelock} blocks`);
 
-  // NOTE: ratePlanck (CPM, per 1000 events) is in PLANCK / 10-decimal (~5e9 = 0.5 PAS),
-  // NOT 18-decimal — same scale as setup-testnet's bidCpm. budget/dailyCap stay
-  // 18-decimal (parseEther). Using parseEther for the CPM yields a ~1e6-PAS payout.
-  const budget = parseEther("1"), dailyCap = parseEther("0.5"), cpm = 5_000_000_000n;
+  // All native amounts are 18-decimal wei (the pallet-revive EVM scale). CPM is
+  // per 1000 events, so a 1-PAS CPM pays CPM/1000 = 0.001 PAS per impression (gross).
+  const budget = parseEther("2"), dailyCap = parseEther("1"), cpm = parseEther("1");
   const pots = [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ZeroAddress }];
 
   const created = [];

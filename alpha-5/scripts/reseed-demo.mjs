@@ -217,8 +217,10 @@ async function main() {
 
   // ── PHASE 2: deploy fresh campaigns with creative ─────────────────────────
   console.log(`\n[2] deploying ${N} fresh Diana/Bob campaigns with IPFS creative…`);
-  const cpm = 5_000_000_000n;            // 0.5 PAS CPM (10-decimal planck scale)
-  const budget = parseEther("0.1");      // native escrow per campaign
+  // All native amounts are 18-decimal wei (the pallet-revive EVM scale), so a
+  // CPM of 1 PAS = parseEther("1") and per-impression gross = CPM/1000 = 0.001 PAS.
+  const cpm = parseEther("1");           // 1 PAS CPM → 0.001 PAS / impression (gross)
+  const budget = parseEther("1");        // native escrow per campaign (1 PAS)
   const deployed = [];
   for (let i = 0; i < N; i++) {
     const cfg = CAMPAIGNS[i % CAMPAIGNS.length];
