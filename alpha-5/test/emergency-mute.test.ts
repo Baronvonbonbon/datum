@@ -264,7 +264,7 @@ describe("DatumActivationBonds: emergency mute (Phase 2b)", function () {
         campaignId: cid,
         publisher: muter.address,
         eventCount: 1n,
-        ratePlanck: parseDOT("0.01"),
+        rateWei: parseDOT("0.01"),
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce: 1n,

@@ -48,7 +48,7 @@ const TOPIC_MUTED = ethersId("Muted(uint256,address,uint256)");
 
 // Interfaces for decoding
 const CAMPAIGN_IFACE = new Interface([
-  "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 totalBudgetPlanck, uint16 snapshotTakeRateBps)",
+  "event CampaignCreated(uint256 indexed campaignId, address indexed advertiser, address indexed publisher, uint256 totalBudgetWei, uint16 snapshotTakeRateBps)",
   "event CampaignActivated(uint256 indexed campaignId)",
 ]);
 const BOND_IFACE = new Interface([
@@ -430,14 +430,14 @@ function formatDot(planck: bigint): string {
   // translation lives inside Settlement; bond contracts read planck
   // directly. Display rounded to 4 decimals.
   if (planck === 0n) return "0 DOT";
-  const whole = planck / 10n ** 10n;
-  const frac = planck % 10n ** 10n;
+  const whole = planck / 10n ** 18n;
+  const frac = planck % 10n ** 18n;
   if (whole === 0n) {
-    const padded = frac.toString().padStart(10, "0");
+    const padded = frac.toString().padStart(18, "0");
     const trimmed = padded.slice(0, 4).replace(/0+$/, "") || "0";
     return `0.${trimmed} DOT`;
   }
-  const fracStr = frac.toString().padStart(10, "0").slice(0, 4).replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
   return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
 }
 

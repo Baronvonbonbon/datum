@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { id as ethersId, Interface } from "ethers";
 import { walletClient, type WalletStatus } from "./walletClient";
+import { formatDotWei } from "@shared/dot";
 import { getProvider } from "@shared/contracts";
 import { DEFAULT_SETTINGS } from "@shared/networks";
 import type { StoredSettings } from "@shared/types";
@@ -58,10 +59,10 @@ type RelayWithdrawInfo = {
   ok: boolean;
   reason?: string;
   nonce: string;
-  userBalancePlanck: string;
+  userBalanceWei: string;
   feeBps: number;
-  recommendedMaxFeePlanck: string;
-  netPlanck: string;
+  recommendedMaxFeeWei: string;
+  netWei: string;
   vault: string;
 };
 
@@ -246,9 +247,9 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
       });
       const info = (await infoResp.json()) as RelayWithdrawInfo;
       if (!info?.ok) throw new Error(`relay: ${info?.reason ?? "withdraw-info failed"}`);
-      const balance = BigInt(info.userBalancePlanck ?? "0");
+      const balance = BigInt(info.userBalanceWei ?? "0");
       if (balance === 0n) throw new Error("Nothing to withdraw — your pending balance is 0.");
-      const maxFee = BigInt(info.recommendedMaxFeePlanck ?? "0");
+      const maxFee = BigInt(info.recommendedMaxFeeWei ?? "0");
 
       // deadline is a block number (contract checks block.number <= deadline).
       const provider = getProvider(settings.rpcUrl);
@@ -360,8 +361,8 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
           <div style={{ ...subText, fontSize: 10, marginTop: -2 }}>
             No gas? The relay can submit for you, charging{" "}
             {(relayInfo.feeBps / 100).toFixed(relayInfo.feeBps % 100 === 0 ? 0 : 2)}% (
-            {formatDot(BigInt(relayInfo.recommendedMaxFeePlanck))} DOT) from your
-            earnings — you receive {formatDot(BigInt(relayInfo.netPlanck))} DOT and
+            {formatDot(BigInt(relayInfo.recommendedMaxFeeWei))} DOT) from your
+            earnings — you receive {formatDot(BigInt(relayInfo.netWei))} DOT and
             pay nothing.
           </div>
           <button
@@ -396,18 +397,10 @@ export function EarningsTab({ status }: { status: WalletStatus }) {
   );
 }
 
-function formatDot(wei: bigint): string {
-  if (wei === 0n) return "0";
-  const whole = wei / 10n ** 18n;
-  const frac = wei % 10n ** 18n;
-  if (whole === 0n) {
-    const padded = frac.toString().padStart(18, "0");
-    const trimmed = padded.slice(0, 6).replace(/0+$/, "") || "0";
-    return `0.${trimmed}`;
-  }
-  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
-  return fracStr ? `${whole}.${fracStr}` : whole.toString();
-}
+// Adaptive-precision DOT formatter (18-decimal wei in). Reveals sub-0.0001
+// dust as significant figures instead of collapsing it to "0.0" — see
+// formatDotWei in @shared/dot.
+const formatDot = (wei: bigint): string => formatDotWei(wei);
 
 function shorten(addr: string): string {
   if (!addr || addr.length < 10) return addr || "—";

@@ -21,7 +21,7 @@
 // JsonRpcProvider + nonce-poll pattern (Paseo receipt bug) like deploy.ts.
 import {
   JsonRpcProvider, Wallet, Interface, AbiCoder,
-  keccak256, decodeBase58, getBytes, hexlify, parseEther, ZeroHash, ZeroAddress,
+  keccak256, decodeBase58, getBytes, hexlify, parseEther, formatEther, ZeroHash, ZeroAddress,
 } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -52,7 +52,7 @@ const iCamp = new Interface([
   "function nextCampaignId() view returns (uint256)",
   "function getCampaignStatus(uint256) view returns (uint8)",
   "function getCampaignRelaySigner(uint256) view returns (address)",
-  "function createCampaign(address publisher, tuple(uint8 actionType,uint256 budgetPlanck,uint256 dailyCapPlanck,uint256 ratePlanck,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
+  "function createCampaign(address publisher, tuple(uint8 actionType,uint256 budgetWei,uint256 dailyCapWei,uint256 rateWei,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
 ]);
 const iRouter = new Interface([
   "function adminTerminateCampaign(uint256 campaignId)",
@@ -217,8 +217,10 @@ async function main() {
 
   // ── PHASE 2: deploy fresh campaigns with creative ─────────────────────────
   console.log(`\n[2] deploying ${N} fresh Diana/Bob campaigns with IPFS creative…`);
-  const cpm = 5_000_000_000n;            // 0.5 PAS CPM (10-decimal planck scale)
-  const budget = parseEther("0.1");      // native escrow per campaign
+  // All native amounts are 18-decimal wei (the pallet-revive EVM scale), so a
+  // CPM of 1 PAS = parseEther("1") and per-impression gross = CPM/1000 = 0.001 PAS.
+  const cpm = parseEther("1");           // 1 PAS CPM → 0.001 PAS / impression (gross)
+  const budget = parseEther("1");        // native escrow per campaign (1 PAS)
   const deployed = [];
   for (let i = 0; i < N; i++) {
     const cfg = CAMPAIGNS[i % CAMPAIGNS.length];
@@ -226,7 +228,7 @@ async function main() {
     const svgCid = ipfsAdd(svgFor(cfg));
     // 2b. campaign (Bob → Diana), read id from nextCampaignId
     const cid = Number((await read(A.campaigns, iCamp, "nextCampaignId", []))[0]);
-    const pot = { actionType: 0, budgetPlanck: budget, dailyCapPlanck: budget, ratePlanck: cpm, actionVerifier: ZeroAddress };
+    const pot = { actionType: 0, budgetWei: budget, dailyCapWei: budget, rateWei: cpm, actionVerifier: ZeroAddress };
     await send(bob, A.campaigns, iCamp, "createCampaign", [DIANA, [pot], [], false, ZeroAddress, 0n, 0n], budget);
     // 2c. metadata JSON → IPFS → setMetadata (while Pending: no cooldown)
     const meta = {
@@ -273,13 +275,13 @@ async function main() {
           const envelope = {
             user: user.address, campaignId: String(d.cid), deadlineBlock: dl.toString(), userSig: "0x00", advertiserSig,
             expectedRelaySigner: DIANA, expectedAdvertiserRelaySigner: ZeroAddress,
-            claims: [{ campaignId: String(d.cid), publisher: DIANA, eventCount: ev.toString(), ratePlanck: cpm.toString(), actionType: 0, clickSessionHash: ZeroHash, nonce: "1", previousClaimHash: ZeroHash, claimHash, zkProof: Array(8).fill(ZeroHash), nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: [ZeroHash, ZeroHash, ZeroHash], powNonce }],
+            claims: [{ campaignId: String(d.cid), publisher: DIANA, eventCount: ev.toString(), rateWei: cpm.toString(), actionType: 0, clickSessionHash: ZeroHash, nonce: "1", previousClaimHash: ZeroHash, claimHash, zkProof: Array(8).fill(ZeroHash), nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: [ZeroHash, ZeroHash, ZeroHash], powNonce }],
           };
           const r = await fetch(`${RELAY}/claim`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(envelope), signal: AbortSignal.timeout(20000) });
           const body = await r.json().catch(() => ({}));
           let credited = 0n;
           if (r.status === 202 && body.ok) for (let i = 0; i < 30; i++) { credited = BigInt((await read(A.paymentVault, iVault, "userBalance", [user.address]))[0]); if (credited > 0n) break; await sleep(2000); }
-          console.log(`    #${d.cid} ${d.title.padEnd(16)} ${credited > 0n ? `settled, user credited ${credited} planck` : `no settle (${JSON.stringify(body).slice(0, 50)})`}`);
+          console.log(`    #${d.cid} ${d.title.padEnd(16)} ${credited > 0n ? `settled, user credited ${formatEther(credited)} PAS` : `no settle (${JSON.stringify(body).slice(0, 50)})`}`);
         } catch (e) { console.log(`    #${d.cid} activity err: ${String(e.message ?? e).slice(0, 60)}`); }
       }
     }

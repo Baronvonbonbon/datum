@@ -18,7 +18,7 @@ interface QueuedClaim {
   campaignId: string;
   publisher: string;
   impressionCount: string;
-  clearingCpmPlanck: string;
+  clearingCpmWei: string;
   nonce: string;
   previousClaimHash: string;
   claimHash: string;

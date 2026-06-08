@@ -6,7 +6,7 @@ import { useSettings } from "../../context/SettingsContext";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { StatCardSkeleton } from "../../components/Skeleton";
 import { PageExplainer } from "../../components/PageExplainer";
 import { useToast } from "../../context/ToastContext";
@@ -16,7 +16,7 @@ interface Stats {
   activeCampaigns: number;
   pendingCampaigns: number;
   totalImpressions: number;
-  totalSettledPlanck: bigint;
+  totalSettledWei: bigint;
   publishersRegistered: number;
   councilMembers: number;
   paused: boolean;
@@ -52,7 +52,7 @@ export function Overview() {
         s + BigInt(log.args?.publisherPayment ?? 0n)
           + BigInt(log.args?.userPayment ?? 0n)
           + BigInt(log.args?.protocolFee ?? 0n), 0n);
-      setStats((prev) => prev ? { ...prev, totalImpressions: total, totalSettledPlanck: paid } : prev);
+      setStats((prev) => prev ? { ...prev, totalImpressions: total, totalSettledWei: paid } : prev);
     } catch { /* settlement not configured */ }
   }
 
@@ -103,13 +103,13 @@ export function Overview() {
       // Alpha-5 split the old `amountPaid` field into three: publisherPayment
       // + userPayment + protocolFee. Total settled is the sum of all three.
       let totalImpressions = 0;
-      let totalSettledPlanck = 0n;
+      let totalSettledWei = 0n;
       try {
         const filter = contracts.settlement.filters.ClaimSettled();
         const logs = await queryFilterAll(contracts.settlement, filter);
         totalImpressions = logs.reduce((s: number, log: any) =>
           s + Number(log.args?.eventCount ?? 0), 0);
-        totalSettledPlanck = logs.reduce((s: bigint, log: any) =>
+        totalSettledWei = logs.reduce((s: bigint, log: any) =>
           s + BigInt(log.args?.publisherPayment ?? 0n)
             + BigInt(log.args?.userPayment ?? 0n)
             + BigInt(log.args?.protocolFee ?? 0n), 0n);
@@ -122,7 +122,7 @@ export function Overview() {
         activeCampaigns: active,
         pendingCampaigns: pending,
         totalImpressions,
-        totalSettledPlanck,
+        totalSettledWei,
         publishersRegistered: pubCountNum,
         councilMembers: Number(councilSizeRaw ?? 0n),
         paused: Boolean(paused),
@@ -239,7 +239,7 @@ export function Overview() {
             />
             <StatCard
               label={`${sym} settled`}
-              value={stats ? formatDOT(stats.totalSettledPlanck) : "—"}
+              value={stats ? formatDotWei(stats.totalSettledWei) : "—"}
               hint="Total DOT/PAS paid out by Settlement across all campaigns. Split between publisher take-rate and user share."
             />
             <StatCard

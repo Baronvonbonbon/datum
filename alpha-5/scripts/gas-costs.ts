@@ -208,15 +208,15 @@ async function main() {
   const bidCpm    = 100_000_000n;      // 0.01 DOT CPM
   const campaignBudget = 20_000_000_000n;  // 2 DOT budget
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    "createCampaign(address publisher, uint256 dailyCapWei, uint256 bidCpmWei, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
     [ZeroAddress, dailyCap, bidCpm, [], false, ZeroAddress, 0, 0], PK.bob,
     "open campaign (no publisher, no tags)", campaignBudget);
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    "createCampaign(address publisher, uint256 dailyCapWei, uint256 bidCpmWei, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
     [diana.address, dailyCap, bidCpm, [], false, ZeroAddress, 0, 0], PK.bob,
     "targeted campaign (diana, no tags)", campaignBudget);
   await est("Campaigns", ADDR.campaigns,
-    "createCampaign(address publisher, uint256 dailyCapPlanck, uint256 bidCpmPlanck, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
+    "createCampaign(address publisher, uint256 dailyCapWei, uint256 bidCpmWei, bytes32[] calldata requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount)",
     [diana.address, dailyCap, bidCpm, [], true, ZeroAddress, 0, 0], PK.bob,
     "targeted + requireZkProof", campaignBudget);
   await est("Campaigns", ADDR.campaigns,

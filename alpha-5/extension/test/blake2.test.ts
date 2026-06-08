@@ -33,13 +33,13 @@ describe("hashPacked (keccak256)", () => {
     const publisher = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
     const user = "0x94CC36412EE0c099BfE7D61a35092e40342F62D7";
     const impressionCount = 1n;
-    const clearingCpmPlanck = 5_000_000_000n;
+    const clearingCpmWei = 5_000_000_000n;
     const nonce = 1n;
     const previousHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
     const hash = hashPacked(
       ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-      [campaignId, publisher, user, impressionCount, clearingCpmPlanck, nonce, previousHash],
+      [campaignId, publisher, user, impressionCount, clearingCpmWei, nonce, previousHash],
     );
 
     expect(hash.startsWith("0x")).toBe(true);

@@ -62,7 +62,7 @@ async function probeSettlementRevert(
   contractAddresses: any,
   provider: JsonRpcProvider,
   campaignId: bigint,
-  claim: { publisher: string; ratePlanck: bigint; actionType: number; eventCount: bigint },
+  claim: { publisher: string; rateWei: bigint; actionType: number; eventCount: bigint },
   relayAddr: string,
 ): Promise<string | null> {
   const ZERO = "0x0000000000000000000000000000000000000000";
@@ -96,10 +96,10 @@ async function probeSettlementRevert(
     // 4. CPM pot must exist + its rate ceiling must cover the claim rate.
     try {
       const pot = await campaigns.getCampaignPot(campaignId, claim.actionType);
-      const potRate = BigInt(pot.ratePlanck ?? pot[3] ?? 0);
-      const budget = BigInt(pot.budgetPlanck ?? pot[1] ?? 0);
+      const potRate = BigInt(pot.rateWei ?? pot[3] ?? 0);
+      const budget = BigInt(pot.budgetWei ?? pot[1] ?? 0);
       if (budget === 0n) return `campaign #${campaignId} actionType-${claim.actionType} pot has zero budget`;
-      if (potRate > 0n && claim.ratePlanck > potRate) return `claim rate ${claim.ratePlanck} exceeds pot ceiling ${potRate} (campaign #${campaignId})`;
+      if (potRate > 0n && claim.rateWei > potRate) return `claim rate ${claim.rateWei} exceeds pot ceiling ${potRate} (campaign #${campaignId})`;
     } catch {
       return `campaign #${campaignId} has no pot for actionType ${claim.actionType} (getCampaignPot reverted)`;
     }
@@ -109,7 +109,7 @@ async function probeSettlementRevert(
   // checks above don't cover — budget ledger, reputation, and Paseo's denomination
   // rule on the deductAndTransfer payout.
   const ev = claim.eventCount > 0n ? claim.eventCount : 1n;
-  const totalPayment = claim.actionType === 0 ? (claim.ratePlanck * ev) / 1000n : claim.ratePlanck * ev;
+  const totalPayment = claim.actionType === 0 ? (claim.rateWei * ev) / 1000n : claim.rateWei * ev;
   try {
     const bl = getBudgetLedgerContract(contractAddresses, provider);
     if (bl) {
@@ -124,7 +124,7 @@ async function probeSettlementRevert(
   // Paseo native transfers revert (no data) when value % 1e6 ≥ 500_000. deductAndTransfer
   // moves exactly `totalPayment` planck to the paymentVault.
   if (totalPayment % 1_000_000n >= 500_000n)
-    return `payout ${totalPayment} planck violates Paseo rounding (% 1e6 = ${totalPayment % 1_000_000n} ≥ 500000) — deductAndTransfer reverts; CPM ${claim.ratePlanck} needs rounding`;
+    return `payout ${totalPayment} planck violates Paseo rounding (% 1e6 = ${totalPayment % 1_000_000n} ≥ 500000) — deductAndTransfer reverts; CPM ${claim.rateWei} needs rounding`;
   return null;
 }
 
@@ -473,9 +473,9 @@ async function handleMessage(msg: any): Promise<unknown> {
           return { ok: false, reason: "no_campaign" };
         }
 
-        const clearingCpm = msg.clearingCpmPlanck
-          ? BigInt(msg.clearingCpmPlanck)
-          : BigInt(campaign.bidCpmPlanck ?? "0");
+        const clearingCpm = msg.clearingCpmWei
+          ? BigInt(msg.clearingCpmWei)
+          : BigInt(campaign.bidCpmWei ?? "0");
 
         // ── Aggregated mode: queue raw impression, defer hashing to flush time ──
         if ((s2.claimBuilderMode ?? "per-impression") === "aggregated") {
@@ -484,7 +484,7 @@ async function handleMessage(msg: any): Promise<unknown> {
           rawQueue.push({
             campaignId: String(msg.campaignId),
             publisher: msg.publisherAddress,
-            clearingCpmPlanck: clearingCpm.toString(),
+            clearingCpmWei: clearingCpm.toString(),
             userAddress,
           });
           await chrome.storage.local.set({ rawImpressionQueue: rawQueue });
@@ -499,13 +499,13 @@ async function handleMessage(msg: any): Promise<unknown> {
         // re-inlining the claim-hash preimage, which drifted from the contract
         // three times. clearingCpm is passed explicitly so claimBuilder doesn't
         // fall back to the campaign's viewBid field (the demo cache uses
-        // bidCpmPlanck).
+        // bidCpmWei).
         const impressionNonce = await claimBuilder.onImpression({
           campaignId: String(msg.campaignId),
           url: msg.url ?? "",
           category: msg.category ?? "",
           publisherAddress: msg.publisherAddress,
-          clearingCpmPlanck: clearingCpm.toString(),
+          clearingCpmWei: clearingCpm.toString(),
         });
         if (impressionNonce) {
           _lastImpressionResult = { ok: true, campaignId: String(msg.campaignId), user: userAddress.slice(0, 10), ts: Date.now() };
@@ -553,7 +553,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         const MAX_IMPRESSIONS_PER_CLAIM = 250;
         const groups = new Map<string, any[]>();
         for (const raw of rawQueue) {
-          const key = `${raw.campaignId}:${raw.clearingCpmPlanck}`;
+          const key = `${raw.campaignId}:${raw.clearingCpmWei}`;
           const g = groups.get(key) ?? [];
           g.push(raw);
           groups.set(key, g);
@@ -561,7 +561,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         const qs2 = await chrome.storage.local.get("claimQueue");
         const existingQueue: any[] = qs2.claimQueue ?? [];
         for (const [, impressions] of groups) {
-          const { campaignId: cid, publisher, clearingCpmPlanck: cpm, userAddress: ua } = impressions[0];
+          const { campaignId: cid, publisher, clearingCpmWei: cpm, userAddress: ua } = impressions[0];
           const chainKey = `chainState:${ua}:${cid}`;
           const chainStored = await chrome.storage.local.get(chainKey);
           let chain = chainStored[chainKey] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
@@ -575,11 +575,11 @@ async function handleMessage(msg: any): Promise<unknown> {
             // L-2: keccak256(abi.encode(...)) — 10-field (alpha-5 +stakeRootUsed) preimage, actionType=0, clickSessionHash=ZeroHash
             const claimHash = computeClaimHash({
               campaignId: campaignIdBig, publisher, user: ua,
-              eventCount: impressionCount, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+              eventCount: impressionCount, rateWei: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
             });
             existingQueue.push({
               campaignId: cid, publisher,
-              eventCount: impressionCount.toString(), ratePlanck: cpm,
+              eventCount: impressionCount.toString(), rateWei: cpm,
               actionType: "0", clickSessionHash: ZeroHash,
               nonce: nonce.toString(), previousClaimHash: prevHash,
               claimHash, zkProof: "0x", nullifier: ZeroHash, stakeRootUsed: ZeroHash, actionSig: "0x", userAddress: ua,
@@ -607,7 +607,7 @@ async function handleMessage(msg: any): Promise<unknown> {
         if (!userAddress) return { ok: false, error: "No user address provided" };
 
         // ── Aggregated mode: drain rawImpressionQueue → build aggregated claims ──
-        // Each group of (campaignId, clearingCpmPlanck) impressions is collapsed into
+        // Each group of (campaignId, clearingCpmWei) impressions is collapsed into
         // claims of up to MAX_IMPRESSIONS_PER_CLAIM each using impressionCount > 1.
         // This yields ~250× more throughput: 4 claims × 250 impressions = 1000 impressions/tx.
         {
@@ -615,12 +615,12 @@ async function handleMessage(msg: any): Promise<unknown> {
           const stored2 = await chrome.storage.local.get(["claimBuilderMode", "rawImpressionQueue"]);
           const rawQueue: any[] = stored2.rawImpressionQueue ?? [];
           if ((stored2.claimBuilderMode ?? "per-impression") === "aggregated" && rawQueue.length > 0) {
-            // Group by (campaignId, clearingCpmPlanck) — all entries share the same userAddress
+            // Group by (campaignId, clearingCpmWei) — all entries share the same userAddress
             // since claimQueue is per-user. Group key uses campaignId+cpm only; publisher is
             // taken from the first entry in each group (immutable per campaign).
             const groups = new Map<string, any[]>();
             for (const raw of rawQueue) {
-              const key = `${raw.campaignId}:${raw.clearingCpmPlanck}`;
+              const key = `${raw.campaignId}:${raw.clearingCpmWei}`;
               const g = groups.get(key) ?? [];
               g.push(raw);
               groups.set(key, g);
@@ -630,7 +630,7 @@ async function handleMessage(msg: any): Promise<unknown> {
             const existingQueue: any[] = qs2.claimQueue ?? [];
 
             for (const [, impressions] of groups) {
-              const { campaignId: cid, publisher, clearingCpmPlanck: cpm, userAddress: ua } = impressions[0];
+              const { campaignId: cid, publisher, clearingCpmWei: cpm, userAddress: ua } = impressions[0];
               const chainKey = `chainState:${ua}:${cid}`;
               const chainStored = await chrome.storage.local.get(chainKey);
               let chain = chainStored[chainKey] ?? { lastNonce: 0, lastClaimHash: ZeroHash };
@@ -648,14 +648,14 @@ async function handleMessage(msg: any): Promise<unknown> {
                 // CPM view impressions: actionType=0, clickSessionHash=ZeroHash
                 const claimHash = computeClaimHash({
                   campaignId: campaignIdBig, publisher, user: ua,
-                  eventCount: impressionCount, ratePlanck: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
+                  eventCount: impressionCount, rateWei: clearingCpm, actionType: 0, clickSessionHash: ZeroHash, nonce, previousClaimHash: prevHash, stakeRootUsed: ZeroHash,
                 });
 
                 existingQueue.push({
                   campaignId: cid,
                   publisher,
                   eventCount: impressionCount.toString(),
-                  ratePlanck: cpm,
+                  rateWei: cpm,
                   actionType: "0",
                   clickSessionHash: ZeroHash,
                   nonce: nonce.toString(),
@@ -683,7 +683,7 @@ async function handleMessage(msg: any): Promise<unknown> {
               .join(", ");
             await chrome.storage.local.set({ claimQueue: existingQueue, rawImpressionQueue: [] });
             console.log(`[datum-daemon] Aggregated ${rawQueue.length} raw impressions → ${newClaimCount} new claims (${breakdown})`);
-            console.log(`[datum-daemon] Each claim carries eventCount>1 — settlement pays eventCount×ratePlanck per claim`);
+            console.log(`[datum-daemon] Each claim carries eventCount>1 — settlement pays eventCount×rateWei per claim`);
           }
         }
 
@@ -816,7 +816,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                 campaignId: firstClaim.campaignId,
                 publisher: firstClaim.publisher,
                 eventCount: firstClaim.eventCount,
-                ratePlanck: firstClaim.ratePlanck,
+                rateWei: firstClaim.rateWei,
                 actionType: firstClaim.actionType ?? 0,
                 clickSessionHash: firstClaim.clickSessionHash ?? ZeroHash,
                 nonce: firstClaim.nonce,
@@ -999,7 +999,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                       : "0x0000000000000000000000000000000000000000000000000000000000000000";
                     const fc = b.claims[0];
                     const [vOk, vCode]: [boolean, number] = await cv.validateClaim(
-                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, ratePlanck: fc.ratePlanck, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, stakeRootUsed: fc.stakeRootUsed ?? ZeroHash, actionSig: fc.actionSig ?? "0x", powNonce: fc.powNonce ?? ZeroHash },
+                      { campaignId: fc.campaignId, publisher: fc.publisher, eventCount: fc.eventCount, rateWei: fc.rateWei, actionType: fc.actionType ?? 0, clickSessionHash: fc.clickSessionHash ?? ZeroHash, nonce: fc.nonce, previousClaimHash: fc.previousClaimHash, claimHash: fc.claimHash, zkProof: fc.zkProof, nullifier: fc.nullifier ?? ZeroHash, stakeRootUsed: fc.stakeRootUsed ?? ZeroHash, actionSig: fc.actionSig ?? "0x", powNonce: fc.powNonce ?? ZeroHash },
                       b.user, expectedNonce2, expectedPrevHash2,
                     );
                     if (!vOk) rejectReason = REJECTION_REASONS[vCode] ?? `code ${vCode}`;
@@ -1015,7 +1015,7 @@ async function handleMessage(msg: any): Promise<unknown> {
                     const fc0 = b.claims[0];
                     const probed = await probeSettlementRevert(
                       s.contractAddresses, provider, b.campaignId,
-                      { publisher: fc0.publisher, ratePlanck: BigInt(fc0.ratePlanck), actionType: Number(fc0.actionType ?? 0), eventCount: BigInt(fc0.eventCount ?? 1) },
+                      { publisher: fc0.publisher, rateWei: BigInt(fc0.rateWei), actionType: Number(fc0.actionType ?? 0), eventCount: BigInt(fc0.eventCount ?? 1) },
                       relayWallet.address,
                     );
                     rejectReason = probed ?? "validator + all readable gates OK; settleClaims reverted with no reason data — inspect the relay tx on Blockscout";

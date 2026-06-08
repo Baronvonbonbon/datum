@@ -3,9 +3,9 @@
 // Per-campaign action pot config (mirrors IDatumCampaigns.ActionPotConfig)
 export interface ActionPotConfig {
   actionType: number;         // 0=view/CPM, 1=click/CPC, 2=remote-action/CPA
-  budgetPlanck: bigint;
-  dailyCapPlanck: bigint;
-  ratePlanck: bigint;         // CPM rate (type-0) or flat rate per event (type-1/2)
+  budgetWei: bigint;
+  dailyCapWei: bigint;
+  rateWei: bigint;         // CPM rate (type-0) or flat rate per event (type-1/2)
   actionVerifier: string;     // EOA that signs type-2 claims (address(0) for type-0/1)
 }
 
@@ -13,7 +13,7 @@ export interface Claim {
   campaignId: bigint;
   publisher: string;
   eventCount: bigint;         // renamed from impressionCount
-  ratePlanck: bigint;         // renamed from clearingCpmPlanck; CPM for type-0, flat for type-1/2
+  rateWei: bigint;         // renamed from clearingCpmWei; CPM for type-0, flat for type-1/2
   actionType: number;         // 0=view, 1=click, 2=remote-action
   clickSessionHash: string;   // bytes32: impressionNonce for type-1, ZeroHash otherwise
   nonce: bigint;
@@ -51,7 +51,7 @@ export interface Campaign {
   publisher: string;
   remainingBudget: bigint;      // total planck across all pots
   pots?: ActionPotConfig[];     // per-action-type budget pots
-  viewBid?: bigint;             // view pot ratePlanck (CPM); undefined if no view pot
+  viewBid?: bigint;             // view pot rateWei (CPM); undefined if no view pot
   snapshotTakeRateBps: number;
   status: CampaignStatus;
   categoryId: number;           // deprecated — use requiredTags (TX-3)
@@ -362,7 +362,7 @@ export interface SerializedClaim {
   campaignId: string;
   publisher: string;
   eventCount: string;          // renamed from impressionCount
-  ratePlanck: string;          // renamed from clearingCpmPlanck
+  rateWei: string;          // renamed from clearingCpmWei
   actionType: string;          // "0", "1", or "2"
   clickSessionHash: string;    // bytes32 hex; ZeroHash for type-0/2
   nonce: string;
@@ -457,11 +457,11 @@ export interface UserPreferences {
   silencedCategories: string[];   // category names user doesn't want
   blockedTags: string[];          // tag strings user doesn't want (e.g., "topic:gambling")
   maxAdsPerHour: number;          // rate limit (default 12)
-  minBidCpm: string;              // minimum CPM in planck (default "0")
+  minBidCpm: string;              // minimum CPM as a human PAS string (default "0" = off)
   filterMode: "all" | "selected"; // "all" = opt-out (default), "selected" = opt-in
   allowedTopics: string[];        // used when filterMode === "selected"
   sweepAddress: string;           // cold wallet address to sweep earnings to (empty = disabled)
-  sweepThresholdPlanck: string;   // auto-sweep when balance exceeds this (in planck, as string; "0" = manual only)
+  sweepThresholdWei: string;   // auto-sweep when balance exceeds this (in planck, as string; "0" = manual only)
   /** Contextual mode: ads matched to current page only. No profile data collected, no rewards earned. */
   contextualMode?: boolean;
 }
@@ -496,11 +496,11 @@ export interface BehaviorChainState {
 // ─────────────────────────────────────────────────────────────────────────
 
 export interface EarningsCampaignTotals {
-  totalUserPlanck: string;     // bigint serialised to decimal string
+  totalUserWei: string;     // bigint serialised to decimal string
   totalEvents: string;         // bigint serialised
   claimCount: number;
   lastBlock: number;
-  lastPaymentPlanck: string;   // most recent userPayment, bigint string
+  lastPaymentWei: string;   // most recent userPayment, bigint string
   firstSeenBlock: number;
 }
 
@@ -508,7 +508,7 @@ export interface EarningsRecentEntry {
   campaignId: string;          // bigint as string
   blockNumber: number;
   blockTimestamp: number;      // unix seconds; 0 if unknown
-  userPaymentPlanck: string;   // bigint as string
+  userPaymentWei: string;   // bigint as string
   publisher: string;
   actionType: 0 | 1 | 2;
   txHash: string;

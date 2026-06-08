@@ -66,16 +66,16 @@ describe("claimBuilder.onImpression", () => {
     expect(queue[1].previousClaimHash).toBe(queue[0].claimHash);
   });
 
-  test("uses clearingCpmPlanck from message if provided", async () => {
-    await claimBuilder.onImpression(makeMsg({ clearingCpmPlanck: "3000000000" }));
+  test("uses clearingCpmWei from message if provided", async () => {
+    await claimBuilder.onImpression(makeMsg({ clearingCpmWei: "3000000000" }));
     const store = getStore();
-    expect(store.claimQueue[0].ratePlanck).toBe("3000000000");
+    expect(store.claimQueue[0].rateWei).toBe("3000000000");
   });
 
-  test("falls back to viewBid if clearingCpmPlanck not provided", async () => {
+  test("falls back to viewBid if clearingCpmWei not provided", async () => {
     await claimBuilder.onImpression(makeMsg());
     const store = getStore();
-    expect(store.claimQueue[0].ratePlanck).toBe(BID_CPM);
+    expect(store.claimQueue[0].rateWei).toBe(BID_CPM);
   });
 
   test("drops impression if no connectedAddress", async () => {

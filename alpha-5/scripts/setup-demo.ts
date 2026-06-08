@@ -10,10 +10,18 @@
 //   npx hardhat run scripts/setup-demo.ts --network polkadotTestnet
 
 import { ethers, network } from "hardhat";
-import { JsonRpcProvider, Wallet, Interface, keccak256, toUtf8Bytes } from "ethers";
-import { parseDOT, formatDOT } from "../test/helpers/dot";
+import { JsonRpcProvider, Wallet, Interface, keccak256, toUtf8Bytes, parseEther, formatEther } from "ethers";
 import * as fs from "fs";
 import * as path from "path";
+
+// All native amounts are 18-decimal wei (the pallet-revive EVM scale). CPMs are
+// quoted in PAS and centred on ~1 PAS (the historical 0.02–0.15 figures ×10), so
+// a campaign pays CPM/1000 ≈ 0.001 PAS per impression (gross). Budgets are kept
+// modest (the quoted figure ÷10 PAS) so testnet funding stays feasible.
+const cpm = (pas: string) => parseEther((Number(pas) * 10).toFixed(6));
+const bud = (pas: string) => parseEther((Number(pas) / 10).toFixed(6));
+const dot = (pas: string) => parseEther(pas);
+const fmt = (wei: bigint) => formatEther(wei);
 
 // ── Accounts ──────────────────────────────────────────────────────────────────
 // Keys stored in gitignored TESTNET-KEYS.md. NEVER use on mainnet.
@@ -80,7 +88,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C1 LiquidityDAO (Bob→Diana, crypto+defi)",
     advertiser: "bob", publisher: "diana",
     requiredTagSlugs: ["topic:crypto-web3", "topic:defi"],
-    bidCpm: parseDOT("0.150"), budget: parseDOT("50"),
+    bidCpm: cpm("0.150"), budget: bud("50"),
     metaSuffix: "liquiditydao",
   },
   // C2: Charlie → Diana  |  crypto
@@ -88,7 +96,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C2 ChainSwap DEX (Charlie→Diana, crypto)",
     advertiser: "charlie", publisher: "diana",
     requiredTagSlugs: ["topic:crypto-web3"],
-    bidCpm: parseDOT("0.120"), budget: parseDOT("40"),
+    bidCpm: cpm("0.120"), budget: bud("40"),
     metaSuffix: "chainswap-dex",
   },
   // C3: Bob → open  |  crypto+computers  |  DEV rewards
@@ -96,7 +104,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C3 NFT Launchpad (Bob→open, crypto+tech)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:crypto-web3", "topic:computers-electronics"],
-    bidCpm: parseDOT("0.100"), budget: parseDOT("30"),
+    bidCpm: cpm("0.100"), budget: bud("30"),
     metaSuffix: "nft-launchpad",
   },
   // C4: Charlie → open  |  defi
@@ -104,7 +112,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C4 YieldFarm Pro (Charlie→open, defi)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: ["topic:defi"],
-    bidCpm: parseDOT("0.090"), budget: parseDOT("30"),
+    bidCpm: cpm("0.090"), budget: bud("30"),
     metaSuffix: "yieldfarm-pro",
   },
   // C5: Bob → open  |  crypto+defi  |  SWAP rewards
@@ -112,7 +120,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C5 PolkaHub Bridge (Bob→open, crypto+defi)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:crypto-web3", "topic:defi"],
-    bidCpm: parseDOT("0.085"), budget: parseDOT("25"),
+    bidCpm: cpm("0.085"), budget: bud("25"),
     metaSuffix: "polkahub-bridge",
   },
   // C6: Charlie → Diana  |  crypto  |  second bid competing with C2
@@ -120,7 +128,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C6 StakeEasy (Charlie→Diana, crypto)",
     advertiser: "charlie", publisher: "diana",
     requiredTagSlugs: ["topic:crypto-web3"],
-    bidCpm: parseDOT("0.075"), budget: parseDOT("20"),
+    bidCpm: cpm("0.075"), budget: bud("20"),
     metaSuffix: "stakeeasy",
   },
 
@@ -130,7 +138,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C7 WealthTrack AI (Charlie→Eve, finance)",
     advertiser: "charlie", publisher: "eve",
     requiredTagSlugs: ["topic:finance"],
-    bidCpm: parseDOT("0.080"), budget: parseDOT("30"),
+    bidCpm: cpm("0.080"), budget: bud("30"),
     metaSuffix: "wealthtrack-ai",
   },
   // C8: Bob → Eve  |  finance+news
@@ -138,7 +146,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C8 MarketPulse (Bob→Eve, finance+news)",
     advertiser: "bob", publisher: "eve",
     requiredTagSlugs: ["topic:finance", "topic:news"],
-    bidCpm: parseDOT("0.065"), budget: parseDOT("25"),
+    bidCpm: cpm("0.065"), budget: bud("25"),
     metaSuffix: "marketpulse",
   },
   // C9: Charlie → open  |  finance+society
@@ -146,7 +154,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C9 RetireDAO (Charlie→open, finance+society)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: ["topic:finance", "topic:people-society"],
-    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    bidCpm: cpm("0.055"), budget: bud("20"),
     metaSuffix: "retiredao",
   },
   // C10: Bob → open  |  finance
@@ -154,7 +162,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C10 CryptoTax Pro (Bob→open, finance)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:finance"],
-    bidCpm: parseDOT("0.050"), budget: parseDOT("20"),
+    bidCpm: cpm("0.050"), budget: bud("20"),
     metaSuffix: "cryptotax-pro",
   },
 
@@ -164,7 +172,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C11 DevChain IDE (Bob→Frank, tech)",
     advertiser: "bob", publisher: "frank",
     requiredTagSlugs: ["topic:computers-electronics"],
-    bidCpm: parseDOT("0.065"), budget: parseDOT("25"),
+    bidCpm: cpm("0.065"), budget: bud("25"),
     metaSuffix: "devchain-ide",
   },
   // C12: Charlie → Frank  |  tech+science
@@ -172,7 +180,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C12 AI Research Hub (Charlie→Frank, tech+science)",
     advertiser: "charlie", publisher: "frank",
     requiredTagSlugs: ["topic:computers-electronics", "topic:science"],
-    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    bidCpm: cpm("0.055"), budget: bud("20"),
     metaSuffix: "ai-research-hub",
   },
   // C13: Bob → open  |  internet-telecom  |  SWAP rewards
@@ -180,7 +188,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C13 Web3 DNS (Bob→open, internet-telecom)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:internet-telecom"],
-    bidCpm: parseDOT("0.045"), budget: parseDOT("15"),
+    bidCpm: cpm("0.045"), budget: bud("15"),
     metaSuffix: "web3-dns",
   },
   // C14: Charlie → open  |  computers-electronics
@@ -188,7 +196,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C14 CloudMine PoW (Charlie→open, tech)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: ["topic:computers-electronics"],
-    bidCpm: parseDOT("0.040"), budget: parseDOT("15"),
+    bidCpm: cpm("0.040"), budget: bud("15"),
     metaSuffix: "cloudmine-pow",
   },
 
@@ -198,7 +206,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C15 ArcadeChain NFTs (Charlie→Heidi, gaming)",
     advertiser: "charlie", publisher: "heidi",
     requiredTagSlugs: ["topic:gaming"],
-    bidCpm: parseDOT("0.055"), budget: parseDOT("20"),
+    bidCpm: cpm("0.055"), budget: bud("20"),
     metaSuffix: "arcadechain",
   },
   // C16: Bob → Heidi  |  gaming+arts
@@ -206,7 +214,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C16 PixelVerse (Bob→Heidi, gaming+arts)",
     advertiser: "bob", publisher: "heidi",
     requiredTagSlugs: ["topic:gaming", "topic:arts-entertainment"],
-    bidCpm: parseDOT("0.048"), budget: parseDOT("20"),
+    bidCpm: cpm("0.048"), budget: bud("20"),
     metaSuffix: "pixelverse",
   },
   // C17: Charlie → open  |  gaming (lower CPM, broad open)
@@ -214,7 +222,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C17 MetaArena (Charlie→open, gaming)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: ["topic:gaming"],
-    bidCpm: parseDOT("0.038"), budget: parseDOT("15"),
+    bidCpm: cpm("0.038"), budget: bud("15"),
     metaSuffix: "meta-arena",
   },
 
@@ -224,7 +232,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C18 FitToken Gym (Bob→Grace, sports, allowlist)",
     advertiser: "bob", publisher: "grace",
     requiredTagSlugs: ["topic:sports"],
-    bidCpm: parseDOT("0.045"), budget: parseDOT("20"),
+    bidCpm: cpm("0.045"), budget: bud("20"),
     metaSuffix: "fittoken-gym",
   },
   // C19: Bob → Grace  |  health+fitness  |  FIT rewards  |  allowlist
@@ -232,7 +240,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C19 BioHack Labs (Bob→Grace, health+fitness, allowlist)",
     advertiser: "bob", publisher: "grace",
     requiredTagSlugs: ["topic:health", "topic:beauty-fitness"],
-    bidCpm: parseDOT("0.040"), budget: parseDOT("15"),
+    bidCpm: cpm("0.040"), budget: bud("15"),
     metaSuffix: "biohack-labs",
   },
   // C20: Charlie → open  |  sports+health (no allowlist needed)
@@ -240,7 +248,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C20 RunDAO (Charlie→open, sports+health)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: ["topic:sports", "topic:health"],
-    bidCpm: parseDOT("0.030"), budget: parseDOT("15"),
+    bidCpm: cpm("0.030"), budget: bud("15"),
     metaSuffix: "rundao",
   },
 
@@ -250,7 +258,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C21 ChainBreaker News (Charlie→Eve, news)",
     advertiser: "charlie", publisher: "eve",
     requiredTagSlugs: ["topic:news"],
-    bidCpm: parseDOT("0.030"), budget: parseDOT("15"),
+    bidCpm: cpm("0.030"), budget: bud("15"),
     metaSuffix: "chainbreaker-news",
   },
   // C22: Bob → open  |  news+society
@@ -258,7 +266,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C22 Civic3 (Bob→open, news+society)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:news", "topic:people-society"],
-    bidCpm: parseDOT("0.025"), budget: parseDOT("10"),
+    bidCpm: cpm("0.025"), budget: bud("10"),
     metaSuffix: "civic3",
   },
 
@@ -268,7 +276,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C23 TravelDAO (Bob→open, travel)",
     advertiser: "bob", publisher: "open",
     requiredTagSlugs: ["topic:travel"],
-    bidCpm: parseDOT("0.028"), budget: parseDOT("10"),
+    bidCpm: cpm("0.028"), budget: bud("10"),
     metaSuffix: "traveldao",
   },
   // C24: Charlie → open  |  no tags  |  broad fallback for all publishers
@@ -276,7 +284,7 @@ const CAMPAIGN_CONFIGS: Omit<CampaignConfig, "tokenReward">[] = [
     label: "C24 Polkadot Ecosystem (Charlie→open, no tags)",
     advertiser: "charlie", publisher: "open",
     requiredTagSlugs: [],
-    bidCpm: parseDOT("0.020"), budget: parseDOT("20"),
+    bidCpm: cpm("0.020"), budget: bud("20"),
     metaSuffix: "polkadot-ecosystem",
   },
 ];
@@ -350,7 +358,7 @@ const tagSystemAbi = ["function setPublisherTags(bytes32[] tagHashes)"];
 // to DatumCampaignCreative. Old single-pot createCampaign + governance-vote
 // activation are gone.
 const campaignsAbi = [
-  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetPlanck, uint256 dailyCapPlanck, uint256 ratePlanck, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
+  "function createCampaignWithActivation(address publisher, tuple(uint8 actionType, uint256 budgetWei, uint256 dailyCapWei, uint256 rateWei, address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount, uint256 activationBondAmount) payable returns (uint256)",
   "function getCampaignStatus(uint256 campaignId) view returns (uint8)",
   "function nextCampaignId() view returns (uint256)",
 ];
@@ -451,29 +459,29 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
   log("1", "--- Funding accounts ---");
   const aliceBal = await rawProvider.getBalance(alice.address);
-  log("1", `Alice balance: ${formatDOT(aliceBal)} PAS`);
+  log("1", `Alice balance: ${fmt(aliceBal)} PAS`);
 
   // alpha-5: optimistic activation (no Frank governance votes), so advertisers
   // need budget + gas, publishers just gas.
   const toFund: [string, Wallet, bigint][] = [
-    ["bob",     bob,     parseDOT("350")],  // 12 campaigns × ~22 PAS avg budget + gas
-    ["charlie", charlie, parseDOT("350")],
-    ["diana",   diana,   parseDOT("50")],
-    ["eve",     eve,     parseDOT("50")],
-    ["frank",   frank,   parseDOT("50")],
-    ["grace",   grace,   parseDOT("50")],
-    ["heidi",   heidi,   parseDOT("50")],
+    ["bob",     bob,     dot("350")],  // 12 campaigns × ~22 PAS avg budget + gas
+    ["charlie", charlie, dot("350")],
+    ["diana",   diana,   dot("50")],
+    ["eve",     eve,     dot("50")],
+    ["frank",   frank,   dot("50")],
+    ["grace",   grace,   dot("50")],
+    ["heidi",   heidi,   dot("50")],
   ];
   for (const [name, wallet, amount] of toFund) {
     const bal = await rawProvider.getBalance(wallet.address);
-    const threshold = parseDOT("40");
+    const threshold = dot("40");
     if (bal >= threshold) {
-      log("1", `  ${name}: ${formatDOT(bal)} PAS — skipping`);
+      log("1", `  ${name}: ${fmt(bal)} PAS — skipping`);
       continue;
     }
     try {
       await sendTransfer(alice, rawProvider, wallet.address, amount);
-      log("1", `  ${name}: funded ${formatDOT(amount)} PAS`);
+      log("1", `  ${name}: funded ${fmt(amount)} PAS`);
     } catch (err) {
       console.error(`  FAILED to fund ${name}: ${String(err).slice(0, 150)}`);
       process.exitCode = 1; return;
@@ -623,7 +631,7 @@ async function main() {
   }
   const minBond = activationIface.decodeFunctionResult("minBond",
     await readCall(rawProvider, addrs.activationBonds, activationIface, "minBond", []))[0] as bigint;
-  log("7", `  ActivationBonds.minBond: ${formatDOT(BigInt(minBond))} PAS`);
+  log("7", `  ActivationBonds.minBond: ${fmt(BigInt(minBond))} PAS`);
 
   const campaignIds: bigint[] = [];
   // Compute ids from base + offset — Paseo's eth_call lags state, so re-reading
@@ -639,10 +647,9 @@ async function main() {
     const reward = tokenRewards[i];
     const rewardToken = reward?.token ?? ethers.ZeroAddress;
     const rewardPer  = reward?.rewardPerImpression ?? 0n;
-    // ratePlanck (CPM) is 10-decimal planck; the configs use parseDOT (18-decimal)
-    // so divide by 1e8. (budget/dailyCap stay 18-decimal — matches setup-testnet.)
-    const ratePlanck = cfg.bidCpm / (10n ** 8n);
-    const pots = [{ actionType: 0, budgetPlanck: cfg.budget, dailyCapPlanck: cfg.budget, ratePlanck, actionVerifier: ethers.ZeroAddress }];
+    // CPM and budget are both 18-decimal wei (PAS) now — no cross-scale fudge.
+    const rate = cfg.bidCpm;
+    const pots = [{ actionType: 0, budgetWei: cfg.budget, dailyCapWei: cfg.budget, rateWei: rate, actionVerifier: ethers.ZeroAddress }];
     const cid = baseCampaignId + BigInt(campaignIds.length);
 
     try {
@@ -651,7 +658,7 @@ async function main() {
         cfg.budget + BigInt(minBond),
       );
       campaignIds.push(cid);
-      log("7", `  ${cfg.label} → ID ${cid} (CPM ${formatDOT(ratePlanck * (10n ** 8n))} PAS)`);
+      log("7", `  ${cfg.label} → ID ${cid} (CPM ${fmt(rateWei)} PAS)`);
     } catch (err) {
       console.error(`  FAILED to create ${cfg.label}: ${String(err).slice(0, 200)}`);
       process.exitCode = 1; return;
@@ -677,7 +684,7 @@ async function main() {
       await sendCall(advWallet, rawProvider, reward.token, erc20Iface, "approve", [addrs.tokenRewardVault, reward.deposit]);
       // Deposit
       await sendCall(advWallet, rawProvider, addrs.tokenRewardVault, vaultIface, "depositCampaignBudget", [cid, reward.token, reward.deposit]);
-      log("8", `  Campaign ${cid}: ${formatDOT(reward.deposit * 10000n / 10n ** 18n)} (×10⁻⁴) tokens deposited`);
+      log("8", `  Campaign ${cid}: ${fmt(reward.deposit * 10000n / 10n ** 18n)} (×10⁻⁴) tokens deposited`);
     } catch (err) {
       log("8", `  Campaign ${cid} token deposit failed: ${String(err).slice(0, 100)}`);
     }

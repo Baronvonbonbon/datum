@@ -147,7 +147,7 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
     );
     const claimHash = ethers.keccak256(hash);
     return {
-      campaignId: cid, publisher: pub, eventCount, ratePlanck: CPM, actionType: 0,
+      campaignId: cid, publisher: pub, eventCount, rateWei: CPM, actionType: 0,
       clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prev, claimHash,
       zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash,
       stakeRootUsed: ethers.ZeroHash,
@@ -497,7 +497,7 @@ describe("Audit M-4: maxAllowedMinStake can be lowered after campaign creation",
     await campaigns.setMaxAllowedMinStake(10_000n);
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n, ratePlanck: 1n, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: 1_000_000_000n, dailyCapWei: 1_000_000_000n, rateWei: 1n, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n,
       { value: 1_000_000_000n }
     );

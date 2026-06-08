@@ -13,7 +13,7 @@ interface IDatumSettlement {
         uint256 campaignId;
         address publisher;
         uint256 eventCount;          // number of events (impressions, clicks, or actions)
-        uint256 ratePlanck;          // clearing rate: per-1000 for view, flat per-event for click/action
+        uint256 rateWei;          // clearing rate: per-1000 for view, flat per-event for click/action
         uint8   actionType;          // 0=view, 1=click, 2=remote-action
         bytes32 clickSessionHash;    // type-1 only: keccak256(user, campaignId, impressionNonce); bytes32(0) for others
         uint256 nonce;
@@ -75,7 +75,7 @@ interface IDatumSettlement {
         address indexed user,
         address indexed publisher,
         uint256 eventCount,
-        uint256 ratePlanck,
+        uint256 rateWei,
         uint8   actionType,
         uint256 nonce,
         uint256 publisherPayment,

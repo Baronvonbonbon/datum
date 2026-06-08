@@ -47,7 +47,7 @@ interface MinCampaign {
   publisher: string;
   remainingBudget: string;
   dailyCap: string;
-  bidCpmPlanck: string;
+  bidCpmWei: string;
   snapshotTakeRateBps: string;
   status: string;
   categoryId: string;
@@ -66,7 +66,7 @@ function makeCampaign(id: string, overrides: Partial<MinCampaign> = {}): MinCamp
     publisher: "0x" + "bb".repeat(20),
     remainingBudget: "1000000000000",
     dailyCap: "100000000000",
-    bidCpmPlanck: "16000000000",
+    bidCpmWei: "16000000000",
     snapshotTakeRateBps: "5000",
     status: "1", // Active
     categoryId: "0",
@@ -147,14 +147,14 @@ describe("campaignPoller — storage layer", () => {
 
   // ── CP-6: getCached flat array ────────────────────────────────────────────
   test("CP-6: getCached returns flat array stored at STORAGE_KEY", async () => {
-    const campaigns = [makeCampaign("1"), makeCampaign("2", { bidCpmPlanck: "32000000000" })];
+    const campaigns = [makeCampaign("1"), makeCampaign("2", { bidCpmWei: "32000000000" })];
     seedStore({ [STORAGE_KEY]: campaigns });
 
     const stored = await chrome.storage.local.get(STORAGE_KEY);
     const result: MinCampaign[] = stored[STORAGE_KEY] ?? [];
 
     expect(result).toHaveLength(2);
-    expect(result[1].bidCpmPlanck).toBe("32000000000");
+    expect(result[1].bidCpmWei).toBe("32000000000");
   });
 });
 
@@ -315,9 +315,9 @@ describe("campaignPoller — ERC-20 sidecar and competing CPMs", () => {
   // ── CP-10: Competing CPMs stored independently ────────────────────────────
   test("CP-10: three competing campaigns at different CPMs stored independently", async () => {
     const campaigns = [
-      makeCampaign("20", { bidCpmPlanck: "500000000000" }),  // 50 DOT CPM
-      makeCampaign("21", { bidCpmPlanck: "200000000000" }),  // 20 DOT CPM
-      makeCampaign("22", { bidCpmPlanck: "100000000000" }),  // 10 DOT CPM
+      makeCampaign("20", { bidCpmWei: "500000000000" }),  // 50 DOT CPM
+      makeCampaign("21", { bidCpmWei: "200000000000" }),  // 20 DOT CPM
+      makeCampaign("22", { bidCpmWei: "100000000000" }),  // 10 DOT CPM
     ];
     const index = Object.fromEntries(campaigns.map(c => [c.id, c]));
     await chrome.storage.local.set({ [INDEX_KEY]: index, [STORAGE_KEY]: campaigns });
@@ -325,25 +325,25 @@ describe("campaignPoller — ERC-20 sidecar and competing CPMs", () => {
     const stored = await chrome.storage.local.get([INDEX_KEY]);
     const idx: Record<string, MinCampaign> = stored[INDEX_KEY] ?? {};
 
-    expect(idx["20"].bidCpmPlanck).toBe("500000000000");
-    expect(idx["21"].bidCpmPlanck).toBe("200000000000");
-    expect(idx["22"].bidCpmPlanck).toBe("100000000000");
+    expect(idx["20"].bidCpmWei).toBe("500000000000");
+    expect(idx["21"].bidCpmWei).toBe("200000000000");
+    expect(idx["22"].bidCpmWei).toBe("100000000000");
 
     // Campaign 20 has 5× the CPM of campaign 22
-    expect(BigInt(idx["20"].bidCpmPlanck) / BigInt(idx["22"].bidCpmPlanck)).toBe(5n);
+    expect(BigInt(idx["20"].bidCpmWei) / BigInt(idx["22"].bidCpmWei)).toBe(5n);
   });
 
   test("CP-10b: IPFS + ERC-20 + plain campaigns coexist with distinct IDs", async () => {
     const ipfsCampaign  = makeCampaign("30", {
       metadataHash: KNOWN_BYTES32,
-      bidCpmPlanck: "200000000000",
+      bidCpmWei: "200000000000",
     });
     const ercCampaign   = makeCampaign("31", {
       rewardToken: "0x" + "ee".repeat(20),
       rewardPerImpression: "5000000000000000",
-      bidCpmPlanck: "500000000000", // higher DOT CPM (premium)
+      bidCpmWei: "500000000000", // higher DOT CPM (premium)
     });
-    const plainCampaign = makeCampaign("32", { bidCpmPlanck: "100000000000" });
+    const plainCampaign = makeCampaign("32", { bidCpmWei: "100000000000" });
 
     const index = { "30": ipfsCampaign, "31": ercCampaign, "32": plainCampaign };
     const active = [ipfsCampaign, ercCampaign, plainCampaign];
@@ -359,7 +359,7 @@ describe("campaignPoller — ERC-20 sidecar and competing CPMs", () => {
 
     // ERC-20 sidecar campaign (highest CPM)
     expect(idx["31"].rewardToken).toBe("0x" + "ee".repeat(20));
-    expect(BigInt(idx["31"].bidCpmPlanck)).toBeGreaterThan(BigInt(idx["30"].bidCpmPlanck));
+    expect(BigInt(idx["31"].bidCpmWei)).toBeGreaterThan(BigInt(idx["30"].bidCpmWei));
 
     // Plain campaign
     expect(idx["32"].rewardToken).toBeUndefined();

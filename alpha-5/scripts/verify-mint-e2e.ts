@@ -123,7 +123,7 @@ async function main() {
   const BUDGET = parseDOT("10");
   const DAILY  = parseDOT("5");
   const CPM    = parseDOT("0.5");
-  const pots = [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }];
+  const pots = [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }];
   const activationBond = parseDOT("0.5");
   const totalValue = BUDGET + activationBond;
 
@@ -153,7 +153,7 @@ async function main() {
 
   console.log("\n=== Stage 5: User settles 1 claim × 100 impressions ===");
   // Build the Claim struct manually. Required fields (per IDatumSettlement):
-  //   campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash,
+  //   campaignId, publisher, user, eventCount, rateWei, actionType, clickSessionHash,
   //   nonce, previousClaimHash, claimHash, zkProof[8], nullifier, stakeRootUsed, actionSig[3], powNonce
   //
   // claimHash = keccak(abi.encode(10 fields incl stakeRootUsed))
@@ -163,7 +163,7 @@ async function main() {
     publisher: diana.address,
     user: user.address,
     eventCount: 100n,
-    ratePlanck: CPM,
+    rateWei: CPM,
     actionType: 0,
     clickSessionHash: ethers.ZeroHash,
     nonce: 1n,
@@ -177,7 +177,7 @@ async function main() {
   };
   claim.claimHash = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
     ["uint256","address","address","uint256","uint256","uint8","bytes32","uint256","bytes32","bytes32"],
-    [claim.campaignId, claim.publisher, claim.user, claim.eventCount, claim.ratePlanck, claim.actionType,
+    [claim.campaignId, claim.publisher, claim.user, claim.eventCount, claim.rateWei, claim.actionType,
      claim.clickSessionHash, claim.nonce, claim.previousClaimHash, claim.stakeRootUsed],
   ));
 

@@ -28,12 +28,12 @@ import * as fs from "fs";
 // ---------------------------------------------------------------------------
 function computeClaimHash(
   campaignId: bigint, publisher: string, user: string,
-  impressionCount: bigint, clearingCpmPlanck: bigint,
+  impressionCount: bigint, clearingCpmWei: bigint,
   nonce: bigint, previousClaimHash: string
 ): string {
   return ethersKeccakAbi(
     ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-    [campaignId, publisher, user, impressionCount, clearingCpmPlanck, nonce, previousClaimHash],
+    [campaignId, publisher, user, impressionCount, clearingCpmWei, nonce, previousClaimHash],
   );
 }
 
@@ -48,7 +48,7 @@ function buildClaimChain(
     const claimHash = computeClaimHash(campaignId, publisher, user, impressions, cpm, nonce, prevHash);
     claims.push({
       campaignId, publisher, impressionCount: impressions,
-      clearingCpmPlanck: cpm, nonce, previousClaimHash: prevHash,
+      clearingCpmWei: cpm, nonce, previousClaimHash: prevHash,
       claimHash, zkProof: "0x",
     });
     prevHash = claimHash;
@@ -127,7 +127,7 @@ async function estimateGas(
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
-interface Measurement { label: string; gasUsed: bigint; costPlanck: bigint }
+interface Measurement { label: string; gasUsed: bigint; costWei: bigint }
 
 async function main() {
 
@@ -190,9 +190,9 @@ async function main() {
   const results: Measurement[] = [];
 
   async function measure(label: string, gasUsed: bigint): Promise<void> {
-    const costPlanck = gasUsed * gasPrice;
-    results.push({ label, gasUsed, costPlanck });
-    console.log(`  ${label}: gas=${gasUsed}  cost=${formatWeiAsDOT(costPlanck)} DOT`);
+    const costWei = gasUsed * gasPrice;
+    results.push({ label, gasUsed, costWei });
+    console.log(`  ${label}: gas=${gasUsed}  cost=${formatWeiAsDOT(costWei)} DOT`);
   }
 
   // Get next campaign ID
@@ -365,7 +365,7 @@ async function main() {
   console.log(`${"Function".padEnd(30)} | ${"Gas (weight)".padEnd(16)} | ${"Cost (DOT)".padEnd(16)} | Cost (USD @$5)`);
   console.log("-".repeat(90));
   for (const r of results) {
-    const dotCost = Number(r.costPlanck) / 1e18;
+    const dotCost = Number(r.costWei) / 1e18;
     const usdCost = dotCost * 5;
     console.log(`${r.label.padEnd(30)} | ${r.gasUsed.toString().padEnd(16)} | ${dotCost.toFixed(6).padEnd(16)} | $${usdCost.toFixed(4)}`);
   }
@@ -373,8 +373,8 @@ async function main() {
   const s1 = results.find(r => r.label === "settleClaims (1 claim)");
   const s5 = results.find(r => r.label === "settleClaims (5 claims)");
   if (s1 && s5) {
-    const s5Dot = Number(s5.costPlanck) / 1e18;
-    const s1Dot = Number(s1.costPlanck) / 1e18;
+    const s5Dot = Number(s5.costWei) / 1e18;
+    const s1Dot = Number(s1.costWei) / 1e18;
     console.log(`\nSettlement scale: 5-claim / 1-claim = ${(Number(s5.gasUsed) / Number(s1.gasUsed)).toFixed(2)}x`);
     console.log(`Per-claim cost in 5-batch: ${(s5Dot / 5).toFixed(6)} DOT vs single: ${s1Dot.toFixed(6)} DOT`);
   }
@@ -464,7 +464,7 @@ async function main() {
   console.log(`| Function | Gas (weight) | Cost (DOT) | Cost (USD @$5) |`);
   console.log(`|----------|-------------|-----------|---------------|`);
   for (const r of results) {
-    const dotCost = Number(r.costPlanck) / 1e18;
+    const dotCost = Number(r.costWei) / 1e18;
     const usdCost = dotCost * 5;
     console.log(`| \`${r.label}\` | ${r.gasUsed} | ${dotCost.toFixed(6)} | $${usdCost.toFixed(4)} |`);
   }

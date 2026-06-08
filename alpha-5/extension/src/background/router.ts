@@ -144,7 +144,7 @@ export function serializeBatches(batches: ClaimBatch[]): SerializedClaimBatch[] 
       campaignId: c.campaignId.toString(),
       publisher: c.publisher,
       eventCount: c.eventCount.toString(),
-      ratePlanck: c.ratePlanck.toString(),
+      rateWei: c.rateWei.toString(),
       actionType: c.actionType.toString(),
       clickSessionHash: c.clickSessionHash,
       nonce: c.nonce.toString(),
@@ -198,7 +198,7 @@ export async function routeMessage(
         await impressionLog.add({
           campaignId: msg.campaignId,
           publisherAddress: msg.publisherAddress,
-          ratePlanck: msg.clearingCpmPlanck ?? "0",
+          rateWei: msg.clearingCpmWei ?? "0",
           actionType: 0,
           timestamp: Date.now(),
           url: msg.url,
@@ -219,7 +219,7 @@ export async function routeMessage(
       await impressionLog.add({
         campaignId: msg.campaignId,
         publisherAddress: msg.publisherAddress,
-        ratePlanck: msg.clearingCpmPlanck ?? "0",
+        rateWei: msg.clearingCpmWei ?? "0",
         actionType: 0,
         timestamp: Date.now(),
         url: msg.url,
@@ -253,7 +253,7 @@ export async function routeMessage(
           campaignId: msg.campaignId,
           publisherAddress: msg.publisherAddress,
           impressionNonce: msg.impressionNonce,
-          ratePlanck: campaign.clickBid,
+          rateWei: campaign.clickBid,
         });
         return { ok: true };
       } catch (err) {
@@ -317,7 +317,7 @@ export async function routeMessage(
         await claimBuilder.onRemoteAction({
           campaignId: msg.campaignId,
           publisherAddress: msg.publisherAddress,
-          ratePlanck: campaign.actionBid,
+          rateWei: campaign.actionBid,
           actionSig,
         });
         return { ok: true };
@@ -727,7 +727,7 @@ export async function routeMessage(
       if (auctionResult) {
         return {
           selected: auctionResult.winner,
-          clearingCpmPlanck: auctionResult.clearingCpmPlanck.toString(),
+          clearingCpmWei: auctionResult.clearingCpmWei.toString(),
           mechanism: auctionResult.mechanism,
           participants: auctionResult.participants,
           allBids: auctionResult.allScored,

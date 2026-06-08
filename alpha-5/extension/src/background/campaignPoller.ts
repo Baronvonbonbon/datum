@@ -39,9 +39,9 @@ interface SerializedCampaign {
   advertiser: string;
   publisher: string;
   remainingBudget: string;
-  viewBid: string;           // view pot ratePlanck (CPM); "0" if no view pot
-  clickBid: string;          // click pot ratePlanck (flat per-click); "0" if no click pot
-  actionBid: string;         // remote-action pot ratePlanck; "0" if no action pot
+  viewBid: string;           // view pot rateWei (CPM); "0" if no view pot
+  clickBid: string;          // click pot rateWei (flat per-click); "0" if no click pot
+  actionBid: string;         // remote-action pot rateWei; "0" if no action pot
   snapshotTakeRateBps: string;
   status: string;
   /** @deprecated Use requiredTags for matching. Kept for backward compat synthesis. */
@@ -359,7 +359,7 @@ export const campaignPoller = {
           if (Array.isArray(pots)) {
             for (const pot of pots) {
               const aType = Number(pot.actionType ?? pot[0]);
-              const rate = BigInt(pot.ratePlanck ?? pot[3] ?? 0n).toString();
+              const rate = BigInt(pot.rateWei ?? pot[3] ?? 0n).toString();
               if (aType === 1) camp.clickBid = rate;
               if (aType === 2) camp.actionBid = rate;
             }
@@ -570,7 +570,7 @@ export const campaignPoller = {
           if (Array.isArray(pots)) {
             for (const pot of pots) {
               const aType = Number(pot.actionType ?? pot[0]);
-              const rate = BigInt(pot.ratePlanck ?? pot[3] ?? 0n).toString();
+              const rate = BigInt(pot.rateWei ?? pot[3] ?? 0n).toString();
               if (aType === 1) camp.clickBid = rate;
               if (aType === 2) camp.actionBid = rate;
             }

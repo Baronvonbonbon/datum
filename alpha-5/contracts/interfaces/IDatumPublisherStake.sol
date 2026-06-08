@@ -4,14 +4,14 @@ pragma solidity ^0.8.24;
 /// @title IDatumPublisherStake
 /// @notice FP-1 + FP-4: Publisher staking with bonding-curve requirement.
 ///         Publishers lock DOT proportional to impression volume.
-///         Required stake = baseStakePlanck + cumulativeImpressions * planckPerImpression
+///         Required stake = baseStakeWei + cumulativeImpressions * planckPerImpression
 interface IDatumPublisherStake {
     event Staked(address indexed publisher, uint256 amount, uint256 newTotal);
     event UnstakeRequested(address indexed publisher, uint256 amount, uint256 availableBlock);
     event Unstaked(address indexed publisher, uint256 amount);
     event Slashed(address indexed publisher, uint256 amount, address recipient);
     event ImpressionsRecorded(address indexed publisher, uint256 added, uint256 cumulative);
-    event ParamsUpdated(uint256 baseStakePlanck, uint256 planckPerImpression, uint256 unstakeDelayBlocks);
+    event ParamsUpdated(uint256 baseStakeWei, uint256 planckPerImpression, uint256 unstakeDelayBlocks);
 
     struct UnstakeRequest {
         uint256 amount;
@@ -58,7 +58,7 @@ interface IDatumPublisherStake {
 
     // ── Parameters ─────────────────────────────────────────────────────────────
 
-    function baseStakePlanck() external view returns (uint256);
+    function baseStakeWei() external view returns (uint256);
     function planckPerImpression() external view returns (uint256);
     function unstakeDelayBlocks() external view returns (uint256);
 }

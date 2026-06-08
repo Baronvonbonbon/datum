@@ -242,7 +242,7 @@ async function main() {
     } catch { return null; }
 
     const match = selectionResponse?.selected ?? null;
-    const clearingCpmPlanck: string | undefined = selectionResponse?.clearingCpmPlanck;
+    const clearingCpmWei: string | undefined = selectionResponse?.clearingCpmWei;
     const auctionMechanism: string | undefined = selectionResponse?.mechanism;
 
     // Dispatch auction debug event (one per slot)
@@ -257,7 +257,7 @@ async function main() {
           excludedCampaignIds,
           winnerId: match?.id ?? match?.campaignId ?? null,
           mechanism: auctionMechanism ?? (match ? "legacy" : "none"),
-          clearingCpmPlanck: clearingCpmPlanck ?? null,
+          clearingCpmWei: clearingCpmWei ?? null,
           participants: selectionResponse?.participants ?? 0,
           allBids: selectionResponse?.allBids ?? [],
           campaigns: pool.map((c: any) => ({
@@ -346,7 +346,7 @@ async function main() {
         url: window.location.href,
         category: category ?? "",
         publisherAddress: effectivePublisher,
-        clearingCpmPlanck,
+        clearingCpmWei,
         attestation: attestation ?? undefined,
         campaignTags,
       });
@@ -360,7 +360,7 @@ async function main() {
       metadata: validatedMeta,
       metadataHash: match.metadataHash || undefined,
       auctionMechanism: auctionMechanism as any,
-      clearingCpmPlanck,
+      clearingCpmWei,
       ipfsGateway,
       currencySymbol,
       topicLabel: firstTopicTag?.label,

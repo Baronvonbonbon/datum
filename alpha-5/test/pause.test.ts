@@ -169,7 +169,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWithCustomError(tagSystem, "Paused");
@@ -179,7 +179,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   it("P3: createCampaign works when unpaused", async function () {
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -191,7 +191,7 @@ describe("Global Pause (DatumPauseRegistry)", function () {
   it("P4: activateCampaign reverts when paused", async function () {
     await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     const cid = await campaigns.nextCampaignId() - 1n;

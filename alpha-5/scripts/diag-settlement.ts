@@ -63,7 +63,7 @@ async function main() {
   console.log("\npaused:", pauseIface.decodeFunctionResult("paused", pauseResult)[0]);
 
   // 5. Try eth_call with empty batches
-  const CLAIM_T = "uint256 campaignId, address publisher, uint256 eventCount, uint256 ratePlanck, uint8 actionType, bytes32 clickSessionHash, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes32[8] zkProof, bytes32 nullifier, bytes32[3] actionSig";
+  const CLAIM_T = "uint256 campaignId, address publisher, uint256 eventCount, uint256 rateWei, uint8 actionType, bytes32 clickSessionHash, uint256 nonce, bytes32 previousClaimHash, bytes32 claimHash, bytes32[8] zkProof, bytes32 nullifier, bytes32[3] actionSig";
   const settleIface = new Interface([
     `function settleClaims((address user, uint256 campaignId, (${CLAIM_T})[] claims)[] batches) returns (uint256 settledCount, uint256 rejectedCount, uint256 totalPaid)`,
   ]);

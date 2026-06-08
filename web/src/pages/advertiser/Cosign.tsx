@@ -28,7 +28,7 @@ interface Claim {
   campaignId: string;
   publisher: string;
   eventCount: string;
-  ratePlanck?: string;
+  rateWei?: string;
   actionType?: string | number;
   clickSessionHash: string;
   nonce: string;
@@ -194,7 +194,7 @@ export function AdvertiserCosign() {
           campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
           eventCount: BigInt(c.eventCount),
-          ratePlanck: BigInt(c.ratePlanck ?? "0"),
+          rateWei: BigInt(c.rateWei ?? "0"),
           actionType: Number(c.actionType ?? 0),
           clickSessionHash: c.clickSessionHash || ethers.ZeroHash,
           nonce: BigInt(c.nonce),

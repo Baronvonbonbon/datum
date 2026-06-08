@@ -15,7 +15,7 @@ import { useSettings } from "../context/SettingsContext";
 import { useContracts } from "../hooks/useContracts";
 import { fetchCampaignInfo, type CampaignInfo } from "../lib/campaignInfoCache";
 import { BrandChip } from "./BrandChip";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 
 type Size = "sm" | "md" | "lg";
 
@@ -138,9 +138,9 @@ export function CampaignChip({
           <BrandChip address={info.advertiser} size="sm" role="advertiser" />
         </div>
       )}
-      {showCpm && info && info.viewBidPlanck && info.viewBidPlanck !== "0" && (
+      {showCpm && info && info.viewBidWei && info.viewBidWei !== "0" && (
         <span style={{ fontSize: s.sub, color: "var(--text-muted)" }}>
-          CPM {formatDOT(BigInt(info.viewBidPlanck))}
+          CPM {formatDotWei(BigInt(info.viewBidWei))}
         </span>
       )}
       {loading && !hasTitle && (

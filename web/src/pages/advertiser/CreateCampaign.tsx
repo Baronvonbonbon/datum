@@ -5,7 +5,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useWallet } from "../../context/WalletContext";
 import { useSettings } from "../../context/SettingsContext";
 import { TransactionStatus } from "../../components/TransactionStatus";
-import { parseDOTSafe } from "@shared/dot";
+import { parseDotWeiSafe } from "@shared/dot";
 import { getCurrencySymbol } from "@shared/networks";
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
@@ -41,9 +41,10 @@ export function CreateCampaign() {
   const [publisher, setPublisher] = useState("");
 
   // View pot (CPM) — always required
-  const [viewBudget, setViewBudget] = useState("1");
-  const [viewDailyCap, setViewDailyCap] = useState("0.1");
-  const [viewBidCpm, setViewBidCpm] = useState("0.001");
+  // Amounts are in PAS (18-dec wei). Default CPM = 1 PAS → ~0.001 PAS/impression.
+  const [viewBudget, setViewBudget] = useState("10");
+  const [viewDailyCap, setViewDailyCap] = useState("2");
+  const [viewBidCpm, setViewBidCpm] = useState("1");
 
   // Click pot (CPC) — optional
   const [enableClick, setEnableClick] = useState(false);
@@ -65,7 +66,7 @@ export function CreateCampaign() {
   // Optional: subsidize identity refresh for users engaging with this
   // campaign. Funds bridge.fundXcmRefreshEscrow(cid) post-creation.
   // "" = no subsidy. Otherwise a planck amount per the bridge's fee.
-  const [identitySubsidyPlanck, setIdentitySubsidyPlanck] = useState<string>("");
+  const [identitySubsidyWei, setIdentitySubsidyWei] = useState<string>("");
   const [bondAmount, setBondAmount] = useState("");
   const [tokenSource, setTokenSource] = useState<"erc20" | "native">("erc20");
   const [selectedNativeAsset, setSelectedNativeAsset] = useState<NativeAsset | null>(null);
@@ -234,26 +235,26 @@ export function CreateCampaign() {
     setTxState("pending");
     setTxMsg("");
     try {
-      const bondPlanck = bondAmount.trim() ? parseDOTSafe(bondAmount) : 0n;
+      const bondWei = bondAmount.trim() ? parseDotWeiSafe(bondAmount) : 0n;
 
       // Build action pot array
-      const pots: { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string }[] = [];
-      const viewBudgetPlanck = parseDOTSafe(viewBudget);
-      const viewDailyCapPlanck = parseDOTSafe(viewDailyCap);
-      const viewBidCpmPlanck = parseDOTSafe(viewBidCpm);
-      pots.push({ actionType: 0, budgetPlanck: viewBudgetPlanck, dailyCapPlanck: viewDailyCapPlanck, ratePlanck: viewBidCpmPlanck, actionVerifier: ethers.ZeroAddress });
+      const pots: { actionType: number; budgetWei: bigint; dailyCapWei: bigint; rateWei: bigint; actionVerifier: string }[] = [];
+      const viewBudgetWei = parseDotWeiSafe(viewBudget);
+      const viewDailyCapWei = parseDotWeiSafe(viewDailyCap);
+      const viewBidCpmWei = parseDotWeiSafe(viewBidCpm);
+      pots.push({ actionType: 0, budgetWei: viewBudgetWei, dailyCapWei: viewDailyCapWei, rateWei: viewBidCpmWei, actionVerifier: ethers.ZeroAddress });
 
       if (enableClick) {
-        pots.push({ actionType: 1, budgetPlanck: parseDOTSafe(clickBudget), dailyCapPlanck: parseDOTSafe(clickDailyCap), ratePlanck: parseDOTSafe(clickRate), actionVerifier: ethers.ZeroAddress });
+        pots.push({ actionType: 1, budgetWei: parseDotWeiSafe(clickBudget), dailyCapWei: parseDotWeiSafe(clickDailyCap), rateWei: parseDotWeiSafe(clickRate), actionVerifier: ethers.ZeroAddress });
       }
       if (enableAction) {
         const verifier = actionVerifier.trim();
         if (!ethers.isAddress(verifier)) { setTxMsg("Action verifier address is invalid."); setTxState("error"); return; }
-        pots.push({ actionType: 2, budgetPlanck: parseDOTSafe(actionBudget), dailyCapPlanck: parseDOTSafe(actionDailyCap), ratePlanck: parseDOTSafe(actionRate), actionVerifier: verifier });
+        pots.push({ actionType: 2, budgetWei: parseDotWeiSafe(actionBudget), dailyCapWei: parseDotWeiSafe(actionDailyCap), rateWei: parseDotWeiSafe(actionRate), actionVerifier: verifier });
       }
 
-      const totalBudgetPlanck = pots.reduce((s, p) => s + p.budgetPlanck, 0n);
-      const totalValue = totalBudgetPlanck + bondPlanck;
+      const totalBudgetWei = pots.reduce((s, p) => s + p.budgetWei, 0n);
+      const totalValue = totalBudgetWei + bondWei;
 
       const tagHashes = [...selectedTags].map((t) => tagHash(t));
       const rToken = rewardToken.trim() && ethers.isAddress(rewardToken.trim()) ? rewardToken.trim() : ethers.ZeroAddress;
@@ -261,7 +262,7 @@ export function CreateCampaign() {
         ? humanToRaw(rewardPerImpression, tokenDecimals)
         : 0n;
       const c = contracts.campaigns.connect(signer);
-      const tx = await c.createCampaign(pubAddr, pots, tagHashes, requireZkProof, rToken, rPerImp, bondPlanck, {
+      const tx = await c.createCampaign(pubAddr, pots, tagHashes, requireZkProof, rToken, rPerImp, bondWei, {
         value: totalValue,
       });
       await confirmTx(tx);
@@ -302,9 +303,9 @@ export function CreateCampaign() {
       // Optional identity-refresh subsidy. Funds the bridge's per-campaign
       // escrow so users on this campaign can refresh their People Chain
       // attestation without paying themselves. Non-fatal if it fails.
-      if (newId !== null && identitySubsidyPlanck && contracts.peopleChainXcmBridge && signer) {
+      if (newId !== null && identitySubsidyWei && contracts.peopleChainXcmBridge && signer) {
         try {
-          const amt = BigInt(identitySubsidyPlanck);
+          const amt = BigInt(identitySubsidyWei);
           if (amt > 0n) {
             const b = contracts.peopleChainXcmBridge.connect(signer);
             const tx3 = await b.fundXcmRefreshEscrow(newId, { value: amt });
@@ -1223,8 +1224,8 @@ export function CreateCampaign() {
               </label>
               <input
                 type="number"
-                value={identitySubsidyPlanck}
-                onChange={(e) => setIdentitySubsidyPlanck(e.target.value)}
+                value={identitySubsidyWei}
+                onChange={(e) => setIdentitySubsidyWei(e.target.value)}
                 min="0"
                 step="1"
                 placeholder="0 — users pay their own refresh"

@@ -5,7 +5,7 @@ import { useWallet } from "../../context/WalletContext";
 import { DOTAmount } from "../../components/DOTAmount";
 import { MiniBarChart } from "../../components/MiniBarChart";
 import { StatusBadge } from "../../components/StatusBadge";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { queryFilterAll } from "@shared/eventQuery";
 import { toCSV, downloadCSV } from "@shared/csvExport";
 
@@ -20,7 +20,7 @@ interface CampaignStats {
   originalBudget: bigint;
   uniqueUsers: number;
   settlementCount: number;
-  bidCpmPlanck: bigint;
+  bidCpmWei: bigint;
 }
 
 export function CampaignAnalytics() {
@@ -91,7 +91,7 @@ export function CampaignAnalytics() {
             id, status: Number(c[0]),
             totalImpressions, totalUserPaid, totalPublisherPaid, totalProtocolFees,
             remaining, originalBudget, uniqueUsers, settlementCount,
-            bidCpmPlanck: BigInt(viewBid),
+            bidCpmWei: BigInt(viewBid),
           });
         } catch { /* skip */ }
       }));
@@ -133,7 +133,7 @@ export function CampaignAnalytics() {
       const spent = c.originalBudget - c.remaining;
       return {
         label: `#${c.id}`,
-        value: Number(spent) / 1e10,
+        value: Number(spent) / 1e18,
         color: c.status === 1 ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.25)",
       };
     });
@@ -154,12 +154,12 @@ export function CampaignAnalytics() {
                 Impressions: c.totalImpressions.toString(),
                 "Unique Users": c.uniqueUsers,
                 Settlements: c.settlementCount,
-                "Original Budget": c.originalBudget > 0n ? formatDOT(c.originalBudget) : "",
-                Remaining: formatDOT(c.remaining),
-                Spent: c.originalBudget > 0n ? formatDOT(c.originalBudget - c.remaining) : "",
-                "User Payments": formatDOT(c.totalUserPaid),
-                "Publisher Payments": formatDOT(c.totalPublisherPaid),
-                "Bid CPM": formatDOT(c.bidCpmPlanck),
+                "Original Budget": c.originalBudget > 0n ? formatDotWei(c.originalBudget) : "",
+                Remaining: formatDotWei(c.remaining),
+                Spent: c.originalBudget > 0n ? formatDotWei(c.originalBudget - c.remaining) : "",
+                "User Payments": formatDotWei(c.totalUserPaid),
+                "Publisher Payments": formatDotWei(c.totalPublisherPaid),
+                "Bid CPM": formatDotWei(c.bidCpmWei),
               }));
               downloadCSV("campaign-analytics.csv", toCSV(["Campaign","Status","Impressions","Unique Users","Settlements","Original Budget","Remaining","Spent","User Payments","Publisher Payments","Bid CPM"], rows));
             }} className="nano-btn" style={{ fontSize: 12 }}>Export CSV</button>

@@ -230,7 +230,7 @@ describe("Audit fixes", function () {
         campaignId,
         publisher: pubAddr,
         eventCount,
-        ratePlanck: CPM,
+        rateWei: CPM,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,
@@ -861,9 +861,9 @@ describe("Audit fixes", function () {
       // Create a Pending campaign
       const POT = {
         actionType: 0,
-        budgetPlanck: 1_000_000_000n,
-        dailyCapPlanck: 1_000_000_000n,
-        ratePlanck: 1n,
+        budgetWei: 1_000_000_000n,
+        dailyCapWei: 1_000_000_000n,
+        rateWei: 1n,
         actionVerifier: ethers.ZeroAddress,
       };
       await campaigns.connect(advertiser).createCampaign(
@@ -915,8 +915,8 @@ describe("Audit fixes", function () {
       await pubs.connect(publisherSig).registerPublisher(5000);
 
       const POT = {
-        actionType: 0, budgetPlanck: 1_000_000_000n, dailyCapPlanck: 1_000_000_000n,
-        ratePlanck: 1n, actionVerifier: ethers.ZeroAddress,
+        actionType: 0, budgetWei: 1_000_000_000n, dailyCapWei: 1_000_000_000n,
+        rateWei: 1n, actionVerifier: ethers.ZeroAddress,
       };
       await campaigns.connect(advertiser).createCampaign(
         publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,

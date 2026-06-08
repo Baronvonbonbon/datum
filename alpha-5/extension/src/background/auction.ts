@@ -1,7 +1,7 @@
 // Interest-weighted campaign selection (CPM-based; no price auction).
-// effectiveBid = viewBid * interestWeight  (viewBid = view/CPM pot ratePlanck)
+// effectiveBid = viewBid * interestWeight  (viewBid = view/CPM pot rateWei)
 // The winner is chosen by interest-weighted relevance; the claim pays the winner's
-// OWN CPM (its pot ratePlanck) — second-price clearing was removed (unenforceable
+// OWN CPM (its pot rateWei) — second-price clearing was removed (unenforceable
 // on-chain). The clearing CPM is rounded DOWN to a denomination-clean granularity so
 // the resulting Paseo settlement payout satisfies the eth-rpc `value % 1e6 < 500000`
 // rule (totalPayment = rate*events/1000 stays a multiple of 1e6 through a 50% take split).
@@ -16,7 +16,7 @@ import { tagStringFromHash } from "@shared/tagDictionary";
 
 export interface CampaignCandidate {
   id: string;
-  viewBid: string;          // serialized bigint — view pot ratePlanck (CPM)
+  viewBid: string;          // serialized bigint — view pot rateWei (CPM)
   categoryId: number;
   publisher: string;
   requiredTags?: string[];  // TX-3: bytes32 tag hashes
@@ -25,18 +25,18 @@ export interface CampaignCandidate {
 
 export interface ScoredBid {
   id: string;
-  viewBid: string;          // serialized bigint — view pot ratePlanck
+  viewBid: string;          // serialized bigint — view pot rateWei
   interestWeight: number;
   effectiveBidMicro: string; // effectiveBid.toString() (viewBid * weight * 1000)
 }
 
 export interface AuctionResult {
   winner: CampaignCandidate;
-  clearingCpmPlanck: bigint;
+  clearingCpmWei: bigint;
   participants: number;
   mechanism: "cpm";
   allScored: ScoredBid[];
-  /** Ratio of clearingCpmPlanck to winner's viewBid (0–1) after clean-rounding. */
+  /** Ratio of clearingCpmWei to winner's viewBid (0–1) after clean-rounding. */
   bidEfficiency: number;
 }
 
@@ -99,14 +99,14 @@ export function auctionForPage(
   // never sees competing bids, so any clearing CPM is just an unverifiable client
   // assertion. The winner is chosen by interest-weighted relevance above (the
   // privacy-preserving part); the claim pays the winner's own CPM (its pot
-  // ratePlanck), rounded DOWN to a denomination-clean granularity so the Paseo
+  // rateWei), rounded DOWN to a denomination-clean granularity so the Paseo
   // settlement payout doesn't hit the `value % 1e6 ≥ 500000` revert. Rounding down
-  // keeps clearingCpm ≤ the pot ratePlanck, so the validator's `ratePlanck ≤ pot`
+  // keeps clearingCpm ≤ the pot rateWei, so the validator's `rateWei ≤ pot`
   // check still holds.
   const clearingCpm = roundCpmClean(bidCpm);
   return {
     winner: winner.campaign,
-    clearingCpmPlanck: clearingCpm,
+    clearingCpmWei: clearingCpm,
     participants: campaigns.length,
     mechanism: "cpm",
     allScored,

@@ -12,7 +12,7 @@ import "./PaseoSafeSender.sol";
 ///         every campaign they run. The minimum required stake grows with
 ///         cumulative DOT spent through their campaigns:
 ///
-///           requiredStake = baseStakePlanck + cumulativeBudgetSpentDOT * planckPerDOTSpent
+///           requiredStake = baseStakeWei + cumulativeBudgetSpentDOT * planckPerDOTSpent
 ///
 ///         (Where DOT is measured at 10^10 planck per DOT, matching the protocol's
 ///         standard denomination.) The curve caps at maxRequiredStake.
@@ -54,7 +54,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
 
     // ── Bonding curve params ───────────────────────────────────────────────────
 
-    uint256 public baseStakePlanck;
+    uint256 public baseStakeWei;
     uint256 public planckPerDOTSpent;
     uint256 public unstakeDelayBlocks;
 
@@ -86,12 +86,12 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
     }
 
     constructor(
-        uint256 _baseStakePlanck,
+        uint256 _baseStakeWei,
         uint256 _planckPerDOTSpent,
         uint256 _unstakeDelayBlocks
     ) {
         require(_unstakeDelayBlocks > 0, "E00");
-        baseStakePlanck = _baseStakePlanck;
+        baseStakeWei = _baseStakeWei;
         planckPerDOTSpent = _planckPerDOTSpent;
         unstakeDelayBlocks = _unstakeDelayBlocks;
     }
@@ -128,7 +128,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
         require(_delay > 0 && _delay <= MAX_UNSTAKE_DELAY_BLOCKS, "out-of-bounds");
         require(_base <= MAX_BASE_STAKE, "out-of-bounds");
         require(_perDOTSpent <= MAX_PLANCK_PER_DOT_SPENT, "out-of-bounds");
-        baseStakePlanck = _base;
+        baseStakeWei = _base;
         planckPerDOTSpent = _perDOTSpent;
         unstakeDelayBlocks = _delay;
         emit ParamsUpdated(_base, _perDOTSpent, _delay);
@@ -194,9 +194,9 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
     ///         in whole-DOT units; sub-DOT spend is rounded down (advertisers
     ///         with very low per-batch spend can settle many micro-batches
     ///         before the curve advances by one DOT — acceptable).
-    function recordBudgetSpent(address advertiser, uint256 amountPlanck) external {
+    function recordBudgetSpent(address advertiser, uint256 amountWei) external {
         require(msg.sender == settlementContract, "E18");
-        uint256 dotUnits = amountPlanck / 10**10; // 1 DOT = 10^10 planck
+        uint256 dotUnits = amountWei / 10**10; // 1 DOT = 10^10 planck
         if (dotUnits == 0) return;
         _cumulativeBudgetSpentDOT[advertiser] += dotUnits;
         _track(advertiser);
@@ -256,7 +256,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
 
     function requiredStake(address advertiser) public view returns (uint256) {
         uint256 cap = maxRequiredStake;
-        uint256 base = baseStakePlanck;
+        uint256 base = baseStakeWei;
         uint256 perDOT = planckPerDOTSpent;
         uint256 cum = _cumulativeBudgetSpentDOT[advertiser];
         if (perDOT == 0 || cum == 0) {
@@ -283,7 +283,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
     ///      NOT copied — re-wired on the fresh contract. DOT moves via migrateFundsTo.
     function _migrate(address oldContract) internal override {
         DatumAdvertiserStake old = DatumAdvertiserStake(payable(oldContract));
-        baseStakePlanck = old.baseStakePlanck();
+        baseStakeWei = old.baseStakeWei();
         planckPerDOTSpent = old.planckPerDOTSpent();
         unstakeDelayBlocks = old.unstakeDelayBlocks();
         maxRequiredStake = old.maxRequiredStake();

@@ -548,7 +548,7 @@ function ZERO_ACTION(): string[] { return new Array(3).fill(ethers.ZeroHash); }
 function computeClaimHash(c: any): string {
   return ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
     ["uint256","address","address","uint256","uint256","uint8","bytes32","uint256","bytes32","bytes32"],
-    [c.campaignId, c.publisher, c.user, c.eventCount, c.ratePlanck, c.actionType, c.clickSessionHash, c.nonce, c.previousClaimHash, c.stakeRootUsed],
+    [c.campaignId, c.publisher, c.user, c.eventCount, c.rateWei, c.actionType, c.clickSessionHash, c.nonce, c.previousClaimHash, c.stakeRootUsed],
   ));
 }
 
@@ -570,7 +570,7 @@ function buildClaim(args: {
     publisher: args.publisher,
     user: args.user,
     eventCount: args.events,
-    ratePlanck: args.rate,
+    rateWei: args.rate,
     actionType: args.actionType ?? 0,
     clickSessionHash: args.clickSessionHash ?? ethers.ZeroHash,
     nonce: args.nonce,
@@ -617,9 +617,9 @@ async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigi
   const totalBudget = pots.reduce((s, p) => s + p.budget, 0n);
   const potArray = pots.map((p) => ({
     actionType: p.actionType,
-    budgetPlanck: p.budget,
-    dailyCapPlanck: p.dailyCap,
-    ratePlanck: p.rate,
+    budgetWei: p.budget,
+    dailyCapWei: p.dailyCap,
+    rateWei: p.rate,
     actionVerifier: p.actionVerifier ?? ethers.ZeroAddress,
   }));
   const tx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
@@ -638,7 +638,7 @@ async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigi
 async function activateCampaign(ctx: any, budget: bigint, dailyCap: bigint, cpm: bigint): Promise<bigint> {
   const tx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
     ctx.publisher.address,
-    [{ actionType: 0, budgetPlanck: budget, dailyCapPlanck: dailyCap, ratePlanck: cpm, actionVerifier: ethers.ZeroAddress }],
+    [{ actionType: 0, budgetWei: budget, dailyCapWei: dailyCap, rateWei: cpm, actionVerifier: ethers.ZeroAddress }],
     [], false, ethers.ZeroAddress, 0n, 0n, { value: budget },
   );
   await tx.wait();
@@ -662,7 +662,7 @@ async function measureAll(ctx: any) {
   console.log("\n[Advertiser]");
   await measure("Advertiser", "createCampaign", ctx.campaigns.connect(ctx.advertiser).createCampaign(
     ctx.publisher.address,
-    [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+    [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
     [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET },
   ));
   const advCid = await ctx.campaigns.nextCampaignId() - 1n;
@@ -844,7 +844,7 @@ async function measureAll(ctx: any) {
   // Create another campaign for vote-only measurement
   const voteTx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
     ctx.publisher.address,
-    [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+    [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
     [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET },
   );
   await voteTx.wait();
@@ -854,7 +854,7 @@ async function measureAll(ctx: any) {
   // nay on a different campaign
   const nayTx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
     ctx.publisher.address,
-    [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+    [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
     [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET },
   );
   await nayTx.wait();
@@ -868,7 +868,7 @@ async function measureAll(ctx: any) {
   try {
     const evalTx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
       ctx.publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY, ratePlanck: CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY, rateWei: CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET },
     );
     await evalTx.wait();

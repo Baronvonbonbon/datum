@@ -146,7 +146,7 @@ describe("People Chain identity gate", function () {
         campaignId,
         publisher: pubAddr,
         eventCount,
-        ratePlanck: CPM,
+        rateWei: CPM,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,

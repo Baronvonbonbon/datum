@@ -18,7 +18,7 @@ import { humanizeError } from "@shared/errorCodes";
 import { useBlock } from "../../hooks/useBlock";
 import { useTx } from "../../hooks/useTx";
 import { toCSV, downloadCSV } from "@shared/csvExport";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { useToast } from "../../context/ToastContext";
 import { queryFilterAll } from "@shared/eventQuery";
 
@@ -276,12 +276,12 @@ export function MyVotes() {
                   Kind: KIND_LABELS[v.kind],
                   ID: v.id,
                   Direction: v.aye ? "Aye" : "Nay",
-                  Staked: formatDOT(v.lockAmount),
+                  Staked: formatDotWei(v.lockAmount),
                   Conviction: v.conviction,
                   Weight: CONVICTION_WEIGHTS[v.conviction] ?? "",
                   "Unlock Block": v.unlockBlock,
                   Status: v.resolved ? "Resolved" : "Active",
-                  Claimable: v.claimable && v.claimable > 0n ? formatDOT(v.claimable) : "",
+                  Claimable: v.claimable && v.claimable > 0n ? formatDotWei(v.claimable) : "",
                 }));
                 downloadCSV("my-votes.csv", toCSV(["Kind", "ID", "Direction", "Staked", "Conviction", "Weight", "Unlock Block", "Status", "Claimable"], rows));
               }}

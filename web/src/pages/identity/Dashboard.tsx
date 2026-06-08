@@ -307,13 +307,13 @@ function tsForBlock(blockHex: string): number {
 
 function formatDot(planck: bigint): string {
   if (planck === 0n) return "0 DOT";
-  const whole = planck / 10n ** 10n;
-  const frac = planck % 10n ** 10n;
+  const whole = planck / 10n ** 18n;
+  const frac = planck % 10n ** 18n;
   if (whole === 0n) {
-    const padded = frac.toString().padStart(10, "0");
+    const padded = frac.toString().padStart(18, "0");
     const trimmed = padded.slice(0, 4).replace(/0+$/, "") || "0";
     return `0.${trimmed} DOT`;
   }
-  const fracStr = frac.toString().padStart(10, "0").slice(0, 4).replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
   return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
 }

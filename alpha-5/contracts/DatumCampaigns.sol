@@ -643,13 +643,13 @@ contract DatumCampaigns is DatumCampaignsStorage {
                 if (!(pots[i].actionType <= 2)) revert E88();
                 if (!(!seen[pots[i].actionType])) revert E93();
                 seen[pots[i].actionType] = true;
-                if (!(pots[i].budgetPlanck > 0)) revert E11();
-                if (!(pots[i].dailyCapPlanck > 0 && pots[i].dailyCapPlanck <= pots[i].budgetPlanck)) revert E12();
-                if (!(pots[i].ratePlanck > 0)) revert E11();
+                if (!(pots[i].budgetWei > 0)) revert E11();
+                if (!(pots[i].dailyCapWei > 0 && pots[i].dailyCapWei <= pots[i].budgetWei)) revert E12();
+                if (!(pots[i].rateWei > 0)) revert E11();
                 if (pots[i].actionType == 0) {
-                    if (!(pots[i].ratePlanck >= minimumCpmFloor)) revert E27();
+                    if (!(pots[i].rateWei >= minimumCpmFloor)) revert E27();
                 }
-                totalPotBudget += pots[i].budgetPlanck;
+                totalPotBudget += pots[i].budgetWei;
             }
             if (!(totalPotBudget == budgetValue)) revert E11();
         }
@@ -707,7 +707,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
         // Find view bid for struct
         uint256 vBid;
         for (uint256 i = 0; i < pots.length; i++) {
-            if (pots[i].actionType == 0) { vBid = pots[i].ratePlanck; break; }
+            if (pots[i].actionType == 0) { vBid = pots[i].rateWei; break; }
         }
 
         _campaigns[campaignId] = Campaign({
@@ -734,8 +734,8 @@ contract DatumCampaigns is DatumCampaignsStorage {
         // Store pots and initialize budget per pot
         for (uint256 i = 0; i < pots.length; i++) {
             _campaignPots[campaignId].push(pots[i]);
-            budgetLedger.initializeBudget{value: pots[i].budgetPlanck}(
-                campaignId, pots[i].actionType, pots[i].budgetPlanck, pots[i].dailyCapPlanck
+            budgetLedger.initializeBudget{value: pots[i].budgetWei}(
+                campaignId, pots[i].actionType, pots[i].budgetWei, pots[i].dailyCapWei
             );
         }
 

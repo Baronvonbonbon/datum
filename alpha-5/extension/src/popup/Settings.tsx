@@ -4,6 +4,7 @@ import { StoredSettings, NetworkName, ContractAddresses, UserPreferences } from 
 import { NETWORK_CONFIGS, DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { unlock, isConfigured, getSigner, getIdleLockMinutes, setIdleLockMinutes } from "@shared/walletManager";
 import { testPinataKey } from "@shared/ipfsPin";
+import { formatDotWei, parseDotWei } from "@shared/dot";
 import DatumCampaignsAbi from "@shared/abis/DatumCampaigns.json";
 import { TAG_DICTIONARY, TAG_LABELS, tagHash, ALL_TAGS } from "@shared/tagDictionary";
 import { getCampaignsContract, getPublishersContract, getPublisherStakeContract, getChallengeBondsContract, getPublisherGovernanceContract, getProvider } from "@shared/contracts";
@@ -48,7 +49,7 @@ export function Settings({ address }: { address: string | null }) {
     filterMode: "all",
     allowedTopics: [],
     sweepAddress: "",
-    sweepThresholdPlanck: "0",
+    sweepThresholdWei: "0",
   });
   const [sweepThresholdDot, setSweepThresholdDot] = useState("");
   const [prefsSaved, setPrefsSaved] = useState(false);
@@ -92,9 +93,9 @@ export function Settings({ address }: { address: string | null }) {
     const response = await chrome.runtime.sendMessage({ type: "GET_USER_PREFERENCES" });
     if (response?.preferences) {
       setPrefs(response.preferences);
-      const thresh = response.preferences.sweepThresholdPlanck ?? "0";
+      const thresh = response.preferences.sweepThresholdWei ?? "0";
       if (thresh !== "0") {
-        setSweepThresholdDot((Number(BigInt(thresh)) / 1e10).toString());
+        setSweepThresholdDot(formatDotWei(BigInt(thresh)));
       }
     }
   }
@@ -916,8 +917,8 @@ export function Settings({ address }: { address: string | null }) {
               value={sweepThresholdDot}
               onChange={(e) => {
                 setSweepThresholdDot(e.target.value);
-                const planck = e.target.value ? String(Math.round(parseFloat(e.target.value) * 1e10)) : "0";
-                setPrefs((p) => ({ ...p, sweepThresholdPlanck: planck }));
+                const wei = e.target.value ? parseDotWei(e.target.value).toString() : "0";
+                setPrefs((p) => ({ ...p, sweepThresholdWei: wei }));
               }}
               placeholder="0"
               style={{ ...inputStyle, fontSize: 11, width: 80 }}
@@ -934,11 +935,11 @@ export function Settings({ address }: { address: string | null }) {
 
         <button
           onClick={() => {
-            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" });
+            setPrefs({ blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdWei: "0" });
             setSweepThresholdDot("");
             chrome.runtime.sendMessage({
               type: "UPDATE_USER_PREFERENCES",
-              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdPlanck: "0" },
+              preferences: { blockedCampaigns: [], silencedCategories: [], blockedTags: [], maxAdsPerHour: 12, minBidCpm: "0", filterMode: "all", allowedTopics: [], sweepAddress: "", sweepThresholdWei: "0" },
             });
           }}
           style={{ ...dangerBtn, marginTop: 6, fontSize: 11, padding: "6px 12px" }}
@@ -1249,13 +1250,13 @@ export function Settings({ address }: { address: string | null }) {
                       <div>
                         <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Staked</div>
                         <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
-                          {(Number(fpHealth.staked) / 1e10).toFixed(4)} DOT
+                          {formatDotWei(fpHealth.staked)} PAS
                         </div>
                       </div>
                       <div>
                         <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Required</div>
                         <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
-                          {(Number(fpHealth.requiredStake) / 1e10).toFixed(4)} DOT
+                          {formatDotWei(fpHealth.requiredStake)} PAS
                         </div>
                       </div>
                       <div>
@@ -1268,7 +1269,7 @@ export function Settings({ address }: { address: string | null }) {
                         <div>
                           <div style={{ color: "var(--text-muted)", fontSize: 10 }}>Pending unstake</div>
                           <div style={{ color: "var(--warn)", fontSize: 11, fontFamily: "monospace" }}>
-                            {(Number(fpHealth.pendingUnstake) / 1e10).toFixed(4)} DOT
+                            {formatDotWei(fpHealth.pendingUnstake)} PAS
                           </div>
                         </div>
                       )}
@@ -1308,7 +1309,7 @@ export function Settings({ address }: { address: string | null }) {
                     <div style={{ padding: "8px 10px", background: "var(--bg-raised)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
                       <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 500, marginBottom: 4 }}>Advertiser Challenge Bonds</div>
                       <div style={{ color: "var(--text)", fontSize: 11, fontFamily: "monospace" }}>
-                        {(Number(fpHealth.totalBonds) / 1e10).toFixed(4)} DOT
+                        {formatDotWei(fpHealth.totalBonds)} PAS
                       </div>
                       <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
                         Total bonded by advertisers for campaigns on your site. Returned to advertisers on clean campaign end; bonus awarded if fraud is upheld against you.

@@ -34,9 +34,9 @@ describe("DatumCampaigns — full migration via delegatecall logic", function ()
   function pot(): any {
     return {
       actionType: 0,
-      budgetPlanck: 1_000_000n,
-      dailyCapPlanck: 100_000n,
-      ratePlanck: 4_000_000_000n,
+      budgetWei: 1_000_000n,
+      dailyCapWei: 100_000n,
+      rateWei: 4_000_000_000n,
       actionVerifier: ethers.ZeroAddress,
     };
   }
@@ -93,9 +93,9 @@ describe("DatumCampaigns — full migration via delegatecall logic", function ()
     const pots = await v2.getCampaignPots(42);
     expect(pots.length).to.equal(1);
     expect(pots[0].actionType).to.equal(0);
-    expect(pots[0].budgetPlanck).to.equal(1_000_000n);
-    expect(pots[0].dailyCapPlanck).to.equal(100_000n);
-    expect(pots[0].ratePlanck).to.equal(4_000_000_000n);
+    expect(pots[0].budgetWei).to.equal(1_000_000n);
+    expect(pots[0].dailyCapWei).to.equal(100_000n);
+    expect(pots[0].rateWei).to.equal(4_000_000_000n);
 
     // every scalar gate
     expect(await v2.campaignAllowlistEnabled(42)).to.equal(true);

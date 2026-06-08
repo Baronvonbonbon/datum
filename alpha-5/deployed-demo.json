@@ -1,9 +1,9 @@
 {
-  "at": "2026-06-06T14:45:53.022Z",
+  "at": "2026-06-08T09:31:45.469Z",
   "gateway": "https://ipfs-datum.javcon.io/ipfs/",
   "campaigns": [
     {
-      "cid": 124,
+      "cid": 154,
       "topic": "Polkadot",
       "category": "Technology",
       "c1": "#552bbf",
@@ -19,7 +19,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 125,
+      "cid": 155,
       "topic": "Zero-Knowledge",
       "category": "Cryptography",
       "c1": "#0f2027",
@@ -31,11 +31,11 @@
       "wiki": "https://en.wikipedia.org/wiki/Zero-knowledge_proof",
       "svgCid": "QmZFLAN1LDhGjB5GKUy4pUnMrqktZqnWKAK6fNV5YsKwJG",
       "metaCid": "QmRwYZbdY8yK1tF4zCTWP7WDNXU8PMZ9MtZZE3iXAqmD6Y",
-      "status": "Active",
-      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
+      "status": "Pending",
+      "relaySigner": "0x0000000000000000000000000000000000000000"
     },
     {
-      "cid": 126,
+      "cid": 156,
       "topic": "Privacy",
       "category": "Privacy",
       "c1": "#232526",
@@ -51,7 +51,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 127,
+      "cid": 157,
       "topic": "Open Source",
       "category": "Software",
       "c1": "#11998e",
@@ -67,7 +67,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 128,
+      "cid": 158,
       "topic": "Renewables",
       "category": "Energy",
       "c1": "#2193b0",
@@ -83,7 +83,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 129,
+      "cid": 159,
       "topic": "Coffee",
       "category": "Food & Drink",
       "c1": "#6f4e37",
@@ -99,7 +99,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 130,
+      "cid": 160,
       "topic": "Jazz",
       "category": "Music",
       "c1": "#41295a",
@@ -115,7 +115,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 131,
+      "cid": 161,
       "topic": "Astronomy",
       "category": "Science",
       "c1": "#0b0b2b",
@@ -131,7 +131,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 132,
+      "cid": 162,
       "topic": "Mountaineering",
       "category": "Outdoors",
       "c1": "#134e5e",
@@ -147,7 +147,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 133,
+      "cid": 163,
       "topic": "Cartography",
       "category": "Geography",
       "c1": "#355c7d",

@@ -690,7 +690,7 @@ export function Demo() {
               key={auctionKey}
               bids={auctionBids}
               mechanism={bridgeStatus.mechanism}
-              clearingCpmPlanck={bridgeStatus.clearingCpmPlanck}
+              clearingCpmWei={bridgeStatus.clearingCpmWei}
               paused={!autoTourActive}
             />
           </div>
@@ -866,7 +866,7 @@ export function Demo() {
                   bridgeStatus.mechanism === "solo" ? "Solo (uncontested)"
                   : bridgeStatus.mechanism === "floor" ? "Second-price (floor)"
                   : "Second-price Vickrey", "var(--text-muted)"]] : []),
-                ...(bridgeStatus.clearingCpmPlanck ? [["Clearing CPM", formatPlanck(bridgeStatus.clearingCpmPlanck), "var(--text-muted)"]] : []),
+                ...(bridgeStatus.clearingCpmWei ? [["Clearing CPM", formatWei(bridgeStatus.clearingCpmWei), "var(--text-muted)"]] : []),
                 ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
               ].map(([label, value, color]) => (
                 <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
@@ -1267,19 +1267,21 @@ function stepColor(step: string): string {
   return "var(--text-muted)";
 }
 
-function formatPlanck(planck: string): string {
+function formatWei(weiStr: string): string {
   try {
-    const dot = Number(BigInt(planck)) / 1e10;
-    return `${dot.toFixed(4)} DOT`;
-  } catch { return planck; }
+    const w = BigInt(weiStr);
+    const whole = w / 10n ** 18n;
+    const frac = (w % 10n ** 18n).toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
+    return `${frac ? `${whole}.${frac}` : whole.toString()} PAS`;
+  } catch { return weiStr; }
 }
 
 function formatEffectiveBid(micro: string): string {
   try {
-    // effectiveBid = bidCpm * weight * 1000 (micro-planck units)
-    // DOT = micro / 1000 / 1e10 = micro / 1e13
-    const dot = Number(BigInt(micro)) / 1e13;
-    return `${dot.toFixed(4)}`;
+    // effectiveBid = bidCpmWei * weight * 1000 (micro-wei units)
+    // PAS = micro / 1000 / 1e18 = micro / 1e21
+    const pas = Number(BigInt(micro)) / 1e21;
+    return `${pas.toFixed(4)}`;
   } catch { return "?"; }
 }
 
@@ -1292,10 +1294,10 @@ const VIZ_CONTAINER_H = PILE_Y + BID_CARD_H + 8; // 202
 
 type AuctionPhase = "pile" | "rise" | "result" | "drop";
 
-function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck, paused }: {
+function VickreyAuctionViz({ bids, mechanism, clearingCpmWei, paused }: {
   bids: AuctionBid[];
   mechanism?: string;
-  clearingCpmPlanck?: string;
+  clearingCpmWei?: string;
   paused?: boolean;
 }) {
   const [phase, setPhase] = useState<AuctionPhase>("pile");
@@ -1452,7 +1454,7 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck, paused }: {
                 Campaign #{bid.id}
               </div>
               <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>
-                {formatPlanck(bid.bidCpmPlanck)}/1k · {bid.interestWeight.toFixed(2)}× weight
+                {formatWei(bid.bidCpmWei)}/1k · {bid.interestWeight.toFixed(2)}× weight
               </div>
             </div>
 
@@ -1471,8 +1473,8 @@ function VickreyAuctionViz({ bids, mechanism, clearingCpmPlanck, paused }: {
               {showColor && isWinner && (
                 <div style={{ fontSize: 10, color: winnerColor, marginTop: 1, opacity: 0.85 }}>
                   {isSolo ? "uncontested · 70% of bid"
-                    : isFloor ? `pays ${formatPlanck(clearingCpmPlanck ?? "0")} (floor)`
-                    : clearingCpmPlanck ? `pays ${formatPlanck(clearingCpmPlanck)}` : null}
+                    : isFloor ? `pays ${formatWei(clearingCpmWei ?? "0")} (floor)`
+                    : clearingCpmWei ? `pays ${formatWei(clearingCpmWei)}` : null}
                 </div>
               )}
               {showColor && isSecond && (

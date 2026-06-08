@@ -16,7 +16,7 @@ import { AddressDisplay } from "../../components/AddressDisplay";
 import { BrandChip } from "../../components/BrandChip";
 import { CampaignChip } from "../../components/CampaignChip";
 import { humanizeError } from "@shared/errorCodes";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { ethers } from "ethers";
 
 interface ClaimView {
@@ -133,7 +133,7 @@ export function AdvertiserFraudClaimsPage() {
         marginTop: 16, padding: 12, background: "rgba(255,255,255,0.03)",
         border: "1px solid var(--border, #333)", borderRadius: 6, fontSize: 13,
       }}>
-        <div>Bond required: <strong>{formatDOT(advBond)} DOT</strong>{advBond === 0n && <span style={{ color: "var(--error, #f44)", marginLeft: 8 }}>(track disabled)</span>}</div>
+        <div>Bond required: <strong>{formatDotWei(advBond)} DOT</strong>{advBond === 0n && <span style={{ color: "var(--error, #f44)", marginLeft: 8 }}>(track disabled)</span>}</div>
         <div>Council arbiter: {councilArbiter === ethers.ZeroAddress
           ? <span style={{ color: "var(--error, #f44)" }}>not wired</span>
           : <AddressDisplay address={councilArbiter} short />}</div>
@@ -180,7 +180,7 @@ export function AdvertiserFraudClaimsPage() {
               alignSelf: "start",
             }}
           >
-            {filing ? "Filing…" : `File claim (${formatDOT(advBond)} DOT bond)`}
+            {filing ? "Filing…" : `File claim (${formatDotWei(advBond)} DOT bond)`}
           </button>
         </div>
       </section>
@@ -209,7 +209,7 @@ export function AdvertiserFraudClaimsPage() {
                       )}
                     </div>
                     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                      filed by <BrandChip address={c.advertiser} size="sm" role="advertiser" /> · bond {formatDOT(c.bond)} DOT · evidence{" "}
+                      filed by <BrandChip address={c.advertiser} size="sm" role="advertiser" /> · bond {formatDotWei(c.bond)} DOT · evidence{" "}
                       <span style={{ fontFamily: "monospace" }}>{c.evidenceHash.slice(0, 12)}…</span>
                     </div>
                   </div>

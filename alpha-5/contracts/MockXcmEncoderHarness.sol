@@ -49,14 +49,14 @@ contract MockXcmEncoderHarness {
 
     function encodeIdentityQueryXcm(
         bytes32 user,
-        uint128 feePlanck,
+        uint128 feeWei,
         uint64  refTime,
         uint64  proofSize,
         uint8   palletIndex,
         uint8   callIndex
     ) external pure returns (bytes memory) {
         return XcmTransactEncoder.encodeIdentityQueryXcm(
-            user, feePlanck, refTime, proofSize, palletIndex, callIndex
+            user, feeWei, refTime, proofSize, palletIndex, callIndex
         );
     }
 }

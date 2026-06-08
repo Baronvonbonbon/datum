@@ -54,7 +54,7 @@ export const PARAM_CATALOG: ParamSetter[] = [
       { name: "perImpression", kind: "uint256-planck", description: "Marginal stake added per cumulative impression (planck)." },
       { name: "unstakeDelay",  kind: "uint256-blocks", description: "Blocks between requestUnstake and unstake claim." },
     ],
-    currentGetters: ["baseStakePlanck", "planckPerImpression", "unstakeDelayBlocks"],
+    currentGetters: ["baseStakeWei", "planckPerImpression", "unstakeDelayBlocks"],
   },
   {
     contractKey: "publisherStake",

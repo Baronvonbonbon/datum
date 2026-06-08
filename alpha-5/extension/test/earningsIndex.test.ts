@@ -16,7 +16,7 @@ function fakeLog(opts: {
   user: string;
   publisher: string;
   eventCount: bigint;
-  ratePlanck: bigint;
+  rateWei: bigint;
   actionType: number;
   nonce: bigint;
   publisherPayment: bigint;
@@ -37,7 +37,7 @@ function fakeLog(opts: {
     user: opts.user,
     publisher: opts.publisher,
     eventCount: opts.eventCount,
-    ratePlanck: opts.ratePlanck,
+    rateWei: opts.rateWei,
     actionType: opts.actionType,
     nonce: opts.nonce,
     publisherPayment: opts.publisherPayment,
@@ -82,7 +82,7 @@ describe("earningsIndex", () => {
       user: USER,
       publisher: PUBLISHER,
       eventCount: 1000n,
-      ratePlanck: 100n,
+      rateWei: 100n,
       actionType: 0,
       nonce: 1n,
       publisherPayment: 50_000n,
@@ -106,7 +106,7 @@ describe("earningsIndex", () => {
       user: USER,
       publisher: PUBLISHER,
       eventCount: 100n,
-      ratePlanck: 10n,
+      rateWei: 10n,
       actionType: 0,
       nonce: 1n,
       publisherPayment: 0n,
@@ -131,7 +131,7 @@ describe("earningsIndex", () => {
         user: USER,
         publisher: PUBLISHER,
         eventCount: 100n,
-        ratePlanck: 10n,
+        rateWei: 10n,
         actionType: 0,
         nonce: BigInt(i + 1),
         publisherPayment: 0n,
@@ -143,7 +143,7 @@ describe("earningsIndex", () => {
       });
     }
     expect(idx.byCampaign["7"].claimCount).toBe(3);
-    expect(idx.byCampaign["7"].totalUserPlanck).toBe("3000");
+    expect(idx.byCampaign["7"].totalUserWei).toBe("3000");
     expect(idx.byCampaign["7"].totalEvents).toBe("300");
     expect(idx.byCampaign["7"].lastBlock).toBe(102);
     expect(idx.recent.length).toBe(3);
@@ -158,7 +158,7 @@ describe("earningsIndex", () => {
         user: USER,
         publisher: PUBLISHER,
         eventCount: 1n,
-        ratePlanck: 1n,
+        rateWei: 1n,
         actionType: 0,
         nonce: 1n,
         publisherPayment: 0n,
@@ -181,7 +181,7 @@ describe("earningsIndex", () => {
       user: USER,
       publisher: PUBLISHER,
       eventCount: 100n,
-      ratePlanck: 0n,
+      rateWei: 0n,
       actionType: 0,
       nonce: 1n,
       publisherPayment: 0n,
@@ -195,7 +195,7 @@ describe("earningsIndex", () => {
     expect(idx.recent.length).toBe(0);
   });
 
-  it("topCampaigns sorts by totalUserPlanck descending by default", () => {
+  it("topCampaigns sorts by totalUserWei descending by default", () => {
     const idx = emptyIndex();
     const campaigns: Array<[bigint, bigint]> = [
       [1n, 100n],
@@ -209,7 +209,7 @@ describe("earningsIndex", () => {
         user: USER,
         publisher: PUBLISHER,
         eventCount: 1n,
-        ratePlanck: payment,
+        rateWei: payment,
         actionType: 0,
         nonce: 1n,
         publisherPayment: 0n,
@@ -229,7 +229,7 @@ describe("earningsIndex", () => {
     // c1 = 1 claim, 1000 events, latest block 100
     applyEvent(idx, {
       campaignId: 1n, user: USER, publisher: PUBLISHER,
-      eventCount: 1000n, ratePlanck: 1n, actionType: 0, nonce: 1n,
+      eventCount: 1000n, rateWei: 1n, actionType: 0, nonce: 1n,
       publisherPayment: 0n, userPayment: 1n, protocolFee: 0n,
       blockNumber: 100, txHash: "0x" + "01".repeat(32), logIndex: 0,
     });
@@ -237,7 +237,7 @@ describe("earningsIndex", () => {
     for (let i = 0; i < 5; i++) {
       applyEvent(idx, {
         campaignId: 2n, user: USER, publisher: PUBLISHER,
-        eventCount: 50n, ratePlanck: 1n, actionType: 0, nonce: BigInt(i + 1),
+        eventCount: 50n, rateWei: 1n, actionType: 0, nonce: BigInt(i + 1),
         publisherPayment: 0n, userPayment: 1n, protocolFee: 0n,
         blockNumber: 200 + i, txHash: "0x" + (i + 100).toString(16).padStart(64, "0"), logIndex: 0,
       });

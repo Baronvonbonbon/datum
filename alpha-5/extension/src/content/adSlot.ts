@@ -30,7 +30,7 @@ export interface AdSlotConfig {
   metadata: CampaignCreative | null;
   metadataHash?: string;  // bytes32 from on-chain CampaignMetadataSet
   auctionMechanism?: "cpm" | "second-price" | "solo" | "floor";
-  clearingCpmPlanck?: string;
+  clearingCpmWei?: string;
   ipfsGateway?: string;
   currencySymbol?: string;
   /** bytes32 nonce from the view impression; enables click (type-1) claim */
@@ -96,14 +96,14 @@ function escapeHtml(s: string): string {
   return div.innerHTML;
 }
 
-function formatCpm(planckStr?: string): string {
-  if (!planckStr) return "?";
+function formatCpm(weiStr?: string): string {
+  if (!weiStr) return "?";
   try {
-    const planck = BigInt(planckStr);
-    const dot = Number(planck) / 1e10;
-    if (dot >= 0.01) return dot.toFixed(2);
-    if (dot >= 0.001) return dot.toFixed(3);
-    return dot.toFixed(4);
+    // CPM is an 18-decimal wei contract amount (PAS).
+    const pas = Number(BigInt(weiStr)) / 1e18;
+    if (pas >= 0.01) return pas.toFixed(2);
+    if (pas >= 0.001) return pas.toFixed(3);
+    return pas.toFixed(4);
   } catch { return "?"; }
 }
 
@@ -227,7 +227,7 @@ function creativeBodyHtml(
     <div style="color:${D.textFaint};font-size:10px;margin-top:6px;">
       Campaign #${escapeHtml(config.campaignId)}${mechanismBadgeHtml(config.auctionMechanism)} · Privacy-preserving · Polkadot Hub
     </div>
-    ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+    ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
   `;
 
   if (isHorizontal && imgUrl) {
@@ -583,7 +583,7 @@ export function injectAdSlot(config: AdSlotConfig): HTMLElement | null {
           padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
         ">View Ad Details →</a>
       </div>` : ""}
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+      ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
     `;
   }
 
@@ -661,7 +661,7 @@ export function injectAdSlotInline(target: HTMLElement, config: AdSlotConfig): H
           padding:4px 10px;font-size:11px;text-decoration:none;cursor:pointer;
         ">View Ad Details →</a>
       </div>` : ""}
-      ${earningHtml(config.clearingCpmPlanck, config.currencySymbol, mech ?? undefined)}
+      ${earningHtml(config.clearingCpmWei, config.currencySymbol, mech ?? undefined)}
     `;
   }
 

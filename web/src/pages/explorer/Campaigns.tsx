@@ -23,7 +23,7 @@ interface CampaignRow {
   status: number;
   advertiser: string;
   publisher: string;
-  bidCpmPlanck: bigint;
+  bidCpmWei: bigint;
   snapshotTakeRateBps: number;
   metadataHash: string;
 }
@@ -117,7 +117,7 @@ export function Campaigns() {
             id,
             status: Number(c[0]),
             publisher: c[1] as string,
-            bidCpmPlanck: BigInt(viewBid),
+            bidCpmWei: BigInt(viewBid),
             snapshotTakeRateBps: Number(c[2]),
             advertiser: adv as string,
             metadataHash,
@@ -257,7 +257,7 @@ export function Campaigns() {
                         ? <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Open</span>
                         : <BrandChip address={row.publisher} size="sm" role="publisher" />}
                     </td>
-                    <td><DOTAmount planck={row.bidCpmPlanck} style={{ fontSize: 12 }} /></td>
+                    <td><DOTAmount planck={row.bidCpmWei} style={{ fontSize: 12 }} /></td>
                     <td><span style={{ fontSize: 12, color: "var(--text)" }}>{(row.snapshotTakeRateBps / 100).toFixed(0)}%</span></td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <Link to={`/campaigns/${row.id}`} style={{ color: "var(--accent-dim)", fontSize: 12 }}>Detail</Link>

@@ -618,13 +618,13 @@ async function getAutoSubmitKey(): Promise<string | null> {
 async function tryAutoSweep(settings: Awaited<ReturnType<typeof getSettings>>, wallet: Wallet, userAddress: string): Promise<void> {
   try {
     const prefs = await getPreferences();
-    const { sweepAddress, sweepThresholdPlanck } = prefs;
-    if (!sweepAddress || !sweepThresholdPlanck || sweepThresholdPlanck === "0") return;
+    const { sweepAddress, sweepThresholdWei } = prefs;
+    if (!sweepAddress || !sweepThresholdWei || sweepThresholdWei === "0") return;
 
     // Basic address format check
     if (!/^0x[0-9a-fA-F]{40}$/.test(sweepAddress)) return;
 
-    const threshold = BigInt(sweepThresholdPlanck);
+    const threshold = BigInt(sweepThresholdWei);
     if (!settings.contractAddresses.paymentVault) return;
 
     const vault = getPaymentVaultContract(settings.contractAddresses, wallet);
@@ -769,7 +769,7 @@ async function autoFlushDirect() {
           campaignId: c.campaignId,
           publisher: c.publisher,
           eventCount: c.eventCount,
-          ratePlanck: c.ratePlanck,
+          rateWei: c.rateWei,
           actionType: c.actionType,
           clickSessionHash: c.clickSessionHash,
           nonce: c.nonce,

@@ -1,5 +1,6 @@
 // User ad preferences — block campaigns, block tags, rate limit, min CPM
 import { UserPreferences } from "@shared/types";
+import { parseDotWei } from "@shared/dot";
 import { tagStringFromLabel, tagStringFromHash } from "@shared/tagDictionary";
 
 const STORAGE_KEY = "userPreferences";
@@ -13,7 +14,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   filterMode: "all",
   allowedTopics: [],
   sweepAddress: "",
-  sweepThresholdPlanck: "0",
+  sweepThresholdWei: "0",
   contextualMode: false,
 };
 
@@ -103,9 +104,9 @@ export function isCampaignAllowed(
     }
   }
 
-  // Min bid CPM
+  // Min bid CPM — stored as a human PAS string; campaign.viewBid is 18-dec wei.
   if (prefs.minBidCpm && prefs.minBidCpm !== "0" && campaign.viewBid) {
-    if (BigInt(campaign.viewBid) < BigInt(prefs.minBidCpm)) return false;
+    if (BigInt(campaign.viewBid) < parseDotWei(prefs.minBidCpm)) return false;
   }
 
   return true;

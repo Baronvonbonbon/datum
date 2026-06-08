@@ -71,7 +71,7 @@ describe("DatumSettlement", function () {
         campaignId,
         publisher: publisherAddr,
         eventCount: impressionsPerClaim,
-        ratePlanck: baseCpm,
+        rateWei: baseCpm,
         actionType: 0,
         clickSessionHash: ethers.ZeroHash,
         nonce,
@@ -278,8 +278,8 @@ describe("DatumSettlement", function () {
     await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
   });
 
-  // S4: CPM exceeding bidCpmPlanck is rejected
-  it("S4: claim with clearingCpmPlanck > bidCpmPlanck is rejected", async function () {
+  // S4: CPM exceeding bidCpmWei is rejected
+  it("S4: claim with clearingCpmWei > bidCpmWei is rejected", async function () {
     const cid = await createTestCampaign();
     const highCpm = BID_CPM + 1n;
     const nonce = 1n;
@@ -291,7 +291,7 @@ describe("DatumSettlement", function () {
       campaignId: cid,
       publisher: publisher.address,
       eventCount: 1000n,
-      ratePlanck: highCpm,
+      rateWei: highCpm,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -331,7 +331,7 @@ describe("DatumSettlement", function () {
       campaignId: cid,
       publisher: publisher.address,
       eventCount: 1000n,
-      ratePlanck: BID_CPM,
+      rateWei: BID_CPM,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce: 1n,
@@ -391,7 +391,7 @@ describe("DatumSettlement", function () {
       campaignId: cid,
       publisher: publisher.address,
       eventCount: 0n,
-      ratePlanck: BID_CPM,
+      rateWei: BID_CPM,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -1134,7 +1134,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
 
       const tx = await settlement.connect(user).settleClaims([batch2]);
@@ -1167,7 +1167,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -1191,7 +1191,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, ratePlanck: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);

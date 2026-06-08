@@ -14,7 +14,7 @@ import { useContracts } from "../../hooks/useContracts";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { ContractAddresses } from "@shared/types";
 
 // All PaseoSafeSender inheritors on alpha-4. Each is queried for
@@ -127,7 +127,7 @@ export function Dust() {
       <div style={{ display: "flex", gap: 12, marginBottom: 16, alignItems: "center" }}>
         <div style={{ flex: 1 }}>
           <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Total queued</div>
-          <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 600 }}>{formatDOT(totalDust)} DOT</div>
+          <div style={{ color: "var(--text-strong)", fontSize: 18, fontWeight: 600 }}>{formatDotWei(totalDust)} DOT</div>
         </div>
         <button className="nano-btn" onClick={scan} disabled={scanning}>{scanning ? "Scanning..." : "Re-scan"}</button>
       </div>
@@ -148,7 +148,7 @@ export function Dust() {
               <div style={{ flex: 1 }}>
                 <div style={{ color: "var(--text-strong)", fontWeight: 600 }}>{r.label}</div>
                 <code style={{ color: "var(--text-muted)", fontSize: 11 }}>{r.addr}</code>
-                <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4 }}>{formatDOT(r.pending)} DOT</div>
+                <div style={{ color: "var(--text)", fontSize: 13, marginTop: 4 }}>{formatDotWei(r.pending)} DOT</div>
               </div>
               <button className="nano-btn nano-btn-accent" onClick={() => claim(r.addr, false)} disabled={busy !== null || !signer}>
                 Claim to self

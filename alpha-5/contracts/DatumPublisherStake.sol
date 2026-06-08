@@ -13,7 +13,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 ///         Publishers lock native DOT to signal commitment. The minimum required
 ///         stake grows with cumulative settled impressions:
 ///
-///           requiredStake = baseStakePlanck + cumulativeImpressions * planckPerImpression
+///           requiredStake = baseStakeWei + cumulativeImpressions * planckPerImpression
 ///
 ///         Unstaking is subject to a delay (default 100,800 blocks ≈ 7 days at 6s/block).
 ///         Requesters cannot drop below requiredStake at unstake-request time.
@@ -35,7 +35,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
 
     // ── Bonding curve params ───────────────────────────────────────────────────
 
-    uint256 public baseStakePlanck;
+    uint256 public baseStakeWei;
     uint256 public planckPerImpression;
     uint256 public unstakeDelayBlocks;
     /// @notice AUDIT-012: Cap on requiredStake to prevent bonding curve runaway.
@@ -62,12 +62,12 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
     }
 
     constructor(
-        uint256 _baseStakePlanck,
+        uint256 _baseStakeWei,
         uint256 _planckPerImpression,
         uint256 _unstakeDelayBlocks
     ) {
         require(_unstakeDelayBlocks > 0, "E00");
-        baseStakePlanck = _baseStakePlanck;
+        baseStakeWei = _baseStakeWei;
         planckPerImpression = _planckPerImpression;
         unstakeDelayBlocks = _unstakeDelayBlocks;
     }
@@ -91,7 +91,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
 
     function setParams(uint256 _base, uint256 _perImpression, uint256 _delay) external onlyOwner {
         require(_delay > 0, "E00");
-        baseStakePlanck = _base;
+        baseStakeWei = _base;
         planckPerImpression = _perImpression;
         unstakeDelayBlocks = _delay;
         emit ParamsUpdated(_base, _perImpression, _delay);
@@ -223,7 +223,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
 
     function requiredStake(address publisher) public view returns (uint256) {
         uint256 cap = maxRequiredStake;
-        uint256 base = baseStakePlanck;
+        uint256 base = baseStakeWei;
         uint256 perImp = planckPerImpression;
         uint256 cum = _cumulativeImpressions[publisher];
         // Saturating bonding-curve evaluation: short-circuit before the
@@ -254,7 +254,7 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
     ///      re-wired on the fresh contract. Native DOT moves via `migrateFundsTo`.
     function _migrate(address oldContract) internal override {
         DatumPublisherStake old = DatumPublisherStake(payable(oldContract));
-        baseStakePlanck = old.baseStakePlanck();
+        baseStakeWei = old.baseStakeWei();
         planckPerImpression = old.planckPerImpression();
         unstakeDelayBlocks = old.unstakeDelayBlocks();
         maxRequiredStake = old.maxRequiredStake();

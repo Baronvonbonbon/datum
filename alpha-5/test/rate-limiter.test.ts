@@ -175,7 +175,7 @@ describe("Settlement Rate Limiter (inline)", function () {
     // Create and activate a campaign
     await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
@@ -195,7 +195,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       campaignId,
       publisher: publisher.address,
       eventCount,
-      ratePlanck: BID_CPM,
+      rateWei: BID_CPM,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -221,7 +221,7 @@ describe("Settlement Rate Limiter (inline)", function () {
     // Create fresh campaign
     await campaigns.connect(advertiser).createCampaign(
       publisher2.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }
     );
@@ -241,7 +241,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       campaignId,
       publisher: publisher2.address,
       eventCount,
-      ratePlanck: BID_CPM,
+      rateWei: BID_CPM,
       actionType: 0,
       clickSessionHash: ethers.ZeroHash,
       nonce,
@@ -304,8 +304,8 @@ describe("Settlement Rate Limiter (inline)", function () {
     await campaigns.connect(advertiser).createCampaign(
       publisher.address,
       [
-        { actionType: 0, budgetPlanck: BUDGET / 2n, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress },
-        { actionType: 1, budgetPlanck: BUDGET / 2n, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress },
+        { actionType: 0, budgetWei: BUDGET / 2n, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress },
+        { actionType: 1, budgetWei: BUDGET / 2n, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress },
       ],
       [], false, ethers.ZeroAddress, 0n, 0n,
       { value: BUDGET }

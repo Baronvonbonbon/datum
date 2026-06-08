@@ -13,7 +13,7 @@ import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
 import { getFeeShareContract, getWrapperContract } from "@shared/contracts";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { FeatureUnavailable } from "../../components/FeatureUnavailable";
 
 const DATUM_DECIMALS = 10;
@@ -164,7 +164,7 @@ export function FeeShare() {
       <Section title="Your stake">
         <Row label="WDATUM balance" value={fmtW(wdBalance)} />
         <Row label="Staked" value={fmtW(staked)} />
-        <Row label="Pending DOT" value={`${formatDOT(pending)} DOT`} />
+        <Row label="Pending DOT" value={`${formatDotWei(pending)} DOT`} />
       </Section>
 
       <Section title="Pool">

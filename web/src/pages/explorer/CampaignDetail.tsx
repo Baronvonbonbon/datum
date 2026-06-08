@@ -19,7 +19,7 @@ import { ethers, Contract } from "ethers";
 import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { toCSV, downloadCSV } from "@shared/csvExport";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { getAssetMetadata } from "@shared/assetRegistry";
 import { StepTooltip } from "../../components/StepTooltip";
 import { BrandChip } from "../../components/BrandChip";
@@ -32,7 +32,7 @@ interface SettlementEvent {
   user: string;
   publisher: string;
   impressionCount: bigint;
-  ratePlanck: bigint;
+  rateWei: bigint;
   userPayment: bigint;
   publisherPayment: bigint;
   actionType: number;
@@ -117,7 +117,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
   const [minHistoryMsg, setMinHistoryMsg] = useState<string | null>(null);
 
   // Per-pot configuration (CPM/CPC/CPA) — drives the Bid Configuration section
-  interface PotInfo { actionType: number; budgetPlanck: bigint; dailyCapPlanck: bigint; ratePlanck: bigint; actionVerifier: string; remaining: bigint; }
+  interface PotInfo { actionType: number; budgetWei: bigint; dailyCapWei: bigint; rateWei: bigint; actionVerifier: string; remaining: bigint; }
   const [pots, setPots] = useState<PotInfo[]>([]);
 
   // Token-reward deposit (top-up) state — for wizard-recovery and ongoing top-ups
@@ -160,7 +160,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         user: log.args?.user ?? "",
         publisher: log.args?.publisher ?? "",
         impressionCount: BigInt(log.args?.eventCount ?? 0),
-        ratePlanck: BigInt(log.args?.ratePlanck ?? 0),
+        rateWei: BigInt(log.args?.rateWei ?? 0),
         userPayment: BigInt(log.args?.userPayment ?? 0),
         publisherPayment: BigInt(log.args?.publisherPayment ?? 0),
         actionType: Number(log.args?.actionType ?? 0),
@@ -183,7 +183,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
         id: campaignId,
         status: Number(c[0]),
         publisher: c[1] as string,
-        bidCpmPlanck: BigInt(viewBid),
+        bidCpmWei: BigInt(viewBid),
         snapshotTakeRateBps: Number(c[2]),
         advertiser: adv as string,
       });
@@ -355,9 +355,9 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
           } catch { /* missing pot */ }
           return {
             actionType: at,
-            budgetPlanck: BigInt(p.budgetPlanck ?? p[1] ?? 0),
-            dailyCapPlanck: BigInt(p.dailyCapPlanck ?? p[2] ?? 0),
-            ratePlanck: BigInt(p.ratePlanck ?? p[3] ?? 0),
+            budgetWei: BigInt(p.budgetWei ?? p[1] ?? 0),
+            dailyCapWei: BigInt(p.dailyCapWei ?? p[2] ?? 0),
+            rateWei: BigInt(p.rateWei ?? p[3] ?? 0),
             actionVerifier: (p.actionVerifier ?? p[4] ?? ethers.ZeroAddress) as string,
             remaining: rem,
           };
@@ -637,7 +637,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
             )}
         </InfoCard>
         <InfoCard label="Bid CPM">
-          <DOTAmount planck={campaign.bidCpmPlanck} />
+          <DOTAmount planck={campaign.bidCpmWei} />
         </InfoCard>
         <InfoCard label="Take Rate">
           <span style={{ color: "var(--text-strong)" }}>{(campaign.snapshotTakeRateBps / 100).toFixed(0)}%</span>
@@ -1008,29 +1008,29 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
             {pots.map((p) => {
               const label = p.actionType === 0 ? "CPM (View)" : p.actionType === 1 ? "CPC (Click)" : "CPA (Action)";
               const rateLabel = p.actionType === 0 ? "Rate per 1k views" : p.actionType === 1 ? "Per click" : "Per action";
-              const remainingPct = p.budgetPlanck > 0n ? Number((p.remaining * 100n) / p.budgetPlanck) : 0;
+              const remainingPct = p.budgetWei > 0n ? Number((p.remaining * 100n) / p.budgetWei) : 0;
               return (
                 <div key={p.actionType} className="nano-card" style={{ padding: 12 }}>
                   <div style={{ color: "var(--accent)", fontSize: 12, fontWeight: 600, marginBottom: 8, letterSpacing: "0.04em" }}>{label}</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
                     <div>
                       <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>{rateLabel}</div>
-                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.ratePlanck} /></div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.rateWei} /></div>
                     </div>
                     <div>
                       <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Daily Cap</div>
-                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.dailyCapPlanck} /></div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.dailyCapWei} /></div>
                     </div>
                     <div>
                       <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Budget</div>
-                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.budgetPlanck} /></div>
+                      <div style={{ color: "var(--text-strong)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.budgetWei} /></div>
                     </div>
                     <div>
                       <div style={{ color: "var(--text-muted)", marginBottom: 2 }}>Remaining</div>
                       <div style={{ color: remainingPct > 20 ? "var(--ok)" : "var(--warn)", fontFamily: "var(--font-mono)" }}><DOTAmount planck={p.remaining} /></div>
                     </div>
                   </div>
-                  {p.budgetPlanck > 0n && (
+                  {p.budgetWei > 0n && (
                     <div style={{ marginTop: 8, height: 3, borderRadius: 2, background: "var(--bg-raised)", overflow: "hidden" }}>
                       <div style={{ width: `${remainingPct}%`, height: "100%", background: remainingPct > 20 ? "var(--ok)" : "var(--warn)" }} />
                     </div>
@@ -1306,9 +1306,9 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                   User: s.user,
                   Publisher: s.publisher,
                   Events: s.impressionCount.toString(),
-                  Rate: formatDOT(s.ratePlanck),
-                  "User Earned": formatDOT(s.userPayment),
-                  "Publisher Earned": formatDOT(s.publisherPayment),
+                  Rate: formatDotWei(s.rateWei),
+                  "User Earned": formatDotWei(s.userPayment),
+                  "Publisher Earned": formatDotWei(s.publisherPayment),
                   Tx: s.txHash,
                 }));
                 downloadCSV(`campaign-${id}-settlements.csv`, toCSV(["Block", "Type", "User", "Publisher", "Events", "Rate", "User Earned", "Publisher Earned", "Tx"], rows));
@@ -1348,7 +1348,7 @@ export function CampaignDetail({ backLink, backLabel }: { backLink?: string; bac
                       <td><AddressDisplay address={s.user} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td><AddressDisplay address={s.publisher} chars={4} explorerBase={EXPLORER} style={{ fontSize: 12 }} /></td>
                       <td style={{ color: "var(--ok)", fontSize: 12 }}>{s.impressionCount.toString()}</td>
-                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.ratePlanck} /></td>
+                      <td style={{ fontSize: 12 }}><DOTAmount planck={s.rateWei} /></td>
                       <td style={{ fontSize: 12 }}><DOTAmount planck={s.userPayment} /></td>
                       <td>
                         {EXPLORER && /^0x[0-9a-fA-F]{64}$/.test(s.txHash) ? (

@@ -407,7 +407,7 @@ describe("DatumParameterGovernance", function () {
     await pg.connect(other).execute(id);
 
     // The change applied
-    expect(await ps.baseStakePlanck()).to.equal(42n);
+    expect(await ps.baseStakeWei()).to.equal(42n);
     expect(await ps.planckPerImpression()).to.equal(7n);
     expect(await ps.unstakeDelayBlocks()).to.equal(99n);
   });

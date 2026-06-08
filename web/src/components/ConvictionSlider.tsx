@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CONVICTION_WEIGHTS, CONVICTION_LOCKUP_LABELS } from "@shared/conviction";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 
 interface Props {
   value: number;
@@ -66,7 +66,7 @@ export function ConvictionSlider({ value, onChange, amount, symbol }: Props) {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
             <span style={{ color: "var(--text)" }}>Stake</span>
-            <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>{formatDOT(amount)} {sym}</span>
+            <span style={{ color: "var(--text-strong)", fontWeight: 600 }}>{formatDotWei(amount)} {sym}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
             <span style={{ color: "var(--text)" }}>Conviction</span>
@@ -74,7 +74,7 @@ export function ConvictionSlider({ value, onChange, amount, symbol }: Props) {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
             <span style={{ color: "var(--text)" }}>Effective vote power</span>
-            <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatDOT(amount * BigInt(weight))} {sym}</span>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatDotWei(amount * BigInt(weight))} {sym}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span style={{ color: "var(--text)" }}>Lock period</span>

@@ -62,7 +62,7 @@ describe("DatumReports — community reporting", function () {
       const pub = i === 1 ? ethers.ZeroAddress : publisher.address; // campaign 2 is open
       await campaigns.connect(advertiser).createCampaign(
         pub,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n,
         { value: BUDGET }
       );

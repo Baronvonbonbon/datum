@@ -11,7 +11,7 @@ import { queryFilterAll } from "@shared/eventQuery";
 import { ConfirmModal } from "../../components/ConfirmModal";
 import { RequirePublisher } from "../../components/RequirePublisher";
 import { toCSV, downloadCSV } from "@shared/csvExport";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { MiniBarChart } from "../../components/MiniBarChart";
 
 interface CampaignEarnings {
@@ -109,7 +109,7 @@ export function Earnings() {
               onClick={() => {
                 const rows = campaignBreakdown.map((c) => ({
                   Campaign: `#${c.campaignId}`,
-                  "Total Paid": formatDOT(c.totalPublisherPayment),
+                  "Total Paid": formatDotWei(c.totalPublisherPayment),
                   Impressions: c.totalImpressions.toString(),
                   Settlements: c.settlementCount,
                 }));
@@ -146,7 +146,7 @@ export function Earnings() {
               <MiniBarChart
                 bars={campaignBreakdown.slice(0, 12).map((c) => ({
                   label: `#${c.campaignId}`,
-                  value: Number(c.totalPublisherPayment) / 1e10,
+                  value: Number(c.totalPublisherPayment) / 1e18,
                   color: "rgba(74,222,128,0.5)",
                 }))}
                 height={120}
@@ -204,7 +204,7 @@ export function Earnings() {
                       <tr key={i}>
                         <td><Link to={`/campaigns/${String(e.args?.campaignId ?? "0")}`} style={{ color: "var(--accent)", textDecoration: "none" }}>#{String(e.args?.campaignId ?? "?")}</Link></td>
                         <td style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>
-                          {(e.args?.user ?? "")?.slice(0, 10)}...
+                          {(e.args?.user ?? "")?.slice(0, 18)}...
                         </td>
                         <td><DOTAmount planck={BigInt(e.args?.publisherPayment ?? 0)} /></td>
                       </tr>

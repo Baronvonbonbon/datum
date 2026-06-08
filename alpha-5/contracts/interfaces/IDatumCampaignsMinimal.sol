@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 /// @title IDatumCampaignsMinimal
 /// @notice Minimal interface for GovernanceV2/Slash/Relay — campaign status reads + governance activation.
 ///         Alpha-2: terminateCampaign moved to IDatumCampaignLifecycle (GovernanceV2 calls Lifecycle directly).
-///         Alpha-3 v10: getCampaignForSettlement returns 3 values (bidCpmPlanck removed; CPM lives in ActionPotConfig[]).
+///         Alpha-3 v10: getCampaignForSettlement returns 3 values (bidCpmWei removed; CPM lives in ActionPotConfig[]).
 interface IDatumCampaignsMinimal {
     function getCampaignForSettlement(uint256 campaignId) external view returns (
         uint8 status, address publisher,

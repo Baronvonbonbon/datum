@@ -138,7 +138,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWithCustomError(campaigns, "E62");
@@ -156,7 +156,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         scamPub.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWithCustomError(campaigns, "E62");
@@ -166,7 +166,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     // advertiser was unblocked above
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -179,7 +179,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     await expect(
       campaigns.connect(advertiser).createCampaign(
         ethers.ZeroAddress,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWithCustomError(campaigns, "E62");
@@ -336,7 +336,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     // Allowlist is enabled, advertiser is allowed (from AL2b)
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -349,7 +349,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
     await expect(
       campaigns.connect(other).createCampaign(
         publisher.address,
-        [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+        [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
         [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
       )
     ).to.be.revertedWithCustomError(campaigns, "E62");
@@ -358,7 +358,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
   it("AL5: open campaign (publisher=0) bypasses allowlist", async function () {
     const tx = await campaigns.connect(other).createCampaign(
       ethers.ZeroAddress,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();
@@ -371,7 +371,7 @@ describe("S12/B2: Blocklist & Allowlist (curator-driven)", function () {
 
     const tx = await campaigns.connect(other).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetPlanck: BUDGET, dailyCapPlanck: DAILY_CAP, ratePlanck: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+      [{ actionType: 0, budgetWei: BUDGET, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET }
     );
     await tx.wait();

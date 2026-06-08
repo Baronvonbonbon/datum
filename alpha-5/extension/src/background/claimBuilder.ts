@@ -1,6 +1,6 @@
 // Builds claims from impressions/clicks/actions, maintaining per-(user, campaign, actionType) hash chains.
 // Alpha-5 EVM: uses keccak256 (9-field preimage).
-// Hash preimage: (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash)
+// Hash preimage: (campaignId, publisher, user, eventCount, rateWei, actionType, clickSessionHash, nonce, previousHash)
 // L-2: claim hash uses abi.encode (32-byte aligned) — must match DatumClaimValidator on-chain.
 
 import { ZeroHash } from "ethers";
@@ -53,7 +53,7 @@ export const claimBuilder = {
     url: string;
     category: string;
     publisherAddress: string;
-    clearingCpmPlanck?: string; // auction-determined clearing CPM (falls back to viewBid)
+    clearingCpmWei?: string; // auction-determined clearing CPM (falls back to viewBid)
   }): Promise<string | null> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
@@ -99,8 +99,8 @@ export const claimBuilder = {
 
       const eventCount = 1n;
       // Use auction clearing CPM if provided, otherwise fall back to viewBid
-      const ratePlanck = msg.clearingCpmPlanck
-        ? BigInt(msg.clearingCpmPlanck)
+      const rateWei = msg.clearingCpmWei
+        ? BigInt(msg.clearingCpmWei)
         : BigInt(campaign.viewBid ?? "0");
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash =
@@ -115,10 +115,10 @@ export const claimBuilder = {
       let stakeRootUsed = ZeroHash;
 
       // keccak256; 10-field preimage matches DatumClaimValidator.validateClaim():
-      // (campaignId, publisher, user, eventCount, ratePlanck, actionType, clickSessionHash, nonce, previousHash, stakeRootUsed)
+      // (campaignId, publisher, user, eventCount, rateWei, actionType, clickSessionHash, nonce, previousHash, stakeRootUsed)
       const claimHash = computeClaimHash({
         campaignId, publisher: msg.publisherAddress, user: userAddress,
-        eventCount, ratePlanck, actionType: 0, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
+        eventCount, rateWei, actionType: 0, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
       });
 
       // Generate real Groth16 proof + nullifier if campaign requires it (FP-5).
@@ -137,7 +137,7 @@ export const claimBuilder = {
         campaignId,
         publisher: msg.publisherAddress,
         eventCount,
-        ratePlanck,
+        rateWei,
         actionType: 0,
         clickSessionHash,
         nonce,
@@ -180,7 +180,7 @@ export const claimBuilder = {
     campaignId: string;
     publisherAddress: string;
     impressionNonce: string; // bytes32 from the corresponding view impression
-    ratePlanck: string;      // click pot ratePlanck
+    rateWei: string;      // click pot rateWei
   }): Promise<void> {
     const stored = await chrome.storage.local.get("connectedAddress");
     const userAddress: string | undefined = stored.connectedAddress;
@@ -195,7 +195,7 @@ export const claimBuilder = {
       const chainState = await getChainState(userAddress, msg.campaignId, 1);
 
       const eventCount = 1n;
-      const ratePlanck = BigInt(msg.ratePlanck);
+      const rateWei = BigInt(msg.rateWei);
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
       const clickSessionHash = msg.impressionNonce; // bytes32 impressionNonce
@@ -203,14 +203,14 @@ export const claimBuilder = {
       const stakeRootUsed = ZeroHash; // click claims don't use ZK stake gate
       const claimHash = computeClaimHash({
         campaignId, publisher: msg.publisherAddress, user: userAddress,
-        eventCount, ratePlanck, actionType: 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
+        eventCount, rateWei, actionType: 1, clickSessionHash, nonce, previousClaimHash, stakeRootUsed,
       });
 
       const claim: Claim = {
         campaignId,
         publisher: msg.publisherAddress,
         eventCount,
-        ratePlanck,
+        rateWei,
         actionType: 1,
         clickSessionHash,
         nonce,
@@ -245,7 +245,7 @@ export const claimBuilder = {
   async onRemoteAction(msg: {
     campaignId: string;
     publisherAddress: string;
-    ratePlanck: string;  // remote-action pot ratePlanck
+    rateWei: string;  // remote-action pot rateWei
     actionSig: string;   // 65-byte hex signature from actionVerifier
   }): Promise<void> {
     const stored = await chrome.storage.local.get("connectedAddress");
@@ -261,21 +261,21 @@ export const claimBuilder = {
       const chainState = await getChainState(userAddress, msg.campaignId, 2);
 
       const eventCount = 1n;
-      const ratePlanck = BigInt(msg.ratePlanck);
+      const rateWei = BigInt(msg.rateWei);
       const nonce = BigInt(chainState.lastNonce + 1);
       const previousClaimHash = chainState.lastNonce === 0 ? ZeroHash : chainState.lastClaimHash;
 
       const stakeRootUsed = ZeroHash; // remote-action claims don't use ZK stake gate
       const claimHash = computeClaimHash({
         campaignId, publisher: msg.publisherAddress, user: userAddress,
-        eventCount, ratePlanck, actionType: 2, clickSessionHash: ZeroHash, nonce, previousClaimHash, stakeRootUsed,
+        eventCount, rateWei, actionType: 2, clickSessionHash: ZeroHash, nonce, previousClaimHash, stakeRootUsed,
       });
 
       const claim: Claim = {
         campaignId,
         publisher: msg.publisherAddress,
         eventCount,
-        ratePlanck,
+        rateWei,
         actionType: 2,
         clickSessionHash: ZeroHash,
         nonce,
@@ -349,7 +349,7 @@ interface SerializedClaim {
   campaignId: string;
   publisher: string;
   eventCount: string;
-  ratePlanck: string;
+  rateWei: string;
   actionType: string;
   clickSessionHash: string;
   nonce: string;
@@ -383,7 +383,7 @@ function serializeClaim(claim: Claim, userAddress: string): SerializedClaim {
     campaignId: claim.campaignId.toString(),
     publisher: claim.publisher,
     eventCount: claim.eventCount.toString(),
-    ratePlanck: claim.ratePlanck.toString(),
+    rateWei: claim.rateWei.toString(),
     actionType: claim.actionType.toString(),
     clickSessionHash: claim.clickSessionHash,
     nonce: claim.nonce.toString(),

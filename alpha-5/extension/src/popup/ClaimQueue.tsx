@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { keccak256, solidityPacked, ZeroHash, ZeroAddress } from "ethers";
 import { getSettlementContract, getAttestationVerifierContract, getBudgetLedgerContract, getProvider, getPublishersContract, getPowEngineContract } from "@shared/contracts";
 import { SerializedClaimBatch, SettlementResult, StoredSettings } from "@shared/types";
-import { formatDOT } from "@shared/dot";
+import { formatDotWei } from "@shared/dot";
 import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { OffscreenSigner } from "@shared/offscreenSigner";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
@@ -67,7 +67,7 @@ function normalizeClaimForRelay(c: any) {
     campaignId: String(c.campaignId),
     publisher: c.publisher,
     eventCount: String(c.eventCount ?? "1"),
-    ratePlanck: String(c.ratePlanck),
+    rateWei: String(c.rateWei),
     actionType: Number(c.actionType ?? 0),
     clickSessionHash: c.clickSessionHash ?? ZeroHash,
     nonce: String(c.nonce ?? "0"),
@@ -253,8 +253,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
   /** Truncate claims in each batch so total payment ≤ on-chain remaining budget.
    *  Drops batches that have zero affordable claims.
    *  Payment per claim:
-   *    - actionType 0 (view/CPM): eventCount * ratePlanck / 1000
-   *    - actionType 1/2 (click/action): eventCount * ratePlanck */
+   *    - actionType 0 (view/CPM): eventCount * rateWei / 1000
+   *    - actionType 1/2 (click/action): eventCount * rateWei */
   function applyBudgetFilter(
     batches: SerializedClaimBatch[],
     budgetMap: Record<string, bigint>,
@@ -267,7 +267,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const affordable: typeof b.claims = [];
       for (const c of b.claims) {
         const events = BigInt(c.eventCount);
-        const rate = BigInt(c.ratePlanck);
+        const rate = BigInt(c.rateWei);
         const payment = Number(c.actionType) === 0 ? (events * rate) / 1000n : events * rate;
         if (payment > budget) break; // chain must stay sequential — stop here
         affordable.push(c);
@@ -419,7 +419,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
             campaignId: BigInt(c.campaignId),
             publisher: c.publisher,
             eventCount: BigInt(c.eventCount),
-            ratePlanck: BigInt(c.ratePlanck),
+            rateWei: BigInt(c.rateWei),
             actionType: Number(c.actionType),
             clickSessionHash: c.clickSessionHash,
             nonce: BigInt(c.nonce),
@@ -535,7 +535,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
               campaignId: BigInt(c.campaignId),
               publisher: c.publisher,
               eventCount: BigInt(c.eventCount),
-              ratePlanck: BigInt(c.ratePlanck),
+              rateWei: BigInt(c.rateWei),
               actionType: Number(c.actionType),
               clickSessionHash: c.clickSessionHash,
               nonce: BigInt(c.nonce),
@@ -675,7 +675,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
           eventCount: BigInt(c.eventCount),
-          ratePlanck: BigInt(c.ratePlanck),
+          rateWei: BigInt(c.rateWei),
           actionType: Number(c.actionType),
           clickSessionHash: c.clickSessionHash,
           nonce: BigInt(c.nonce),
@@ -1051,7 +1051,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
         <>
           {userClaims && Object.entries(userClaims).map(([cid, count]) => {
             const meta = campaigns[cid];
-            const estPlanck = meta
+            const estWei = meta
               ? (BigInt(meta.viewBid) * BigInt(count) * 7500n) / (1000n * 10000n)
               : null;
             const anyBusy = submitting || signing || submittingCampaign !== null || discardingCampaign !== null;
@@ -1063,9 +1063,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
                     {count} impression{count !== 1 ? "s" : ""}
                   </span>
                 </div>
-                {estPlanck !== null && (
+                {estWei !== null && (
                   <div style={{ color: "var(--ok)", fontSize: 11, marginTop: 2 }}>
-                    ~{formatDOT(estPlanck)} {sym} est. earnings
+                    ~{formatDotWei(estWei)} {sym} est. earnings
                   </div>
                 )}
                 {address && (
@@ -1149,7 +1149,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           </div>
           {result.totalPaid > 0n && (
             <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 2 }}>
-              Total paid: {formatDOT(result.totalPaid)} {sym}
+              Total paid: {formatDotWei(result.totalPaid)} {sym}
             </div>
           )}
         </div>

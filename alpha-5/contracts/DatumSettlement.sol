@@ -37,18 +37,18 @@ import "./interfaces/IDatumMintCoordinator.sol";
 /// @notice Processes claim batches and distributes payments.
 ///
 ///         Alpha-3 multi-pricing changes:
-///           - Claim struct: impressionCount→eventCount, clearingCpmPlanck→ratePlanck,
+///           - Claim struct: impressionCount→eventCount, clearingCpmWei→rateWei,
 ///             plus actionType, clickSessionHash, actionSig fields.
 ///           - Chain state triple-keyed: (user, campaignId, actionType).
-///           - Payment formula: view (type-0) = (ratePlanck × eventCount) / 1000;
-///             click/action (type-1/2) = ratePlanck × eventCount.
+///           - Payment formula: view (type-0) = (rateWei × eventCount) / 1000;
+///             click/action (type-1/2) = rateWei × eventCount.
 ///           - BudgetLedger.deductAndTransfer now takes actionType.
 ///           - Type-1 claims: Settlement calls clickRegistry.markClaimed after success.
 ///           - rateLimiter.checkAndIncrement now takes actionType.
 ///
 ///         Revenue formula:
-///           totalPayment    = (ratePlanck × eventCount / 1000) for view
-///                           = (ratePlanck × eventCount) for click/action
+///           totalPayment    = (rateWei × eventCount / 1000) for view
+///                           = (rateWei × eventCount) for click/action
 ///           publisherPayment = totalPayment × snapshotTakeRateBps / 10000
 ///           remainder       = totalPayment - publisherPayment
 ///           userPayment     = remainder × 7500 / 10000   (75%)

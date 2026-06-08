@@ -57,7 +57,7 @@ export function decodeClaimSettled(
   user: string;
   publisher: string;
   eventCount: bigint;
-  ratePlanck: bigint;
+  rateWei: bigint;
   actionType: number;
   nonce: bigint;
   publisherPayment: bigint;
@@ -80,7 +80,7 @@ export function decodeClaimSettled(
     user: a.user,
     publisher: a.publisher,
     eventCount: BigInt(a.eventCount),
-    ratePlanck: BigInt(a.ratePlanck),
+    rateWei: BigInt(a.rateWei),
     actionType: Number(a.actionType),
     nonce: BigInt(a.nonce),
     publisherPayment: BigInt(a.publisherPayment),
@@ -108,20 +108,20 @@ export function applyEvent(
   const existing = index.byCampaign[cid];
   if (existing) {
     index.byCampaign[cid] = {
-      totalUserPlanck: (BigInt(existing.totalUserPlanck) + ev.userPayment).toString(),
+      totalUserWei: (BigInt(existing.totalUserWei) + ev.userPayment).toString(),
       totalEvents: (BigInt(existing.totalEvents) + ev.eventCount).toString(),
       claimCount: existing.claimCount + 1,
       lastBlock: Math.max(existing.lastBlock, ev.blockNumber),
-      lastPaymentPlanck: ev.userPayment.toString(),
+      lastPaymentWei: ev.userPayment.toString(),
       firstSeenBlock: Math.min(existing.firstSeenBlock, ev.blockNumber),
     };
   } else {
     index.byCampaign[cid] = {
-      totalUserPlanck: ev.userPayment.toString(),
+      totalUserWei: ev.userPayment.toString(),
       totalEvents: ev.eventCount.toString(),
       claimCount: 1,
       lastBlock: ev.blockNumber,
-      lastPaymentPlanck: ev.userPayment.toString(),
+      lastPaymentWei: ev.userPayment.toString(),
       firstSeenBlock: ev.blockNumber,
     };
   }
@@ -132,7 +132,7 @@ export function applyEvent(
       campaignId: cid,
       blockNumber: ev.blockNumber,
       blockTimestamp: ev.blockTimestamp ?? 0,
-      userPaymentPlanck: ev.userPayment.toString(),
+      userPaymentWei: ev.userPayment.toString(),
       publisher: ev.publisher,
       actionType: ev.actionType as 0 | 1 | 2,
       txHash: ev.txHash,
@@ -230,11 +230,11 @@ export async function scanRange(opts: {
 
 // ── Sort utilities ─────────────────────────────────────────────────────────
 
-export type TopSortKey = "totalUserPlanck" | "claimCount" | "totalEvents" | "lastBlock";
+export type TopSortKey = "totalUserWei" | "claimCount" | "totalEvents" | "lastBlock";
 
 export function topCampaigns(
   index: EarningsIndex,
-  sortBy: TopSortKey = "totalUserPlanck",
+  sortBy: TopSortKey = "totalUserWei",
   limit = 10
 ): Array<{ campaignId: string; totals: EarningsCampaignTotals }> {
   const entries = Object.entries(index.byCampaign).map(([campaignId, totals]) => ({
@@ -242,10 +242,10 @@ export function topCampaigns(
     totals,
   }));
   entries.sort((a, b) => {
-    const va = sortBy === "totalUserPlanck" ? BigInt(a.totals.totalUserPlanck) :
+    const va = sortBy === "totalUserWei" ? BigInt(a.totals.totalUserWei) :
                sortBy === "totalEvents"     ? BigInt(a.totals.totalEvents) :
                BigInt(sortBy === "claimCount" ? a.totals.claimCount : a.totals.lastBlock);
-    const vb = sortBy === "totalUserPlanck" ? BigInt(b.totals.totalUserPlanck) :
+    const vb = sortBy === "totalUserWei" ? BigInt(b.totals.totalUserWei) :
                sortBy === "totalEvents"     ? BigInt(b.totals.totalEvents) :
                BigInt(sortBy === "claimCount" ? b.totals.claimCount : b.totals.lastBlock);
     if (va > vb) return -1;

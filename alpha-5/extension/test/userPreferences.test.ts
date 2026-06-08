@@ -13,7 +13,7 @@ function defaultPrefs(overrides: Partial<UserPreferences> = {}): UserPreferences
     filterMode: "all",
     allowedTopics: [],
     sweepAddress: "",
-    sweepThresholdPlanck: "0",
+    sweepThresholdWei: "0",
     ...overrides,
   };
 }
@@ -58,11 +58,12 @@ describe("isCampaignAllowed", () => {
     ).toBe(true);
   });
 
+  // minBidCpm is a human PAS string; viewBid is 18-dec wei (1 PAS = 1e18 wei).
   test("blocks campaign below min bid CPM", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", viewBid: "500" },
-        defaultPrefs({ minBidCpm: "1000" }),
+        { id: "1", viewBid: "500000000000000000" }, // 0.5 PAS
+        defaultPrefs({ minBidCpm: "1" }),           // floor 1 PAS
       )
     ).toBe(false);
   });
@@ -70,8 +71,8 @@ describe("isCampaignAllowed", () => {
   test("allows campaign at or above min bid CPM", () => {
     expect(
       isCampaignAllowed(
-        { id: "1", viewBid: "1000" },
-        defaultPrefs({ minBidCpm: "1000" }),
+        { id: "1", viewBid: "1000000000000000000" }, // 1 PAS
+        defaultPrefs({ minBidCpm: "1" }),            // floor 1 PAS
       )
     ).toBe(true);
   });

@@ -284,7 +284,7 @@ function FileAppealSection({
       });
       setTx(hash);
       recordAction("protocol", wallet.address ?? null, {
-        label: `Filed tag appeal ${tag.slice(0, 10)}…`,
+        label: `Filed tag appeal ${tag.slice(0, 18)}…`,
         route: "/protocol/tag-curator",
         txHash: hash,
       });
@@ -342,7 +342,7 @@ function FileAppealSection({
       {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
       {tx && (
         <div style={{ color: "var(--ok)", fontSize: 11 }}>
-          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 10)}…{tx.slice(-6)}</span>
+          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 18)}…{tx.slice(-6)}</span>
         </div>
       )}
     </section>
@@ -448,7 +448,7 @@ function CouncilLockSection({
       {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
       {tx && (
         <div style={{ color: "var(--ok)", fontSize: 11 }}>
-          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 10)}…{tx.slice(-6)}</span>
+          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 18)}…{tx.slice(-6)}</span>
         </div>
       )}
     </section>
@@ -535,7 +535,7 @@ function bytes32Label(b32: string): string {
     if (byte === 0) break;
     if (byte >= 0x20 && byte < 0x7f) s += String.fromCharCode(byte);
   }
-  return s || `${b32.slice(0, 10)}…`;
+  return s || `${b32.slice(0, 18)}…`;
 }
 
 function shorten(addr: string): string {
@@ -545,13 +545,13 @@ function shorten(addr: string): string {
 
 function formatDot(planck: bigint): string {
   if (planck === 0n) return "0 DOT";
-  const whole = planck / 10n ** 10n;
-  const frac = planck % 10n ** 10n;
+  const whole = planck / 10n ** 18n;
+  const frac = planck % 10n ** 18n;
   if (whole === 0n) {
-    const padded = frac.toString().padStart(10, "0");
+    const padded = frac.toString().padStart(18, "0");
     const trimmed = padded.slice(0, 4).replace(/0+$/, "") || "0";
     return `0.${trimmed} DOT`;
   }
-  const fracStr = frac.toString().padStart(10, "0").slice(0, 4).replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
   return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
 }
