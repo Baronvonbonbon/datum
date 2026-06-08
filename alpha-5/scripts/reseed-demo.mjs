@@ -21,7 +21,7 @@
 // JsonRpcProvider + nonce-poll pattern (Paseo receipt bug) like deploy.ts.
 import {
   JsonRpcProvider, Wallet, Interface, AbiCoder,
-  keccak256, decodeBase58, getBytes, hexlify, parseEther, ZeroHash, ZeroAddress,
+  keccak256, decodeBase58, getBytes, hexlify, parseEther, formatEther, ZeroHash, ZeroAddress,
 } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -281,7 +281,7 @@ async function main() {
           const body = await r.json().catch(() => ({}));
           let credited = 0n;
           if (r.status === 202 && body.ok) for (let i = 0; i < 30; i++) { credited = BigInt((await read(A.paymentVault, iVault, "userBalance", [user.address]))[0]); if (credited > 0n) break; await sleep(2000); }
-          console.log(`    #${d.cid} ${d.title.padEnd(16)} ${credited > 0n ? `settled, user credited ${credited} planck` : `no settle (${JSON.stringify(body).slice(0, 50)})`}`);
+          console.log(`    #${d.cid} ${d.title.padEnd(16)} ${credited > 0n ? `settled, user credited ${formatEther(credited)} PAS` : `no settle (${JSON.stringify(body).slice(0, 50)})`}`);
         } catch (e) { console.log(`    #${d.cid} activity err: ${String(e.message ?? e).slice(0, 60)}`); }
       }
     }
