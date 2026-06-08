@@ -400,7 +400,7 @@ function FileClaimSection({
       {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
       {tx && (
         <div style={{ color: "var(--ok)", fontSize: 11 }}>
-          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 10)}…{tx.slice(-6)}</span>
+          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 18)}…{tx.slice(-6)}</span>
         </div>
       )}
     </section>
@@ -653,7 +653,7 @@ function ProposalRowView({
       {err && <div style={{ color: "var(--error)", fontSize: 11 }}>{err}</div>}
       {tx && (
         <div style={{ color: "var(--ok)", fontSize: 11 }}>
-          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 10)}…{tx.slice(-6)}</span>
+          Submitted — <span style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>{tx.slice(0, 18)}…{tx.slice(-6)}</span>
         </div>
       )}
     </div>
@@ -778,20 +778,20 @@ function parseDot(input: string): bigint {
   const s = input.trim();
   if (!s) return 0n;
   const [whole, frac = ""] = s.split(".");
-  const fracPadded = (frac + "0000000000").slice(0, 10);
-  return BigInt(whole || "0") * 10n ** 10n + BigInt(fracPadded || "0");
+  const fracPadded = (frac + "000000000000000000").slice(0, 18);
+  return BigInt(whole || "0") * 10n ** 18n + BigInt(fracPadded || "0");
 }
 
 function formatDot(planck: bigint): string {
   if (planck === 0n) return "0 DOT";
-  const whole = planck / 10n ** 10n;
-  const frac = planck % 10n ** 10n;
+  const whole = planck / 10n ** 18n;
+  const frac = planck % 10n ** 18n;
   if (whole === 0n) {
-    const padded = frac.toString().padStart(10, "0");
+    const padded = frac.toString().padStart(18, "0");
     const trimmed = padded.slice(0, 4).replace(/0+$/, "") || "0";
     return `0.${trimmed} DOT`;
   }
-  const fracStr = frac.toString().padStart(10, "0").slice(0, 4).replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
   return fracStr ? `${whole}.${fracStr} DOT` : `${whole} DOT`;
 }
 
@@ -800,8 +800,8 @@ function formatWeighted(w: bigint): string {
   // matches DOT × weight — we render as plain numeric to avoid implying
   // a literal DOT amount.
   if (w === 0n) return "0";
-  if (w < 10n ** 10n) return w.toString();
-  const dot = w / 10n ** 10n;
+  if (w < 10n ** 18n) return w.toString();
+  const dot = w / 10n ** 18n;
   return `${dot.toString()}·w`;
 }
 

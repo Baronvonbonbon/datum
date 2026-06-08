@@ -133,7 +133,7 @@ export function CampaignAnalytics() {
       const spent = c.originalBudget - c.remaining;
       return {
         label: `#${c.id}`,
-        value: Number(spent) / 1e10,
+        value: Number(spent) / 1e18,
         color: c.status === 1 ? "rgba(74,222,128,0.5)" : "rgba(255,255,255,0.25)",
       };
     });

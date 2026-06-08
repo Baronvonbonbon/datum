@@ -96,14 +96,14 @@ function escapeHtml(s: string): string {
   return div.innerHTML;
 }
 
-function formatCpm(planckStr?: string): string {
-  if (!planckStr) return "?";
+function formatCpm(weiStr?: string): string {
+  if (!weiStr) return "?";
   try {
-    const planck = BigInt(planckStr);
-    const dot = Number(planck) / 1e10;
-    if (dot >= 0.01) return dot.toFixed(2);
-    if (dot >= 0.001) return dot.toFixed(3);
-    return dot.toFixed(4);
+    // CPM is an 18-decimal wei contract amount (PAS).
+    const pas = Number(BigInt(weiStr)) / 1e18;
+    if (pas >= 0.01) return pas.toFixed(2);
+    if (pas >= 0.001) return pas.toFixed(3);
+    return pas.toFixed(4);
   } catch { return "?"; }
 }
 
