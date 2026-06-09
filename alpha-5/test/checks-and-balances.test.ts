@@ -51,14 +51,7 @@ describe("Checks & Balances (CB1-CB7)", function () {
     );
     return {
       campaignId, publisher: pubAddr, eventCount, rateWei: BID_CPM,
-      actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: ethers.ZeroHash,
-      claimHash,
-      zkProof: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash,
-        ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash] as [string,string,string],
-      powNonce: ethers.ZeroHash,
+      actionType: 0, proof: [],
     };
   }
 

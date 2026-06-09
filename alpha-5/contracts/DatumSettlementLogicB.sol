@@ -450,15 +450,20 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 }
             }
 
+            // SLIM (#2b): nullifier + clickSessionHash live in the optional
+            // proof sidecar (empty for plain view claims).
+            bytes32 claimNullifier = claim.proof.length > 0 ? claim.proof[0].nullifier : bytes32(0);
+            bytes32 claimClickSession = claim.proof.length > 0 ? claim.proof[0].clickSessionHash : bytes32(0);
+
             // FP-5: Nullifier replay check + register (atomic; view claims only).
             //       Delegated to DatumNullifierRegistry.tryConsume which marks
             //       the nullifier used and returns false on replay collision.
             if (
                 address(_nullifiers) != address(0) &&
                 claim.actionType == 0 &&
-                claim.nullifier != bytes32(0)
+                claimNullifier != bytes32(0)
             ) {
-                if (!_nullifiers.tryConsume(campaignId, claim.nullifier)) {
+                if (!_nullifiers.tryConsume(campaignId, claimNullifier)) {
                     result.rejectedCount++;
                     emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 19);
                     gapFound = true;
@@ -471,8 +476,8 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             _lastNonce[user][campaignId][claim.actionType] = assignedNonce;
 
             // CPC: mark click session as claimed (type-1 only)
-            if (claim.actionType == 1 && address(_clickRegistry) != address(0) && claim.clickSessionHash != bytes32(0)) {
-                _clickRegistry.markClaimed(user, campaignId, claim.clickSessionHash);
+            if (claim.actionType == 1 && address(_clickRegistry) != address(0) && claimClickSession != bytes32(0)) {
+                _clickRegistry.markClaimed(user, campaignId, claimClickSession);
             }
 
             // Compute payment

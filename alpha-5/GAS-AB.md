@@ -113,10 +113,34 @@ binds to `keccak(abi.encode(slimClaim))`). New error **E86** on a stale anchor.
   but a relay batching many users would have one stale batch revert the whole call. A
   production version should skip stale batches per-iteration; noted, not done.
 
-### M2b — heavy-field sidecar (view claim → ~192 B)
+### M2b — heavy-field sidecar (DONE)
 
-_pending — moves zkProof[8]/actionSig[3]/nullifier/stakeRootUsed/powNonce/clickSessionHash
-into an optional `ClaimProof` sidecar (empty for plain views)._
+Moved `clickSessionHash`, `stakeRootUsed`, `nullifier`, `powNonce`, `zkProof[8]`,
+`actionSig[3]` into an optional `ClaimProof[] proof` sidecar (empty for plain view claims,
+one entry for ZK/click/CPA/PoW). `mkProof()`/`computeClaimHash()` test helpers in
+`test/helpers/slimClaim.ts`.
+
+| metric | baseline | M2a | **M2b** |
+|--------|----------|-----|---------|
+| raw view Claim tuple | 736 B | 608 B | **224 B** |
+| calldata / claim (N=20) | 747 B | 619 B | **235 B (−69%)** |
+| gas / claim (marginal) | 44,570 | 30,652 | **~30,580** |
+| gas total (N=20) | 1,199,867 | 936,821 | **936,124 (−22%)** |
+
+- **Gas is flat vs M2a** — confirms the heavy fields were all-zero for view claims and cost
+  ~nothing on EVM. M2b is a **calldata-bytes / Polkadot-PoV** win, not an EVM-gas win.
+- Full suite **1659 passing, 0 failing**. ZK/PoW/click/nullifier tests rewritten to put proof
+  material in the sidecar; the PoW solver now hashes against the on-chain-derived claim hash.
+
+### Net result (#1 + #2)
+
+| | baseline | final |
+|---|---|---|
+| EVM gas / claim (marginal) | 44,570 | **~30,580 (−31%)** |
+| calldata / claim | 736 B | **224 B (−70%)** |
+
+For an EVM-gas-bound chain, ~1.46× more claims per batch. For a calldata/PoV-bound chain
+(Polkadot Hub), ~3.3× more claims per fixed extrinsic-size budget.
 
 ### M2c — off-chain signers (relay-bot + extension)
 

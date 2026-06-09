@@ -60,15 +60,7 @@ describe("GAS-AB: settleClaims view-batch", function () {
         eventCount: impressionsPerClaim,
         rateWei: baseCpm,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
       });
       prevHash = hash;
     }

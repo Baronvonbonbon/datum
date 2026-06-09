@@ -148,10 +148,7 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
     const claimHash = ethers.keccak256(hash);
     return {
       campaignId: cid, publisher: pub, eventCount, rateWei: CPM, actionType: 0,
-      clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prev, claimHash,
-      zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash,
+      proof: [],
     };
   }
 

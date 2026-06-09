@@ -39,6 +39,7 @@ import { parseDOT } from "./helpers/dot";
 import { fundSigners } from "./helpers/mine";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
+import { contentHashClaims } from "./helpers/slimClaim";
 
 describe("Audit fixes", function () {
   // ── M-1 fixtures ────────────────────────────────────────────────────────
@@ -219,28 +220,15 @@ describe("Audit fixes", function () {
       pubAddr: string,
       userAddr: string,
       nonce: bigint,
-      prevHash: string
+      _prevHash?: string   // SLIM (#2): prevHash is derived on-chain; kept for call-site compat
     ) {
-      const eventCount = 1000n;
-      const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, pubAddr, userAddr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
-      );
       return {
-        campaignId,
         publisher: pubAddr,
-        eventCount,
+        eventCount: 1000n,
         rateWei: CPM,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
+        nonce,              // JS-only bookkeeping (signed paths read claims[i].nonce)
       };
     }
 
@@ -268,13 +256,7 @@ describe("Audit fixes", function () {
       ],
     };
 
-    const SLIM_CLAIM_TUPLE =
-      "tuple(address publisher,uint256 eventCount,uint256 rateWei,uint8 actionType,bytes32 clickSessionHash,bytes32[8] zkProof,bytes32 nullifier,bytes32 stakeRootUsed,bytes32[3] actionSig,bytes32 powNonce)";
-    function hashClaimsArr(claims: any[]) {
-      const coder = ethers.AbiCoder.defaultAbiCoder();
-      const hashes = claims.map((c) => ethers.keccak256(coder.encode([SLIM_CLAIM_TUPLE], [c])));
-      return ethers.keccak256(ethers.concat(hashes));
-    }
+    const hashClaimsArr = contentHashClaims;
 
     async function makeBatch(
       cid: bigint,

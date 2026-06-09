@@ -12,6 +12,7 @@ import {
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
+import { mkProof } from "./helpers/slimClaim";
 import { fundSigners } from "./helpers/mine";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
 
@@ -116,20 +117,14 @@ describe("Settlement Nullifier (inline)", function () {
       [cid, publisher.address, user.address, IMPRESSIONS, BID_CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
     return {
-      campaignId: cid,
       publisher: publisher.address,
       eventCount: IMPRESSIONS,
       rateWei: BID_CPM,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
+      // SLIM (#2b): nullifier lives in the proof sidecar. bytes32(0) → empty
+      // sidecar (skips the nullifier check, per NR8).
+      proof: nullifier === ethers.ZeroHash ? [] : mkProof({ nullifier }),
       nonce,
-      previousClaimHash: prevHash,
-      claimHash: hash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-      powNonce: ethers.ZeroHash,
     };
   }
 

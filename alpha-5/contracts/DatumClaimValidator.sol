@@ -492,6 +492,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         // Check 5: rate ceiling (pot rate resolved in ctx)
         if (claim.rateWei > ctx.potRate) return (false, 6, bytes32(0));
 
+        // SLIM (#2b): path-specific proof material lives in the optional `proof`
+        // sidecar. Plain view claims carry none. At most one entry is allowed.
+        if (claim.proof.length > 1) return (false, 21, bytes32(0));
+        bool hasProof = claim.proof.length == 1;
+        bytes32 clickSessionHash = hasProof ? claim.proof[0].clickSessionHash : bytes32(0);
+        bytes32 stakeRootUsed    = hasProof ? claim.proof[0].stakeRootUsed    : bytes32(0);
+
         // SLIM (#2): no nonce / prevHash / claimHash equality checks. The
         // contract assigns the nonce (assignedNonce = lastNonce+1) and reads
         // prevHash from storage, then recomputes the canonical claim hash from
@@ -511,19 +518,20 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             claim.eventCount,
             claim.rateWei,
             claim.actionType,
-            claim.clickSessionHash,
+            clickSessionHash,
             assignedNonce,
             prevHash,
-            claim.stakeRootUsed
+            stakeRootUsed
         ));
 
         // Check 8b: #5 — Per-impression PoW with scaling difficulty. ctx.enforcePow
         //   resolved once per batch; the per-user/per-eventCount target read
         //   stays here because it varies by claim.
         if (ctx.enforcePow) {
+            bytes32 powNonce = hasProof ? claim.proof[0].powNonce : bytes32(0);
             // F-018: fail-CLOSED on powTargetForUser revert.
             try IPowEngineGate(powEngine).powTargetForUser(user, claim.eventCount) returns (uint256 target) {
-                if (uint256(keccak256(abi.encodePacked(computedHash, claim.powNonce))) > target) {
+                if (uint256(keccak256(abi.encodePacked(computedHash, powNonce))) > target) {
                     return (false, 27, bytes32(0));
                 }
             } catch {
@@ -540,17 +548,18 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         //          rollover races (root rotates between gen and verify) are expected;
         //          relays should retry with a fresh proof on reason 16.
         if (claim.actionType == 0 && ctx.requiresZk) {
+            if (!hasProof) return (false, 16, bytes32(0));
             bool proofPresent = false;
-            for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
+            for (uint256 i = 0; i < 8; i++) { if (claim.proof[0].zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
             if (!proofPresent) return (false, 16, bytes32(0));
-            if (!_verifyPathA(claim, user, campaignId, computedHash)) return (false, 16, bytes32(0));
+            if (!_verifyPathA(claim, claim.proof[0], user, campaignId, computedHash)) return (false, 16, bytes32(0));
         }
 
         // Check 10 (type-1 only): verify click session exists and is unclaimed
         if (claim.actionType == 1) {
             if (address(clickRegistry) == address(0)) return (false, 22, bytes32(0)); // E90 → reason 22
-            if (claim.clickSessionHash == bytes32(0)) return (false, 22, bytes32(0));
-            try clickRegistry.hasUnclaimed(user, campaignId, claim.clickSessionHash) returns (bool unclaimed) {
+            if (clickSessionHash == bytes32(0)) return (false, 22, bytes32(0));
+            try clickRegistry.hasUnclaimed(user, campaignId, clickSessionHash) returns (bool unclaimed) {
                 if (!unclaimed) return (false, 22, bytes32(0));
             } catch {
                 return (false, 22, bytes32(0));
@@ -560,10 +569,11 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         // Check 11 (type-2 only): verify actionSig from the pot's actionVerifier EOA
         if (claim.actionType == 2) {
             if (ctx.potActionVerifier == address(0)) return (false, 23, bytes32(0)); // E94 → reason 23
+            if (!hasProof) return (false, 23, bytes32(0));
             // bytes32[3]: [r, s, v-as-bytes32]; all-zero = no sig provided
             // sig is over computedHash (the full claim hash)
             bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", computedHash));
-            (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.actionSig);
+            (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.proof[0].actionSig);
             if (v != 27 && v != 28) return (false, 23, bytes32(0));
             if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) return (false, 23, bytes32(0));
             address recovered = ecrecover(ethHash, v, r, s);
@@ -605,15 +615,21 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
 
     /// @dev Path A: build the 7-pub array and call DatumZKVerifier.verifyA.
     ///      Returns false on any lookup failure or pairing mismatch.
-    function _verifyPathA(IDatumSettlement.Claim calldata claim, address user, uint256 campaignId, bytes32 computedHash)
+    function _verifyPathA(
+        IDatumSettlement.Claim calldata claim,
+        IDatumSettlement.ClaimProof calldata p,
+        address user,
+        uint256 campaignId,
+        bytes32 computedHash
+    )
         internal view returns (bool)
     {
         // Pub 3: stake root — wallet/relay submits which root the proof was
-        //         generated against (claim.stakeRootUsed). Validator checks
+        //         generated against (proof.stakeRootUsed). Validator checks
         //         it's within the configured lookback window. If stakeRoot
         //         contract isn't wired, fall back to bytes32(0) — circuit
         //         expects 0 when no stake gate is enforced.
-        bytes32 sRoot = claim.stakeRootUsed;
+        bytes32 sRoot = p.stakeRootUsed;
         if (sRoot != bytes32(0)) {
             // require recency only when a non-zero root is asserted; otherwise
             // the campaign's minStake==0 path treats this as "no gate"
@@ -664,14 +680,14 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
 
         uint256[7] memory pubs = [
             uint256(computedHash),
-            uint256(claim.nullifier),
+            uint256(p.nullifier),
             claim.eventCount,
             uint256(sRoot),
             minStake,
             uint256(iRoot),
             uint256(reqCat)
         ];
-        try zkVerifier.verifyA(abi.encodePacked(claim.zkProof), pubs) returns (bool valid) {
+        try zkVerifier.verifyA(abi.encodePacked(p.zkProof), pubs) returns (bool valid) {
             return valid;
         } catch {
             return false;

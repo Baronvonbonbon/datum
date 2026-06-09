@@ -2,13 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 
 // SLIM (#2): content hash of the slim Claim tuple, mirroring the contracts.
-import { AbiCoder } from "ethers";
-const SLIM_CLAIM_TUPLE =
-  "tuple(address publisher,uint256 eventCount,uint256 rateWei,uint8 actionType,bytes32 clickSessionHash,bytes32[8] zkProof,bytes32 nullifier,bytes32 stakeRootUsed,bytes32[3] actionSig,bytes32 powNonce)";
-function contentHashClaims(claims: any[]): string {
-  const c = AbiCoder.defaultAbiCoder();
-  return ethers.keccak256(ethers.concat(claims.map((x) => ethers.keccak256(c.encode([SLIM_CLAIM_TUPLE], [x])))));
-}
+import { contentHashClaims, computeClaimHash, mkProof } from "./helpers/slimClaim";
 import {
   DatumPublishers,
   DatumCampaigns,
@@ -95,20 +89,12 @@ describe("Integration", function () {
         [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       claims.push({
-        campaignId,
         publisher: publisherAddr,
         eventCount: impressions,
         rateWei: cpm,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
+        nonce,              // JS-only bookkeeping (signed paths read claims[i].nonce)
       });
       prevHash = hash;
     }
@@ -1013,9 +999,10 @@ describe("Integration", function () {
       const claims = buildClaims(campaignId, publisher.address, freshUser.address, 1, BID_CPM, 1n);
 
       // Step 3a: try a few zero-effort submissions — high probability of rejection.
+      // SLIM (#2b): powNonce lives in the proof sidecar now.
       let rejected = false;
       for (let attempt = 0; attempt < 5; attempt++) {
-        const attemptClaims = claims.map((c, i) => ({ ...c, powNonce: ethers.toBeHex(0xbad0 + attempt * 100 + i, 32) }));
+        const attemptClaims = claims.map((c, i) => ({ ...c, proof: mkProof({ powNonce: ethers.toBeHex(0xbad0 + attempt * 100 + i, 32) }) }));
         const r = await settlement.connect(freshUser).settleClaims.staticCall([
           { user: freshUser.address, campaignId, claims: attemptClaims }
         ]);
@@ -1023,9 +1010,14 @@ describe("Integration", function () {
       }
       expect(rejected, "expected at least one zero-effort submission to be rejected").to.equal(true);
 
-      // Step 4: solve PoW client-side.
+      // Step 4: solve PoW client-side against the ON-CHAIN-derived claim hash
+      // (genesis claim: nonce=1, prevHash=0), then put the nonce in the sidecar.
       const target = BigInt((await powEngine.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
-      claims[0].powNonce = findPowNonce(claims[0].claimHash, target);
+      const onChainHash = computeClaimHash({
+        campaignId, publisher: publisher.address, user: freshUser.address,
+        eventCount: claims[0].eventCount, rateWei: claims[0].rateWei, actionType: 0, nonce: 1n,
+      });
+      claims[0].proof = mkProof({ powNonce: findPowNonce(onChainHash, target) });
 
       // Step 5: submit through the real settleClaims path.
       const vaultBefore = await vault.userBalance(freshUser.address);

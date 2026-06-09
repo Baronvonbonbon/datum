@@ -197,15 +197,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       eventCount,
       rateWei: BID_CPM,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: prevHash,
-      claimHash,
-      zkProof: Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+      proof: [],
     };
 
     await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: [claim] }]);
@@ -243,15 +235,7 @@ describe("Settlement Rate Limiter (inline)", function () {
       eventCount,
       rateWei: BID_CPM,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: prevHash,
-      claimHash,
-      zkProof: Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+      proof: [],
     };
 
     const tx = await settlement.connect(user).settleClaims([{ user: user.address, campaignId, claims: [claim] }]);
