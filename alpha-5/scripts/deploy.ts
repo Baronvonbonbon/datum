@@ -1221,12 +1221,24 @@ async function main() {
   );
 
   // ── ClaimValidator: setZKVerifier(zkVerifier) ──
-  await wireIfNeeded(
-    "ClaimValidator.zkVerifier",
-    "DatumClaimValidator", addresses.claimValidator,
-    "zkVerifier", "setZKVerifier",
-    addresses.zkVerifier,
-  );
+  // DORMANT BY DEFAULT: the claim-bound ZK predicate slot
+  // (DatumClaimValidator._verifyClaimPredicate) is a general, optional tool but
+  // has no production circuit/MPC ceremony for the current deploy, and its
+  // reference predicate (interest/stake) is shelved with the second-price
+  // auction. Leaving zkVerifier UNWIRED makes every campaign non-ZK regardless
+  // of requiresZkProof. Wire it (with the matching VK) only when a concrete
+  // predicate is greenlit: re-run with WIRE_ZK_PREDICATE=1.
+  // See docs/ZK-PREDICATE-DESIGN.md.
+  if (process.env.WIRE_ZK_PREDICATE === "1") {
+    await wireIfNeeded(
+      "ClaimValidator.zkVerifier",
+      "DatumClaimValidator", addresses.claimValidator,
+      "zkVerifier", "setZKVerifier",
+      addresses.zkVerifier,
+    );
+  } else {
+    console.log("  SKIP: ClaimValidator.setZKVerifier — ZK predicate dormant (set WIRE_ZK_PREDICATE=1 to enable)");
+  }
 
   // ── ClaimValidator.setStakeRoot(stakeRoot) — V1 PRIMARY oracle ──
   // Settable by owner pre-plumbing-lock; production oracle for the

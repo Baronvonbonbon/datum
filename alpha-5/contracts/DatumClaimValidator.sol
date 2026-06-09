@@ -217,6 +217,13 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         publishers = IDatumPublishers(addr);
     }
 
+    /// @notice Wire the verifying key for the optional claim-bound ZK predicate
+    ///         (see _verifyClaimPredicate). LEFT UNWIRED in the current deploy:
+    ///         while zkVerifier == address(0), every campaign is treated as
+    ///         non-ZK regardless of its requiresZkProof flag, so the predicate
+    ///         slot is dormant. Wire this (with the matching circuit's VK) only
+    ///         when a concrete predicate is greenlit. There is no
+    ///         set-back-to-zero unwire path, so wiring is a deliberate step.
     function setZKVerifier(address addr) external onlyOwner {
         require(!plumbingLocked, "locked");
         require(addr != address(0), "E00");
@@ -539,20 +546,23 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             }
         }
 
-        // Check 9: ZK proof (view claims only, if campaign requires it).
-        //          ctx.requiresZk already implies actionType==0 && zkVerifier set.
-        //          Path A: 7 public inputs — claimHash, nullifier, impressions,
-        //                  stakeRoot, minStake, interestRoot, requiredCategory.
-        //          Wallets/relays must build proofs against `stakeRoot.rootAt(latestEpoch)`
-        //          and the user's own interestRoot at proof-generation time. Brief
-        //          rollover races (root rotates between gen and verify) are expected;
-        //          relays should retry with a fresh proof on reason 16.
+        // Check 9: optional claim-bound ZK predicate (view claims only, if the
+        //          campaign requires it). ctx.requiresZk already implies
+        //          actionType==0 && zkVerifier wired. The predicate is a GENERAL
+        //          slot — public inputs are [claimHash, nullifier, eventCount]
+        //          (mandatory claim-binding prefix) + a predicate-defined suffix
+        //          (see _verifyClaimPredicate). The reference circuit is the
+        //          stake + interest-category match; it is DORMANT by default
+        //          (zkVerifier unwired) for the current deploy.
+        //          Wallets/relays must build proofs at proof-generation time and
+        //          may need to retry with a fresh proof on reason 16 (e.g. a
+        //          root rotates between gen and verify).
         if (claim.actionType == 0 && ctx.requiresZk) {
             if (!hasProof) return (false, 16, bytes32(0));
             bool proofPresent = false;
             for (uint256 i = 0; i < 8; i++) { if (claim.proof[0].zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
             if (!proofPresent) return (false, 16, bytes32(0));
-            if (!_verifyPathA(claim, claim.proof[0], user, campaignId, computedHash)) return (false, 16, bytes32(0));
+            if (!_verifyClaimPredicate(claim, claim.proof[0], user, campaignId, computedHash)) return (false, 16, bytes32(0));
         }
 
         // Check 10 (type-1 only): verify click session exists and is unclaimed
@@ -613,9 +623,36 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         v = uint8(uint256(sig[2]));
     }
 
-    /// @dev Path A: build the 7-pub array and call DatumZKVerifier.verifyA.
-    ///      Returns false on any lookup failure or pairing mismatch.
-    function _verifyPathA(
+    /// @dev Verify the optional claim-bound ZK predicate. GENERALIZED slot: the
+    ///      proof's public inputs are split into a FIXED, mandatory claim-binding
+    ///      prefix and a predicate-defined suffix.
+    ///
+    ///        pub[0] = claimHash   -- binds the proof to THIS exact claim
+    ///                                (campaignId, publisher, user, amounts,
+    ///                                 nonce...), so a proof can't be replayed
+    ///                                onto a different claim.
+    ///        pub[1] = nullifier   -- replay / sybil: Poseidon(userSecret,
+    ///                                campaignId, windowId). Also consumed by
+    ///                                LogicB's NullifierRegistry.
+    ///        pub[2] = eventCount  -- the claimed event count.
+    ///        pub[3..6]            -- PREDICATE-DEFINED. Produced by the wired
+    ///                                predicate adapter below; whatever the
+    ///                                campaign's circuit needs.
+    ///
+    ///      This is a general "prove a claim-bound predicate about the claimer"
+    ///      slot -- the circuit can attest to anything expressible over the
+    ///      claimer's secret (interest/tag profile, proof-of-personhood,
+    ///      age/jurisdiction eligibility, private-allowlist membership, ...)
+    ///      WITHOUT revealing it. To swap the predicate, swap the suffix adapter
+    ///      (`_referencePredicateSuffix`) + the verifying key on DatumZKVerifier;
+    ///      the [claimHash, nullifier, eventCount] prefix is the fixed contract.
+    ///      See docs/ZK-PREDICATE-DESIGN.md for the deferred circuit-registry plan.
+    ///
+    ///      DORMANT BY DEFAULT: `zkVerifier == address(0)` (unwired) makes every
+    ///      campaign non-ZK regardless of its requiresZkProof flag (see
+    ///      resolveBatchContext), so this path never runs until a verifying key
+    ///      is deliberately wired. The current deploy leaves it unwired.
+    function _verifyClaimPredicate(
         IDatumSettlement.Claim calldata claim,
         IDatumSettlement.ClaimProof calldata p,
         address user,
@@ -624,25 +661,57 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     )
         internal view returns (bool)
     {
-        // Pub 3: stake root — wallet/relay submits which root the proof was
-        //         generated against (proof.stakeRootUsed). Validator checks
-        //         it's within the configured lookback window. If stakeRoot
-        //         contract isn't wired, fall back to bytes32(0) — circuit
-        //         expects 0 when no stake gate is enforced.
+        (bool ok, uint256[4] memory suffix) = _referencePredicateSuffix(user, campaignId, p);
+        if (!ok) return false;
+
+        uint256[7] memory pubs = [
+            uint256(computedHash), // pub[0] claimHash   ── mandatory claim-binding prefix
+            uint256(p.nullifier),  // pub[1] nullifier
+            claim.eventCount,      // pub[2] eventCount
+            suffix[0],             // pub[3..6] ─────────── predicate-defined suffix
+            suffix[1],
+            suffix[2],
+            suffix[3]
+        ];
+        try zkVerifier.verifyA(abi.encodePacked(p.zkProof), pubs) returns (bool valid) {
+            return valid;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @dev Reference predicate adapter: the original "stake gate + interest-
+    ///      category match" circuit. Returns the predicate-defined public-input
+    ///      suffix [stakeRoot, minStake, interestRoot, requiredCategory] plus an
+    ///      `ok` flag that short-circuits the predicate when a pre-condition
+    ///      fails (stale stake root / too-fresh interest commitment).
+    ///
+    ///      A DIFFERENT predicate (personhood, eligibility, allowlist, ...) would
+    ///      replace THIS function + the verifying key. The interest/stake reads
+    ///      are intentionally isolated here so `_verifyClaimPredicate` above stays
+    ///      circuit-agnostic.
+    function _referencePredicateSuffix(address user, uint256 campaignId, IDatumSettlement.ClaimProof calldata p)
+        internal view returns (bool ok, uint256[4] memory suffix)
+    {
+        // pub[3]: stake root — wallet/relay submits which root the proof was
+        //         generated against (proof.stakeRootUsed). Validator checks it's
+        //         within the configured lookback window. If stakeRoot contract
+        //         isn't wired, fall back to bytes32(0) — circuit expects 0 when
+        //         no stake gate is enforced.
         bytes32 sRoot = p.stakeRootUsed;
         if (sRoot != bytes32(0)) {
             // require recency only when a non-zero root is asserted; otherwise
             // the campaign's minStake==0 path treats this as "no gate"
-            bool ok = false;
+            bool recent = false;
             if (address(stakeRoot) != address(0) && stakeRoot.isRecent(sRoot)) {
-                ok = true;
+                recent = true;
             } else if (address(stakeRoot2) != address(0) && stakeRoot2.isRecent(sRoot)) {
-                ok = true;
+                recent = true;
             }
-            if (!ok) return false;
+            if (!recent) return (false, suffix);
         }
 
-        // Pub 4: min stake — campaign-set threshold (0 = no stake floor).
+        // pub[4]: min stake — campaign-set threshold (0 = no stake floor).
         //   M-4 audit fix: clamp by the governance-set maxAllowedMinStake at
         //   consumption time (not just at write time). Defends users from a
         //   campaign whose minStake was set before the cap was tightened.
@@ -656,7 +725,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             } catch {}
         }
 
-        // Pub 5: user's interest commitment.
+        // pub[5]: user's interest commitment.
         //   M-8 audit fix: enforce minimum commitment age. A commitment set
         //   within `minInterestAgeBlocks` of the proof's submission cannot be
         //   used — defeats reactive swaps to satisfy a campaign's required
@@ -668,29 +737,20 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
                 uint256 setAt = interestCommitments.lastSetBlock(user);
                 // setAt is the block at which the current iRoot was written;
                 // require it to be at least minInterestAgeBlocks in the past.
-                if (block.number < setAt + minInterestAgeBlocks) return false;
+                if (block.number < setAt + minInterestAgeBlocks) return (false, suffix);
             }
         }
 
-        // Pub 6: required category (0 = any).
+        // pub[6]: required category (0 = any).
         bytes32 reqCat = bytes32(0);
         try ICampaignsZkKnobs(address(campaigns)).getCampaignRequiredCategory(campaignId) returns (bytes32 c) {
             reqCat = c;
         } catch {}
 
-        uint256[7] memory pubs = [
-            uint256(computedHash),
-            uint256(p.nullifier),
-            claim.eventCount,
-            uint256(sRoot),
-            minStake,
-            uint256(iRoot),
-            uint256(reqCat)
-        ];
-        try zkVerifier.verifyA(abi.encodePacked(p.zkProof), pubs) returns (bool valid) {
-            return valid;
-        } catch {
-            return false;
-        }
+        suffix[0] = uint256(sRoot);
+        suffix[1] = minStake;
+        suffix[2] = uint256(iRoot);
+        suffix[3] = uint256(reqCat);
+        return (true, suffix);
     }
 }
