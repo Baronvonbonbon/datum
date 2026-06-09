@@ -18,7 +18,9 @@ let _isSubstrate: boolean | undefined;
 export async function isSubstrate(): Promise<boolean> {
   if (_isSubstrate === undefined) {
     const net = await ethers.provider.getNetwork();
-    _isSubstrate = net.chainId === 420420420n;
+    // 420420420 = local pallet-revive dev chain; 420420417 = Paseo testnet.
+    // Both lack evm_mine/hardhat_mine, so mineBlocks must poll real blocks.
+    _isSubstrate = net.chainId === 420420420n || net.chainId === 420420417n;
   }
   return _isSubstrate;
 }
@@ -74,6 +76,11 @@ export async function advanceTime(seconds: number): Promise<void> {
  */
 export async function fundSigners(count: number = 10): Promise<void> {
   if (!(await isSubstrate())) return;
+
+  // Paseo (420420417): signers are pre-funded externally (the deployer can't
+  // mint the 10^24 dev-chain amount). Skip — assume TESTNET_ACCOUNTS hold gas.
+  const chainId = (await ethers.provider.getNetwork()).chainId;
+  if (chainId === 420420417n) return;
 
   const signers = await ethers.getSigners();
   const funder = signers[0]; // Alith — always funded

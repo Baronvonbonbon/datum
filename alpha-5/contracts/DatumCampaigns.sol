@@ -73,7 +73,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
     // -------------------------------------------------------------------------
 
     /// @dev AUDIT-022: Minimum campaign budget to prevent dust campaigns (100 mDOT = 10^9 planck).
-    uint256 public constant MINIMUM_BUDGET_PLANCK = 10**9;
+    uint256 public constant MINIMUM_BUDGET_WEI = 10**17; // 0.1 PAS (18-dec wei; was 10**9 planck pre-denomination)
 
     /// @notice Take rate snapshotted into open campaigns (publisher = address(0))
     ///         where there is no individual publisher rate. Governable within
@@ -126,7 +126,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
     ///      floor to 0 / MAX_UINT, etc.). Anything inside the bounds is
     ///      still subject to PG's veto window.
     uint256 internal constant CPM_FLOOR_MIN = 1;                      // strictly > 0
-    uint256 internal constant CPM_FLOOR_MAX = 10 * 10**10;            // 10 DOT/1000 imps
+    uint256 internal constant CPM_FLOOR_MAX = 10 * 10**18;            // 10 PAS/1000 imps (18-dec wei; was 10*10**10 planck)
     uint256 internal constant PENDING_TIMEOUT_MIN = 100;              // ~10 min on Paseo (6s blocks)
     uint256 internal constant PENDING_TIMEOUT_MAX = 5_256_000;        // ~1 year
 
@@ -622,7 +622,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
 
         if (!(msg.value > p.bondAmount + p.activationBondAmount)) revert E11();
         uint256 budgetValue = msg.value - p.bondAmount - p.activationBondAmount;
-        if (!(budgetValue >= MINIMUM_BUDGET_PLANCK)) revert E11();
+        if (!(budgetValue >= MINIMUM_BUDGET_WEI)) revert E11();
         if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget)) revert E80();
         // requiredTags length check moved to DatumTagSystem.initializeCampaignTags.
         // C1-fix: forbid stranded bonds. If the advertiser passes a non-zero
