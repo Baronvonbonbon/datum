@@ -7,12 +7,14 @@
 // the cosigned batch back to the publisher or submit `settleSignedClaims`
 // directly.
 //
-// The EIP-712 envelope must exactly match the on-chain typehash:
-//   ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,
-//              uint256 deadlineBlock,address expectedRelaySigner,
-//              address expectedAdvertiserRelaySigner)
+// The EIP-712 envelope must exactly match the on-chain typehash (SLIM #2):
+//   ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,
+//              bytes32 claimsHash,uint256 deadlineBlock,
+//              address expectedRelaySigner,address expectedAdvertiserRelaySigner)
 // and the domain must match the Settlement contract that the deployed
 // build verifies signatures against (DatumSettlement / "1").
+// claimsHash is the content hash of the slim claims:
+//   keccak256( concat_i keccak256(abi.encode(slimClaim_i)) ).
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -24,26 +26,29 @@ import { useToast } from "../../context/ToastContext";
 import { humanizeError } from "@shared/errorCodes";
 import { useSettings } from "../../context/SettingsContext";
 
+// SLIM (#2): optional per-claim proof sidecar (mirrors IDatumSettlement.ClaimProof).
+interface ClaimProof {
+  clickSessionHash: string;
+  stakeRootUsed: string;
+  nullifier: string;
+  powNonce: string;
+  zkProof: string[];   // bytes32[8]
+  actionSig: string[]; // bytes32[3]
+}
+
+// SLIM (#2): the on-chain slim Claim (mirrors IDatumSettlement.Claim).
 interface Claim {
-  campaignId: string;
   publisher: string;
   eventCount: string;
-  rateWei?: string;
-  actionType?: string | number;
-  clickSessionHash: string;
-  nonce: string;
-  previousClaimHash?: string;
-  claimHash: string;
-  zkProof?: string[] | string;
-  nullifier: string;
-  stakeRootUsed?: string;
-  actionSig?: string[];
-  powNonce: string;
+  rateWei: string;
+  actionType: string | number;
+  proof: ClaimProof[]; // 0 entries = plain view claim
 }
 
 interface SignedClaimBatch {
   user: string;
   campaignId: string;
+  firstNonce: string;  // SLIM (#2): replay anchor (nonce of claims[0])
   claims: Claim[];
   deadlineBlock: string;
   expectedRelaySigner: string;
@@ -56,10 +61,17 @@ interface SignedClaimBatch {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const EMPTY_SIG = "0x";
 
+// ABI tuples for the content claimsHash — MUST match IDatumSettlement.sol.
+const CLAIM_PROOF_TUPLE =
+  "tuple(bytes32 clickSessionHash,bytes32 stakeRootUsed,bytes32 nullifier,bytes32 powNonce,bytes32[8] zkProof,bytes32[3] actionSig)";
+const SLIM_CLAIM_TUPLE =
+  `tuple(address publisher,uint256 eventCount,uint256 rateWei,uint8 actionType,${CLAIM_PROOF_TUPLE}[] proof)`;
+
 const EIP712_TYPES = {
   ClaimBatch: [
     { name: "user", type: "address" },
     { name: "campaignId", type: "uint256" },
+    { name: "firstNonce", type: "uint256" }, // SLIM (#2): replay anchor
     { name: "claimsHash", type: "bytes32" },
     { name: "deadlineBlock", type: "uint256" },
     { name: "expectedRelaySigner", type: "address" },
@@ -107,6 +119,7 @@ export function AdvertiserCosign() {
       for (const f of [
         "user",
         "campaignId",
+        "firstNonce",
         "claims",
         "deadlineBlock",
         "expectedRelaySigner",
@@ -131,16 +144,30 @@ export function AdvertiserCosign() {
     }
   }
 
-  // Compute claimsHash = keccak256(abi.encodePacked(claim.claimHash, ...))
+  // SLIM (#2): claimsHash = keccak256( concat_i keccak256(abi.encode(slimClaim_i)) ),
+  // matching DatumDualSigSettlement._hashClaims over the on-chain slim Claim tuple.
   const claimsHash = useMemo(() => {
     if (!parsed) return null;
     try {
-      const concat = "0x" + parsed.claims.map((c) => {
-        const h = c.claimHash.startsWith("0x") ? c.claimHash.slice(2) : c.claimHash;
-        if (h.length !== 64) throw new Error(`claim.claimHash must be 32 bytes (got ${h.length / 2})`);
-        return h;
-      }).join("");
-      return ethers.keccak256(concat);
+      const coder = ethers.AbiCoder.defaultAbiCoder();
+      const hashes = parsed.claims.map((c) => {
+        const slim = {
+          publisher: c.publisher,
+          eventCount: BigInt(c.eventCount),
+          rateWei: BigInt(c.rateWei),
+          actionType: Number(c.actionType ?? 0),
+          proof: (c.proof ?? []).map((p) => ({
+            clickSessionHash: p.clickSessionHash,
+            stakeRootUsed: p.stakeRootUsed,
+            nullifier: p.nullifier,
+            powNonce: p.powNonce,
+            zkProof: p.zkProof,
+            actionSig: p.actionSig,
+          })),
+        };
+        return ethers.keccak256(coder.encode([SLIM_CLAIM_TUPLE], [slim]));
+      });
+      return ethers.keccak256("0x" + hashes.map((h) => h.slice(2)).join(""));
     } catch {
       return null;
     }
@@ -166,6 +193,7 @@ export function AdvertiserCosign() {
       const message = {
         user: parsed.user,
         campaignId: BigInt(parsed.campaignId),
+        firstNonce: BigInt(parsed.firstNonce),
         claimsHash,
         deadlineBlock: BigInt(parsed.deadlineBlock),
         expectedRelaySigner: parsed.expectedRelaySigner || ZERO_ADDRESS,
@@ -185,26 +213,24 @@ export function AdvertiserCosign() {
     setSubmitting(true);
     setSubmitMsg(null);
     try {
-      const emptyZkProof = new Array(8).fill(ethers.ZeroHash);
-      const emptyActionSig = [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash];
+      // SLIM (#2): on-chain SignedClaimBatch with firstNonce + slim claims.
       const batch = {
         user: parsed.user,
         campaignId: BigInt(parsed.campaignId),
+        firstNonce: BigInt(parsed.firstNonce),
         claims: parsed.claims.map((c) => ({
-          campaignId: BigInt(c.campaignId),
           publisher: c.publisher,
           eventCount: BigInt(c.eventCount),
           rateWei: BigInt(c.rateWei ?? "0"),
           actionType: Number(c.actionType ?? 0),
-          clickSessionHash: c.clickSessionHash || ethers.ZeroHash,
-          nonce: BigInt(c.nonce),
-          previousClaimHash: c.previousClaimHash || ethers.ZeroHash,
-          claimHash: c.claimHash,
-          zkProof: Array.isArray(c.zkProof) ? c.zkProof : emptyZkProof,
-          nullifier: c.nullifier || ethers.ZeroHash,
-          stakeRootUsed: c.stakeRootUsed || ethers.ZeroHash,
-          actionSig: Array.isArray(c.actionSig) ? c.actionSig : emptyActionSig,
-          powNonce: c.powNonce || ethers.ZeroHash,
+          proof: (c.proof ?? []).map((p) => ({
+            clickSessionHash: p.clickSessionHash || ethers.ZeroHash,
+            stakeRootUsed: p.stakeRootUsed || ethers.ZeroHash,
+            nullifier: p.nullifier || ethers.ZeroHash,
+            powNonce: p.powNonce || ethers.ZeroHash,
+            zkProof: Array.isArray(p.zkProof) ? p.zkProof : new Array(8).fill(ethers.ZeroHash),
+            actionSig: Array.isArray(p.actionSig) ? p.actionSig : [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+          })),
         })),
         deadlineBlock: BigInt(parsed.deadlineBlock),
         expectedRelaySigner: parsed.expectedRelaySigner || ZERO_ADDRESS,

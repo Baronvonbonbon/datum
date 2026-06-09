@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, getCurrencySymbol } from "@shared/networks";
 import { OffscreenSigner } from "@shared/offscreenSigner";
 import { exportClaims, importClaims, ImportResult } from "@shared/claimExport";
 import { humanizeError } from "@shared/errorCodes";
+import { toSlimClaim, contentHashClaims } from "../background/claimCore";
 
 /**
  * Paseo receipt workaround: getTransactionReceipt always returns null on Paseo.
@@ -60,24 +61,28 @@ async function minePowNonce(claimHash: string, target: bigint, budget = 8_000_00
 // /claim normalizeClaim expects — in particular zkProof must be bytes32[8] and
 // actionSig bytes32[3] (the demo's aggregated builder leaves them as "0x").
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// SLIM (#2): JSON-safe slim on-chain claim for the relay envelope. The relay
+// rebuilds the on-chain Claim tuple {publisher, eventCount, rateWei, actionType,
+// proof[]} from this; proof[] is empty for a plain view claim.
 function normalizeClaimForRelay(c: any) {
-  const z8 = Array.isArray(c.zkProof) && c.zkProof.length === 8 ? c.zkProof : Array(8).fill(ZeroHash);
-  const sig3 = Array.isArray(c.actionSig) && c.actionSig.length === 3 ? c.actionSig : Array(3).fill(ZeroHash);
-  return {
-    campaignId: String(c.campaignId),
+  const slim = toSlimClaim({
     publisher: c.publisher,
-    eventCount: String(c.eventCount ?? "1"),
-    rateWei: String(c.rateWei),
+    eventCount: BigInt(c.eventCount ?? 1),
+    rateWei: BigInt(c.rateWei),
     actionType: Number(c.actionType ?? 0),
-    clickSessionHash: c.clickSessionHash ?? ZeroHash,
-    nonce: String(c.nonce ?? "0"),
-    previousClaimHash: c.previousClaimHash ?? ZeroHash,
-    claimHash: c.claimHash,
-    zkProof: z8,
-    nullifier: c.nullifier ?? ZeroHash,
-    stakeRootUsed: c.stakeRootUsed ?? ZeroHash,
-    actionSig: sig3,
-    powNonce: c.powNonce ?? ZeroHash,
+    clickSessionHash: c.clickSessionHash,
+    stakeRootUsed: c.stakeRootUsed,
+    nullifier: c.nullifier,
+    powNonce: c.powNonce,
+    zkProof: c.zkProof,
+    actionSig: c.actionSig,
+  });
+  return {
+    publisher: slim.publisher,
+    eventCount: slim.eventCount.toString(),
+    rateWei: slim.rateWei.toString(),
+    actionType: slim.actionType,
+    proof: slim.proof, // hex strings / arrays — JSON-safe
   };
 }
 
@@ -392,11 +397,21 @@ export function ClaimQueue({ address, onSettled }: Props) {
       // Each sub-batch gets its own EIP-712 sig covering its claimsHash/deadlineBlock.
       const warnings: Record<string, string> = {};
       const attestedBatches = await Promise.all(flatBatches.map(async (b) => {
-        const claimHashes = b.claims.map((c) => c.claimHash);
-        const claimsHash = keccak256(solidityPacked(
-          new Array(claimHashes.length).fill("bytes32"),
-          claimHashes,
-        ));
+        // SLIM (#2): slim claims + content claimsHash + firstNonce replay anchor.
+        const firstNonce = BigInt(b.claims[0]?.nonce ?? 0);
+        const slimClaims = b.claims.map((c) => toSlimClaim({
+          publisher: c.publisher,
+          eventCount: BigInt(c.eventCount),
+          rateWei: BigInt(c.rateWei),
+          actionType: Number(c.actionType),
+          clickSessionHash: c.clickSessionHash,
+          stakeRootUsed: c.stakeRootUsed,
+          nullifier: c.nullifier,
+          powNonce: c.powNonce,
+          zkProof: c.zkProof,
+          actionSig: c.actionSig,
+        }));
+        const claimsHash = contentHashClaims(slimClaims);
         let publisherSig = "0x";
         try {
           const attestResponse = await chrome.runtime.sendMessage({
@@ -404,6 +419,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
             publisherAddress: b.claims[0]?.publisher ?? "",
             campaignId: b.campaignId,
             userAddress: b.user,
+            firstNonce: firstNonce.toString(),
             claimsHash,
             deadlineBlock: flushDeadlineBlock.toString(),
           });
@@ -415,22 +431,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
         return {
           user: b.user,
           campaignId: BigInt(b.campaignId),
-          claims: b.claims.map((c) => ({
-            campaignId: BigInt(c.campaignId),
-            publisher: c.publisher,
-            eventCount: BigInt(c.eventCount),
-            rateWei: BigInt(c.rateWei),
-            actionType: Number(c.actionType),
-            clickSessionHash: c.clickSessionHash,
-            nonce: BigInt(c.nonce),
-            previousClaimHash: c.previousClaimHash,
-            claimHash: c.claimHash,
-            zkProof: c.zkProof,
-            nullifier: c.nullifier,
-            stakeRootUsed: c.stakeRootUsed ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
-            actionSig: c.actionSig,
-            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
-          })),
+          firstNonce,
+          claims: slimClaims,
           deadlineBlock: flushDeadlineBlock,
           publisherSig,
         };
@@ -501,7 +503,9 @@ export function ClaimQueue({ address, onSettled }: Props) {
         const settledNonces: Record<string, string[]> = {};
         for (const b of allSettledBatches) {
           const cid = b.campaignId.toString();
-          settledNonces[cid] = b.claims.map((c) => c.nonce.toString());
+          // SLIM (#2): nonces are derived (firstNonce, +1, ...) — the slim wire
+          // claim no longer carries a per-claim nonce.
+          settledNonces[cid] = b.claims.map((_, i) => (b.firstNonce + BigInt(i)).toString());
         }
         await chrome.runtime.sendMessage({
           type: "REMOVE_SETTLED_CLAIMS",
@@ -647,11 +651,21 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const _provider1 = signer.provider!;
       const _currentBlock1 = BigInt(await _provider1.getBlockNumber());
       const singleDeadlineBlock = _currentBlock1 + 50n;
-      const _claimHashes = trimmedBatch.claims.map((c) => c.claimHash);
-      const _claimsHash = keccak256(solidityPacked(
-        new Array(_claimHashes.length).fill("bytes32"),
-        _claimHashes,
-      ));
+      // SLIM (#2): slim claims + content claimsHash + firstNonce replay anchor.
+      const _firstNonce = BigInt(trimmedBatch.claims[0]?.nonce ?? 0);
+      const _slimClaims = trimmedBatch.claims.map((c) => toSlimClaim({
+        publisher: c.publisher,
+        eventCount: BigInt(c.eventCount),
+        rateWei: BigInt(c.rateWei),
+        actionType: Number(c.actionType),
+        clickSessionHash: c.clickSessionHash,
+        stakeRootUsed: c.stakeRootUsed,
+        nullifier: c.nullifier,
+        powNonce: c.powNonce,
+        zkProof: c.zkProof,
+        actionSig: c.actionSig,
+      }));
+      const _claimsHash = contentHashClaims(_slimClaims);
       let publisherSig = "0x";
       try {
         const attestResponse = await chrome.runtime.sendMessage({
@@ -659,6 +673,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           publisherAddress: trimmedBatch.claims[0]?.publisher ?? "",
           campaignId: trimmedBatch.campaignId,
           userAddress: trimmedBatch.user,
+          firstNonce: _firstNonce.toString(),
           claimsHash: _claimsHash,
           deadlineBlock: singleDeadlineBlock.toString(),
         });
@@ -671,22 +686,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
       const attestedBatch = {
         user: trimmedBatch.user,
         campaignId: BigInt(trimmedBatch.campaignId),
-        claims: trimmedBatch.claims.map((c) => ({
-          campaignId: BigInt(c.campaignId),
-          publisher: c.publisher,
-          eventCount: BigInt(c.eventCount),
-          rateWei: BigInt(c.rateWei),
-          actionType: Number(c.actionType),
-          clickSessionHash: c.clickSessionHash,
-          nonce: BigInt(c.nonce),
-          previousClaimHash: c.previousClaimHash,
-          claimHash: c.claimHash,
-          zkProof: c.zkProof,
-          nullifier: c.nullifier,
-          stakeRootUsed: c.stakeRootUsed ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
-          actionSig: c.actionSig,
-            powNonce: c.powNonce ?? "0x0000000000000000000000000000000000000000000000000000000000000000",
-        })),
+        firstNonce: _firstNonce,
+        claims: _slimClaims,
         deadlineBlock: singleDeadlineBlock,
         publisherSig,
       };
@@ -726,7 +727,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
 
       if (settledCount > 0) {
         const settledNonces: Record<string, string[]> = {
-          [attestedBatch.campaignId.toString()]: attestedBatch.claims.map((c) => c.nonce.toString()),
+          // SLIM (#2): derived nonces (firstNonce, +1, ...).
+          [attestedBatch.campaignId.toString()]: attestedBatch.claims.map((_, i) => (attestedBatch.firstNonce + BigInt(i)).toString()),
         };
         await chrome.runtime.sendMessage({
           type: "REMOVE_SETTLED_CLAIMS",
@@ -820,6 +822,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
         ClaimBatch: [
           { name: "user", type: "address" },
           { name: "campaignId", type: "uint256" },
+          { name: "firstNonce", type: "uint256" }, // SLIM (#2): replay anchor
           { name: "claimsHash", type: "bytes32" },
           { name: "deadlineBlock", type: "uint256" },
           { name: "expectedRelaySigner", type: "address" },
@@ -898,13 +901,27 @@ export function ClaimQueue({ address, onSettled }: Props) {
               } catch { /* leave existing powNonce — claim will reject if truly needed */ }
             }
           }
-          const claimHashes = b.claims.map((c) => c.claimHash);
-          // claimsHash = keccak256(abi.encodePacked(claimHash[])) — matches the
-          // relay's computeClaimsHash + DatumDualSigSettlement._hashClaims.
-          const claimsHash = keccak256(solidityPacked(new Array(claimHashes.length).fill("bytes32"), claimHashes));
+          // SLIM (#2): claimsHash = keccak(concat keccak(abi.encode(slimClaim))),
+          // matching DatumDualSigSettlement._hashClaims. firstNonce = nonce of
+          // claims[0] (the replay anchor).
+          const firstNonce = BigInt(b.claims[0]?.nonce ?? 0);
+          const slimClaims = b.claims.map((c: any) => toSlimClaim({
+            publisher: c.publisher,
+            eventCount: BigInt(c.eventCount ?? 1),
+            rateWei: BigInt(c.rateWei),
+            actionType: Number(c.actionType ?? 0),
+            clickSessionHash: c.clickSessionHash,
+            stakeRootUsed: c.stakeRootUsed,
+            nullifier: c.nullifier,
+            powNonce: c.powNonce,
+            zkProof: c.zkProof,
+            actionSig: c.actionSig,
+          }));
+          const claimsHash = contentHashClaims(slimClaims);
           const value = {
             user: b.user,
             campaignId: BigInt(b.campaignId),
+            firstNonce,
             claimsHash,
             deadlineBlock: BigInt(deadline),
             expectedRelaySigner,
@@ -922,6 +939,7 @@ export function ClaimQueue({ address, onSettled }: Props) {
           const envelope = {
             user: b.user,
             campaignId: b.campaignId,
+            firstNonce: firstNonce.toString(),
             deadlineBlock: String(deadline),
             claims: b.claims.map(normalizeClaimForRelay),
             userSig,
@@ -935,7 +953,8 @@ export function ClaimQueue({ address, onSettled }: Props) {
             const resp = await fetch(`${relayUrl}/claim`, { method: "POST", headers, body, signal: AbortSignal.timeout(15000) });
             if (resp.ok) {
               accepted++;
-              acceptedNonces[String(b.campaignId)] = b.claims.map((c) => String(c.nonce));
+              // SLIM (#2): derived nonces firstNonce, +1, ...
+              acceptedNonces[String(b.campaignId)] = b.claims.map((_, i) => String(firstNonce + BigInt(i)));
               console.log(`[DATUM] /claim accepted campaign ${b.campaignId} by ${relayUrl}`);
             } else {
               const txt = await resp.text().catch(() => "");

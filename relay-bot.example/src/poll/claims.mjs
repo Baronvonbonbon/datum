@@ -41,7 +41,10 @@ export class ClaimQueue {
       bumpCounter("claimErrors");
       return { ok: false, reason: "malformed" };
     }
-    const required = ["user", "campaignId", "claimsHash", "deadline", "userSig"];
+    // SLIM (#2): envelope now carries firstNonce (the replay anchor, == on-chain
+    // lastNonce+1) and slim claims; the submitter forwards these to
+    // DatumRelay.settleClaimsFor. See docs/relay-bot-template + OFFCHAIN-SLIM-PORTING.md.
+    const required = ["user", "campaignId", "firstNonce", "claimsHash", "deadline", "userSig"];
     for (const k of required) {
       if (claim[k] === undefined) {
         bumpCounter("claimErrors");

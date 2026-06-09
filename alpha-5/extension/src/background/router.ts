@@ -83,6 +83,7 @@ export interface EnvContext {
     publisherAddress: string;
     campaignId: string;
     userAddress: string;
+    firstNonce: string;   // SLIM (#2): replay anchor, bound in the PublisherAttestation typehash
     claimsHash: string;
     deadlineBlock: string;
   }): Promise<{ signature?: string; error?: string }>;
@@ -750,11 +751,12 @@ export async function routeMessage(
     }
 
     case "REQUEST_PUBLISHER_ATTESTATION": {
-      // A1-fix: attestation binds claimsHash + deadlineBlock instead of nonce-range fields.
+      // SLIM (#2): attestation binds firstNonce + claimsHash + deadlineBlock.
       const attestResult = await env.requestAttestation({
         publisherAddress: msg.publisherAddress,
         campaignId: msg.campaignId,
         userAddress: msg.userAddress,
+        firstNonce: msg.firstNonce,
         claimsHash: msg.claimsHash,
         deadlineBlock: msg.deadlineBlock,
       });

@@ -4,13 +4,17 @@ The #2 prototype changed the on-chain `Claim` wire format and the EIP-712 signin
 scheme. Any off-chain code that **builds claims**, **signs an EIP-712 envelope**, or
 **submits a batch** must be updated to match. This file is the spec.
 
-> Scope note: the live relay-bot is gitignored (outside this repo) and the
-> `docs/relay-bot-template` is a stale alpha-2-era example (`impressionCount`,
-> `clearingCpmPlanck`); neither was edited. The extension claim pipeline
-> (`alpha-5/extension/src`) exports claims to the relay-bot rather than building the
-> on-chain `SignedClaimBatch` directly. Apply the changes below to whichever code owns
-> each responsibility in your deployment. None of this is exercised by `hardhat test`;
-> verify on a live testnet settle.
+> Status (off-chain now aligned): the in-repo off-chain consumers have been updated
+> to this spec — the extension (`claimCore.ts` slim helpers, `index.ts`/`ClaimQueue.tsx`
+> settleClaimsAttested + dual-sig relay paths, `publisherAttestation.ts`), the web demo
+> daemon (`extensionDaemon.ts`) + advertiser cosign (`Cosign.tsx`), the generic
+> `docs/relay-bot-template/relay-bot.mjs` (slim ABI + EIP-712 + firstNonce + content
+> claimsHash + settleClaimsFor build) and the `relay-bot.example` envelope, plus the
+> extension/web ABIs (`sync-abis.mjs`). Extension type-checks clean; templates pass
+> `node --check`. The SDK (`sdk/datum-sdk.js`) is the attestation *handshake* layer
+> (challenge/response), not the settlement wire — unchanged. The live production
+> relay-bot is gitignored (outside this repo) — apply §1–§5 there. None of this is
+> exercised by `hardhat test`; verify on a live testnet settle.
 
 ## 1. The slim `Claim` tuple (what the contract now accepts)
 

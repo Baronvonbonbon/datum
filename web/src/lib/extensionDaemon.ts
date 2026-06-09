@@ -361,11 +361,11 @@ const demoEnv: EnvContext = {
     return { type: "WALLET_PROVIDER_RESPONSE", requestId: msg.requestId, ok: false, error: { code: 4100, message: "no injected page provider in the demo" } };
   },
   // Publisher attestation, signed locally with the demo relay key (Diana). Uses
-  // the CURRENT alpha-5 PublisherAttestation typehash —
-  //   PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)
-  // (see DatumAttestationVerifier.sol). The old demo handler signed a stale
-  // firstNonce/lastNonce/claimCount typehash AND read fields the popup no longer
-  // sends, throwing "Cannot convert undefined to a BigInt" on every request.
+  // the CURRENT alpha-5 (SLIM #2) PublisherAttestation typehash —
+  //   PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,
+  //                        bytes32 claimsHash,uint256 deadlineBlock)
+  // (see DatumAttestationVerifier.sol). firstNonce is the replay anchor; claimsHash
+  // is the content hash of the slim claims, both computed by the popup.
   async requestAttestation(args) {
     try {
       const stored = await chrome.storage.local.get("settings");
@@ -383,6 +383,7 @@ const demoEnv: EnvContext = {
         PublisherAttestation: [
           { name: "campaignId",    type: "uint256" },
           { name: "user",          type: "address" },
+          { name: "firstNonce",    type: "uint256" },
           { name: "claimsHash",    type: "bytes32" },
           { name: "deadlineBlock", type: "uint256" },
         ],
@@ -390,6 +391,7 @@ const demoEnv: EnvContext = {
       const value = {
         campaignId: BigInt(args.campaignId),
         user: args.userAddress,
+        firstNonce: BigInt(args.firstNonce),
         claimsHash: args.claimsHash,
         deadlineBlock: BigInt(args.deadlineBlock),
       };
