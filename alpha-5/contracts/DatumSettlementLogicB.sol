@@ -277,6 +277,67 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
+        // -----------------------------------------------------------------
+        // HOIST (#1): resolve everything invariant across the batch ONCE,
+        // before the per-claim loop. A batch shares one campaignId (per-claim
+        // reason-0 guard), one publisher (E34 above), and one actionType
+        // (per-claim guard below) -- so the publisher blocklist gates and the
+        // validator's ~8 campaign/publisher staticcalls are identical for
+        // every claim. Previously each ran once per claim.
+        // -----------------------------------------------------------------
+        address batchPublisher = claims.length > 0 ? claims[0].publisher : address(0);
+
+        // S12 settlement-level blocklist (hoisted). Gradient preserved:
+        // fail-CLOSED via isBlockedStrict at L1+, fail-OPEN via isBlocked at L0.
+        if (batchPublisher != address(0) && address(_publishers) != address(0)) {
+            bool blocked;
+            bool failClosed;
+            if (effectiveLevel >= 1) {
+                try _publishers.isBlockedStrict(batchPublisher) returns (bool b) {
+                    blocked = b;
+                } catch {
+                    blocked = true;
+                    failClosed = true;
+                }
+            } else {
+                blocked = _publishers.isBlocked(batchPublisher);
+            }
+            if (blocked) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    if (failClosed) emit BlocklistFailedClosed(claims[j].campaignId, batchPublisher);
+                    emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 11);
+                }
+                return (result.settledCount, result.rejectedCount, result.totalPaid);
+            }
+        }
+
+        // CB1 user-side publisher block (hoisted — publisher invariant).
+        if (batchPublisher != address(0) && _userBlocksPublisher[user][batchPublisher]) {
+            for (uint256 j = 0; j < claims.length; j++) {
+                result.rejectedCount++;
+                emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 28);
+                emit UserBlocklistRejected(user, batchPublisher);
+            }
+            return (result.settledCount, result.rejectedCount, result.totalPaid);
+        }
+
+        // Resolve the once-per-batch validator context (campaign status, mute,
+        // allowlist, take-rate snapshot, pot rate, ZK-required, PoW-enforced).
+        // ctx.takeRate replaces the per-claim cTakeRate the monolithic
+        // validateClaim used to return.
+        IDatumClaimValidator.BatchContext memory ctx;
+        if (claims.length > 0) {
+            ctx = _claimValidator.resolveBatchContext(campaignId, batchPublisher, batchActionType, user);
+            if (!ctx.ok) {
+                for (uint256 j = 0; j < claims.length; j++) {
+                    result.rejectedCount++;
+                    emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, ctx.reasonCode);
+                }
+                return (result.settledCount, result.rejectedCount, result.totalPaid);
+            }
+        }
+
         for (uint256 i = 0; i < claims.length; i++) {
             IDatumSettlement.Claim calldata claim = claims[i];
 
@@ -291,76 +352,36 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 continue;
             }
 
+            // HOIST (#1): single-actionType invariant. ctx (pot rate, ZK/PoW
+            // flags) was resolved for batchActionType; a claim with a
+            // different type would be validated against the wrong pot, so
+            // reject it and abort the remainder (keeps the chain linear).
+            if (claim.actionType != batchActionType) {
+                result.rejectedCount++;
+                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 21);
+                gapFound = true;
+                continue;
+            }
+
             if (gapFound) {
                 result.rejectedCount++;
                 emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 1);
                 continue;
             }
 
-            // S12: Settlement-level blocklist check.
-            // M2-fix (2026-05-13): trust gradient — fail-open at L0, fail-closed
-            // at L1+. H-3 audit fix (2026-05-13): use isBlockedStrict at L1+ so
-            // a curator revert actually reaches this try/catch (the fail-open
-            // isBlocked variant swallowed reverts internally, making the
-            // fail-closed branch unreachable). isBlocked (fail-open) still used
-            // at L0 where liveness is preferred.
-            if (address(_publishers) != address(0)) {
-                if (effectiveLevel >= 1) {
-                    // SAFETY (M2-fix + H-3 gradient at L1+): fail-CLOSED on
-                    //         revert. The blocklist is part of the L1+
-                    //         guarantee surface; if the curator reverts we
-                    //         must treat the publisher as blocked rather
-                    //         than fall through. Uses isBlockedStrict (not
-                    //         isBlocked) because isBlocked swallows curator
-                    //         reverts internally, which would make this
-                    //         catch unreachable and silently bypass the gate.
-                    try _publishers.isBlockedStrict(claim.publisher) returns (bool blocked) {
-                        if (blocked) {
-                            result.rejectedCount++;
-                            emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 11);
-                            gapFound = true;
-                            continue;
-                        }
-                    } catch {
-                        result.rejectedCount++;
-                        emit BlocklistFailedClosed(claim.campaignId, claim.publisher);
-                        emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 11);
-                        gapFound = true;
-                        continue;
-                    }
-                } else {
-                    // SAFETY (M2-fix gradient at L0): fail-OPEN. L0
-                    //         campaigns prioritize liveness over strict
-                    //         curation. _publishers.isBlocked swallows
-                    //         curator reverts and returns false (no try/
-                    //         catch needed) -- a captured curator can NOT
-                    //         block payouts on an L0 campaign by reverting,
-                    //         which is the intended L0 contract.
-                    if (_publishers.isBlocked(claim.publisher)) {
-                        result.rejectedCount++;
-                        emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 11);
-                        gapFound = true;
-                        continue;
-                    }
-                }
-            }
+            // S12 settlement-level blocklist + CB1 user-side publisher block
+            // are HOISTED above the loop (#1): the publisher is invariant
+            // across the batch (E34), so both gates run once before the loop
+            // instead of once per claim.
 
-            // CB1: per-claim publisher block from user's self-managed list.
-            // Treated as a hard reject (gap-set) so chain state stays linear.
-            if (_userBlocksPublisher[user][claim.publisher]) {
-                result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 28);
-                emit UserBlocklistRejected(user, claim.publisher);
-                gapFound = true;
-                continue;
-            }
-
-            // Delegate validation to ClaimValidator satellite (SE-1)
+            // Delegate per-claim validation to ClaimValidator satellite (SE-1),
+            // threading the once-per-batch ctx so no campaign/publisher
+            // staticcalls run here. cTakeRate comes from ctx.takeRate.
             uint256 expectedNonce  = _lastNonce[user][claim.campaignId][claim.actionType] + 1;
             bytes32 expectedPrevHash = _lastClaimHash[user][claim.campaignId][claim.actionType];
 
-            (bool ok, uint8 reasonCode, uint16 cTakeRate, bytes32 computedHash) =
-                _claimValidator.validateClaim(claim, user, expectedNonce, expectedPrevHash);
+            (bool ok, uint8 reasonCode, bytes32 computedHash) =
+                _claimValidator.validateClaimWithContext(claim, user, expectedNonce, expectedPrevHash, ctx);
 
             if (!ok) {
                 if (reasonCode == 7) gapFound = true;
@@ -455,7 +476,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 totalPayment = claim.rateWei * claim.eventCount;
             }
 
-            uint256 publisherPayment = (totalPayment * cTakeRate) / BPS_DENOMINATOR;
+            uint256 publisherPayment = (totalPayment * ctx.takeRate) / BPS_DENOMINATOR;
             uint256 rem = totalPayment - publisherPayment;
             uint256 userPayment = (rem * uint256(_userShareBps)) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;

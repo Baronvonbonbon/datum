@@ -296,25 +296,26 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     // -------------------------------------------------------------------------
 
     /// @inheritdoc IDatumClaimValidator
-    function validateClaim(
-        IDatumSettlement.Claim calldata claim,
-        address user,
-        uint256 expectedNonce,
-        bytes32 expectedPrevHash
-    ) external view override returns (bool, uint8, uint16, bytes32) {
+    /// @dev HOIST (#1): every read in this function is invariant across a
+    ///      batch that shares one campaignId, one publisher, and one
+    ///      actionType. The settle hot path calls it once per batch and
+    ///      threads the result into validateClaimWithContext per claim, so
+    ///      these ~8 staticcalls run once instead of once per claim.
+    function resolveBatchContext(
+        uint256 campaignId,
+        address publisher,
+        uint8 actionType,
+        address user
+    ) public view override returns (IDatumClaimValidator.BatchContext memory ctx) {
         // Check 0: valid action type
-        if (claim.actionType > 2) return (false, 21, 0, bytes32(0)); // E88 mapped to reason 21
-
-        // Check 1: non-zero events within allowed range
-        if (claim.eventCount == 0) return (false, 2, 0, bytes32(0));
-        if (claim.eventCount > maxClaimEvents) return (false, 17, 0, bytes32(0));
+        if (actionType > 2) { ctx.reasonCode = 21; return ctx; } // E88 mapped to reason 21
 
         // Check 2: campaign exists and is active; get the legacy single-publisher
         // hint + the open-mode default take rate.
         (uint8 status, address cPublisher, uint16 cTakeRate)
-            = campaigns.getCampaignForSettlement(claim.campaignId);
+            = campaigns.getCampaignForSettlement(campaignId);
 
-        if (status != 1) return (false, 4, 0, bytes32(0));
+        if (status != 1) { ctx.reasonCode = 4; return ctx; }
 
         // Phase 2b: bond-backed runtime mute. When ActivationBonds is wired,
         // a muted Active campaign rejects all claims for the duration of the
@@ -328,10 +329,10 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             // neuters the muter's DoS authority for any campaign whose
             // ActivationBonds module is briefly unhealthy. Reject the
             // claim rather than fall through.
-            try activationBonds.isMuted(claim.campaignId) returns (bool muted) {
-                if (muted) return (false, 22, 0, bytes32(0));
+            try activationBonds.isMuted(campaignId) returns (bool muted) {
+                if (muted) { ctx.reasonCode = 22; return ctx; }
             } catch {
-                return (false, 22, 0, bytes32(0));
+                ctx.reasonCode = 22; return ctx;
             }
         }
 
@@ -339,12 +340,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         //   If the campaign has any allowed publishers, ALLOWLIST mode applies
         //   (covers both legacy single-publisher and new multi-publisher).
         //   Otherwise it's OPEN mode and the existing tag-match path runs.
-        if (claim.publisher == address(0)) return (false, 5, 0, bytes32(0));
+        if (publisher == address(0)) { ctx.reasonCode = 5; return ctx; }
 
         uint16 allowedCount = 0;
         IAllowlistGate _al = IAllowlistGate(campaignAllowlist);
         if (campaignAllowlist != address(0)) {
-            try _al.campaignAllowedPublisherCount(claim.campaignId) returns (uint16 n) {
+            try _al.campaignAllowedPublisherCount(campaignId) returns (uint16 n) {
                 allowedCount = n;
             } catch {
                 // Module reachable but reverted -- treat as legacy OPEN.
@@ -353,49 +354,49 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
 
         if (allowedCount > 0) {
             // ALLOWLIST mode: per-publisher gate + per-publisher take rate snapshot.
-            try _al.isAllowedPublisher(claim.campaignId, claim.publisher) returns (bool allowed) {
-                if (!allowed) return (false, 5, 0, bytes32(0));
+            try _al.isAllowedPublisher(campaignId, publisher) returns (bool allowed) {
+                if (!allowed) { ctx.reasonCode = 5; return ctx; }
             } catch {
-                return (false, 5, 0, bytes32(0));
+                ctx.reasonCode = 5; return ctx;
             }
-            try _al.getCampaignPublisherTakeRate(claim.campaignId, claim.publisher)
+            try _al.getCampaignPublisherTakeRate(campaignId, publisher)
                 returns (uint16 r)
             {
                 cTakeRate = r;
             } catch {
                 // Per-publisher rate must be readable in allowlist mode.
-                return (false, 5, 0, bytes32(0));
+                ctx.reasonCode = 5; return ctx;
             }
             // Advertiser allowlist snapshot still applies (publisher-side opt-in).
-            try campaigns.campaignAllowlistEnabled(claim.campaignId) returns (bool alEnabled) {
+            try campaigns.campaignAllowlistEnabled(campaignId) returns (bool alEnabled) {
                 if (alEnabled) {
-                    address advertiser = campaigns.getCampaignAdvertiser(claim.campaignId);
-                    try campaigns.campaignAllowlistSnapshot(claim.campaignId, advertiser) returns (bool ok) {
-                        if (!ok) return (false, 15, 0, bytes32(0));
+                    address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+                    try campaigns.campaignAllowlistSnapshot(campaignId, advertiser) returns (bool ok) {
+                        if (!ok) { ctx.reasonCode = 15; return ctx; }
                     } catch {
-                        return (false, 15, 0, bytes32(0));
+                        ctx.reasonCode = 15; return ctx;
                     }
                 }
             } catch {}
         } else if (cPublisher != address(0)) {
             // Legacy fast path for old Campaigns deployments that don't expose
             // the allowlist getters: use the single-publisher hint directly.
-            if (claim.publisher != cPublisher) return (false, 5, 0, bytes32(0));
-            try campaigns.campaignAllowlistEnabled(claim.campaignId) returns (bool alEnabled) {
+            if (publisher != cPublisher) { ctx.reasonCode = 5; return ctx; }
+            try campaigns.campaignAllowlistEnabled(campaignId) returns (bool alEnabled) {
                 if (alEnabled) {
-                    address advertiser = campaigns.getCampaignAdvertiser(claim.campaignId);
-                    try campaigns.campaignAllowlistSnapshot(claim.campaignId, advertiser) returns (bool ok) {
-                        if (!ok) return (false, 15, 0, bytes32(0));
+                    address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+                    try campaigns.campaignAllowlistSnapshot(campaignId, advertiser) returns (bool ok) {
+                        if (!ok) { ctx.reasonCode = 15; return ctx; }
                     } catch {
-                        return (false, 15, 0, bytes32(0));
+                        ctx.reasonCode = 15; return ctx;
                     }
                 }
             } catch {}
         } else {
             // OPEN mode: tag-matched. Publishers with their own allowlist
             // enabled cannot serve open campaigns (BM-7).
-            try publishers.allowlistEnabled(claim.publisher) returns (bool alEnabled) {
-                if (alEnabled) return (false, 15, 0, bytes32(0));
+            try publishers.allowlistEnabled(publisher) returns (bool alEnabled) {
+                if (alEnabled) { ctx.reasonCode = 15; return ctx; }
             } catch {}
         }
 
@@ -404,8 +405,8 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         //   blocklist is a policy layer, not a critical safety invariant, and
         //   silently DoS'ing every settlement on a single misconfigured ref
         //   is more harmful than letting a single batch through.
-        try publishers.isBlocked(claim.publisher) returns (bool blocked) {
-            if (blocked) return (false, 11, 0, bytes32(0));
+        try publishers.isBlocked(publisher) returns (bool blocked) {
+            if (blocked) { ctx.reasonCode = 11; return ctx; }
         } catch {
             // Liveness: continue validation rather than rejecting.
         }
@@ -413,23 +414,91 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         // Check 5: rate check — fetch pot config for this action type
         uint256 potRate;
         address potActionVerifier;
-        try campaigns.getCampaignPot(claim.campaignId, claim.actionType) returns (IDatumCampaigns.ActionPotConfig memory pot) {
+        try campaigns.getCampaignPot(campaignId, actionType) returns (IDatumCampaigns.ActionPotConfig memory pot) {
             potRate = pot.rateWei;
             potActionVerifier = pot.actionVerifier;
         } catch {
-            return (false, 3, 0, bytes32(0)); // pot not found
+            ctx.reasonCode = 3; return ctx; // pot not found
         }
-        if (potRate == 0) return (false, 3, 0, bytes32(0));
-        if (claim.rateWei > potRate) return (false, 6, 0, bytes32(0));
+        if (potRate == 0) { ctx.reasonCode = 3; return ctx; }
+
+        // Check 8c: #2-extension — proof-of-on-chain-history filter. The
+        //   campaign can require the reporter has settled N events historically
+        //   (across any campaign) before participating. Soft sybil bar that
+        //   doesn't lock out real users with prior protocol activity.
+        //   (campaign + user invariant — runs once per batch.)
+        if (settlement != address(0)) {
+            try ICampaignsSybilKnobs(address(campaigns)).minUserSettledHistory(campaignId) returns (uint32 minHist) {
+                if (minHist > 0) {
+                    try ISettlementHistory(settlement).userTotalSettled(user) returns (uint256 totalSettled) {
+                        if (totalSettled < uint256(minHist)) { ctx.reasonCode = 28; return ctx; }
+                    } catch {
+                        ctx.reasonCode = 28; return ctx;
+                    }
+                }
+            } catch {}
+        }
+
+        // ZK-required flag (view claims only). Read once here; the proof
+        // itself is verified per-claim in validateClaimWithContext.
+        bool requiresZk = false;
+        if (actionType == 0 && address(zkVerifier) != address(0)) {
+            try campaigns.getCampaignRequiresZkProof(campaignId) returns (bool reqZk) {
+                requiresZk = reqZk;
+            } catch {
+                // M-4: fail closed — if we can't determine whether a ZK proof is required,
+                // refuse the batch rather than silently treating it as not-required.
+                ctx.reasonCode = 16; return ctx;
+            }
+        }
+
+        // PoW-enforced flag (#5). enforcePow() is batch-invariant; the
+        // per-user/per-eventCount target read stays per-claim.
+        bool enforcePow = false;
+        if (powEngine != address(0)) {
+            // F-018 fix (2026-05-20): fail-CLOSED on enforcePow revert.
+            try IPowEngineGate(powEngine).enforcePow() returns (bool enf) {
+                enforcePow = enf;
+            } catch {
+                ctx.reasonCode = 27; return ctx;
+            }
+        }
+
+        ctx.ok = true;
+        ctx.takeRate = cTakeRate;
+        ctx.potRate = potRate;
+        ctx.potActionVerifier = potActionVerifier;
+        ctx.requiresZk = requiresZk;
+        ctx.enforcePow = enforcePow;
+    }
+
+    /// @inheritdoc IDatumClaimValidator
+    /// @dev Per-claim checks only. All campaign/publisher reads are resolved
+    ///      in `ctx`; this function performs no campaign/publisher staticcalls
+    ///      except the per-claim ones whose inputs vary (PoW target by
+    ///      eventCount, ZK proof, click session).
+    function validateClaimWithContext(
+        IDatumSettlement.Claim calldata claim,
+        address user,
+        uint256 expectedNonce,
+        bytes32 expectedPrevHash,
+        IDatumClaimValidator.BatchContext memory ctx
+    ) public view override returns (bool, uint8, bytes32) {
+        // Check 1: non-zero events within allowed range
+        if (claim.eventCount == 0) return (false, 2, bytes32(0));
+        if (claim.eventCount > maxClaimEvents) return (false, 17, bytes32(0));
+
+        // Check 5: rate ceiling (pot rate resolved in ctx)
+        if (claim.rateWei > ctx.potRate) return (false, 6, bytes32(0));
 
         // Check 6: nonce chain
-        if (claim.nonce != expectedNonce) return (false, 7, 0, bytes32(0));
+        if (claim.nonce != expectedNonce) return (false, 7, bytes32(0));
 
         // Check 7: previous hash chain
         if (claim.nonce == 1) {
-            if (claim.previousClaimHash != bytes32(0)) return (false, 8, 0, bytes32(0));
+            if (claim.previousClaimHash != bytes32(0)) return (false, 8, bytes32(0));
         } else {
-            if (claim.previousClaimHash != expectedPrevHash) return (false, 9, 0, bytes32(0));
+            if (claim.previousClaimHash != expectedPrevHash) return (false, 9, bytes32(0));
         }
 
         // Check 8: claim hash (9-field preimage: campaignId, publisher, user,
@@ -449,96 +518,81 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             claim.previousClaimHash,
             claim.stakeRootUsed
         ));
-        if (claim.claimHash != computedHash) return (false, 10, 0, bytes32(0));
+        if (claim.claimHash != computedHash) return (false, 10, bytes32(0));
 
-        // Check 8b: #5 — Per-impression PoW with scaling difficulty. Reads
-        //   target from the carved-out DatumPowEngine. Skipped when engine
-        //   isn't wired (early bootstrap).
-        if (powEngine != address(0)) {
-            IPowEngineGate e = IPowEngineGate(powEngine);
-            // F-018 fix (2026-05-20): fail-CLOSED on enforcePow revert
-            // (was silent pass-through). A captured/buggy PowEngine that
-            // reverts on enforcePow() previously disabled PoW protection
-            // entirely; now treats any read failure the same as
-            // "enforce on" and rejects the claim.
-            try e.enforcePow() returns (bool enf) {
-                if (enf) {
-                    try e.powTargetForUser(user, claim.eventCount) returns (uint256 target) {
-                        if (uint256(keccak256(abi.encodePacked(computedHash, claim.powNonce))) > target) {
-                            return (false, 27, 0, bytes32(0));
-                        }
-                    } catch {
-                        return (false, 27, 0, bytes32(0));
-                    }
+        // Check 8b: #5 — Per-impression PoW with scaling difficulty. ctx.enforcePow
+        //   resolved once per batch; the per-user/per-eventCount target read
+        //   stays here because it varies by claim.
+        if (ctx.enforcePow) {
+            // F-018: fail-CLOSED on powTargetForUser revert.
+            try IPowEngineGate(powEngine).powTargetForUser(user, claim.eventCount) returns (uint256 target) {
+                if (uint256(keccak256(abi.encodePacked(computedHash, claim.powNonce))) > target) {
+                    return (false, 27, bytes32(0));
                 }
             } catch {
-                return (false, 27, 0, bytes32(0));
+                return (false, 27, bytes32(0));
             }
         }
 
-        // Check 8c: #2-extension — proof-of-on-chain-history filter. The
-        //   campaign can require the reporter has settled N events historically
-        //   (across any campaign) before participating. Soft sybil bar that
-        //   doesn't lock out real users with prior protocol activity.
-        if (settlement != address(0)) {
-            try ICampaignsSybilKnobs(address(campaigns)).minUserSettledHistory(claim.campaignId) returns (uint32 minHist) {
-                if (minHist > 0) {
-                    try ISettlementHistory(settlement).userTotalSettled(user) returns (uint256 totalSettled) {
-                        if (totalSettled < uint256(minHist)) return (false, 28, 0, bytes32(0));
-                    } catch {
-                        return (false, 28, 0, bytes32(0));
-                    }
-                }
-            } catch {}
-        }
-
         // Check 9: ZK proof (view claims only, if campaign requires it).
+        //          ctx.requiresZk already implies actionType==0 && zkVerifier set.
         //          Path A: 7 public inputs — claimHash, nullifier, impressions,
         //                  stakeRoot, minStake, interestRoot, requiredCategory.
         //          Wallets/relays must build proofs against `stakeRoot.rootAt(latestEpoch)`
         //          and the user's own interestRoot at proof-generation time. Brief
         //          rollover races (root rotates between gen and verify) are expected;
         //          relays should retry with a fresh proof on reason 16.
-        if (claim.actionType == 0 && address(zkVerifier) != address(0)) {
-            try campaigns.getCampaignRequiresZkProof(claim.campaignId) returns (bool reqZk) {
-                if (reqZk) {
-                    bool proofPresent = false;
-                    for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
-                    if (!proofPresent) return (false, 16, 0, bytes32(0));
-                    if (!_verifyPathA(claim, user, computedHash)) return (false, 16, 0, bytes32(0));
-                }
-            } catch {
-                // M-4: fail closed — if we can't determine whether a ZK proof is required,
-                // refuse the claim rather than silently treating it as not-required.
-                return (false, 16, 0, bytes32(0));
-            }
+        if (claim.actionType == 0 && ctx.requiresZk) {
+            bool proofPresent = false;
+            for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
+            if (!proofPresent) return (false, 16, bytes32(0));
+            if (!_verifyPathA(claim, user, computedHash)) return (false, 16, bytes32(0));
         }
 
         // Check 10 (type-1 only): verify click session exists and is unclaimed
         if (claim.actionType == 1) {
-            if (address(clickRegistry) == address(0)) return (false, 22, 0, bytes32(0)); // E90 → reason 22
-            if (claim.clickSessionHash == bytes32(0)) return (false, 22, 0, bytes32(0));
+            if (address(clickRegistry) == address(0)) return (false, 22, bytes32(0)); // E90 → reason 22
+            if (claim.clickSessionHash == bytes32(0)) return (false, 22, bytes32(0));
             try clickRegistry.hasUnclaimed(user, claim.campaignId, claim.clickSessionHash) returns (bool unclaimed) {
-                if (!unclaimed) return (false, 22, 0, bytes32(0));
+                if (!unclaimed) return (false, 22, bytes32(0));
             } catch {
-                return (false, 22, 0, bytes32(0));
+                return (false, 22, bytes32(0));
             }
         }
 
         // Check 11 (type-2 only): verify actionSig from the pot's actionVerifier EOA
         if (claim.actionType == 2) {
-            if (potActionVerifier == address(0)) return (false, 23, 0, bytes32(0)); // E94 → reason 23
+            if (ctx.potActionVerifier == address(0)) return (false, 23, bytes32(0)); // E94 → reason 23
             // bytes32[3]: [r, s, v-as-bytes32]; all-zero = no sig provided
             // sig is over computedHash (the full claim hash)
             bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", computedHash));
             (bytes32 r, bytes32 s, uint8 v) = _splitSig(claim.actionSig);
-            if (v != 27 && v != 28) return (false, 23, 0, bytes32(0));
-            if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) return (false, 23, 0, bytes32(0));
+            if (v != 27 && v != 28) return (false, 23, bytes32(0));
+            if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) return (false, 23, bytes32(0));
             address recovered = ecrecover(ethHash, v, r, s);
-            if (recovered == address(0) || recovered != potActionVerifier) return (false, 23, 0, bytes32(0));
+            if (recovered == address(0) || recovered != ctx.potActionVerifier) return (false, 23, bytes32(0));
         }
 
-        return (true, 0, cTakeRate, computedHash);
+        return (true, 0, computedHash);
+    }
+
+    /// @inheritdoc IDatumClaimValidator
+    /// @dev Back-compat monolithic entry: resolveBatchContext +
+    ///      validateClaimWithContext composed for a single claim. Behaviour is
+    ///      identical to the pre-hoist validateClaim for direct callers/tests.
+    function validateClaim(
+        IDatumSettlement.Claim calldata claim,
+        address user,
+        uint256 expectedNonce,
+        bytes32 expectedPrevHash
+    ) external view override returns (bool, uint8, uint16, bytes32) {
+        IDatumClaimValidator.BatchContext memory ctx =
+            resolveBatchContext(claim.campaignId, claim.publisher, claim.actionType, user);
+        if (!ctx.ok) return (false, ctx.reasonCode, 0, bytes32(0));
+        (bool valid, uint8 reasonCode, bytes32 computedHash) =
+            validateClaimWithContext(claim, user, expectedNonce, expectedPrevHash, ctx);
+        if (!valid) return (false, reasonCode, 0, bytes32(0));
+        return (true, 0, ctx.takeRate, computedHash);
     }
 
     // -------------------------------------------------------------------------
