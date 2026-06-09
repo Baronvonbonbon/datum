@@ -144,4 +144,9 @@ For an EVM-gas-bound chain, ~1.46× more claims per batch. For a calldata/PoV-bo
 
 ### M2c — off-chain signers (relay-bot + extension)
 
-_pending — mirror the slim struct + new typehashes + firstNonce in the JS signers._
+Spec'd in **`OFFCHAIN-SLIM-PORTING.md`** rather than coded: the live relay-bot is gitignored
+(outside this repo), the `docs/relay-bot-template` is stale alpha-2-era, and the extension
+exports claims to the relay-bot rather than building the on-chain `SignedClaimBatch` itself —
+so there is no in-repo, hardhat-testable off-chain signer to edit without a separate sync pass.
+The porting guide gives the exact wire shape, the three EIP-712 typehashes (firstNonce +
+content claimsHash), the `firstNonce == lastNonce+1` anchor, and the claimHash/PoW derivation.
