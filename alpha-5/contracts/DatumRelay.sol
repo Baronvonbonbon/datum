@@ -365,6 +365,24 @@ contract DatumRelay is DatumUpgradable, EIP712 {
                 continue;
             }
 
+            // One-chain-per-call guard (E87). Two batches that would BOTH settle
+            // for the same (user, campaignId, actionType) chain in one call would
+            // double-settle: this is a deferred-settle path (a single settleClaims
+            // at the end), so the anchor above reads the same pre-settlement
+            // lastNonce for both, and settleClaims then assigns them sequential
+            // nonces — re-playing one signed authorization. Reject the whole call.
+            // Checked only against already-accepted batches, so an expired/stale
+            // sibling for the same chain (already skipped) does not false-trigger.
+            uint8 at = sb.claims[0].actionType;
+            for (uint256 j = 0; j < validCount; j++) {
+                require(
+                    forwardBatches[j].user != sb.user ||
+                    forwardBatches[j].campaignId != sb.campaignId ||
+                    forwardBatches[j].claims[0].actionType != at,
+                    "E87"
+                );
+            }
+
             // Build ClaimBatch for forwarding (compacted at validCount)
             IDatumSettlement.Claim[] memory memoryClaims = new IDatumSettlement.Claim[](sb.claims.length);
             for (uint256 i = 0; i < sb.claims.length; i++) {

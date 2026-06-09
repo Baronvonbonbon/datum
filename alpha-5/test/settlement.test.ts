@@ -653,6 +653,44 @@ describe("DatumSettlement", function () {
       expect(await settlement.lastNonce(user.address, cidStale, 0)).to.equal(0n);  // stale chain untouched
     });
 
+    it("R-dup: duplicate same-chain batch in one call reverts E87 (no double-settle)", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const deadline = (await ethers.provider.getBlockNumber()) + 200;
+      const signature = await signBatch(user, cid, claims, deadline);
+      const sb = {
+        user: user.address, campaignId: cid, claims, deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: signature, publisherSig: "0x", advertiserSig: "0x",
+      };
+      // Regression: before the one-chain-per-call guard, submitting the SAME
+      // user-signed batch twice in one call settled it TWICE (settledCount=2) —
+      // an intra-call replay of one authorization. It must now revert E87.
+      await expect(
+        relay.connect(publisher).settleClaimsFor([sb, sb])
+      ).to.be.revertedWith("E87");
+    });
+
+    it("R-dup-ok: two different-chain batches in one call both settle", async function () {
+      const cidA = await createTestCampaign();
+      const cidB = await createTestCampaign();
+      const dl = (await ethers.provider.getBlockNumber()) + 200;
+      const mk = async (cid: bigint) => {
+        const cl = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+        return {
+          user: user.address, campaignId: cid, claims: cl, deadlineBlock: dl,
+          firstNonce: cl[0].nonce,
+          expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+          userSig: await signBatch(user, cid, cl, dl), publisherSig: "0x", advertiserSig: "0x",
+        };
+      };
+      // Distinct (user, campaign, actionType) chains — no collision, both settle.
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([await mk(cidA), await mk(cidB)]);
+      expect(res.settledCount).to.equal(2n);
+      expect(res.rejectedCount).to.equal(0n);
+    });
+
     it("R6: direct settleClaims still works after relay addition", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);

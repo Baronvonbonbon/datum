@@ -201,6 +201,21 @@ contract DatumAttestationVerifier is EIP712, DatumUpgradable {
                 continue;
             }
 
+            // One-chain-per-call guard (E87). Same rationale as DatumRelay: this
+            // is a deferred-settle path (single settleClaims at the end), so two
+            // batches that would both settle for the same (user, campaignId,
+            // actionType) chain would double-settle one signed authorization.
+            // Reject the whole call. Checked only against accepted batches.
+            uint8 at = ab.claims[0].actionType;
+            for (uint256 j = 0; j < validCount; j++) {
+                require(
+                    forwardBatches[j].user != ab.user ||
+                    forwardBatches[j].campaignId != ab.campaignId ||
+                    forwardBatches[j].claims[0].actionType != at,
+                    "E87"
+                );
+            }
+
             // Build ClaimBatch for forwarding (compacted at validCount)
             IDatumSettlement.Claim[] memory memoryClaims =
                 new IDatumSettlement.Claim[](ab.claims.length);

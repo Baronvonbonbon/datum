@@ -144,7 +144,32 @@ call work (first settles, second is then stale → skipped). `processVerifiedBat
 require as defense-in-depth for direct callers.
 
 - One stale/expired batch no longer DoS-es valid sibling batches in the same multi-user call
-  (test `R-skip`). Full suite **1660 passing, 0 failing**.
+  (test `R-skip`).
+
+### M2e — one-chain-per-call guard (security fix, DONE)
+
+**Finding:** moving the nonce anchor from a per-claim settle-time check (the pre-slim design)
+to the relay/attestation *pre-pass* introduced an **intra-call replay**: the deferred-settle
+paths read `lastNonce` once, before the single `settleClaims`, so the SAME user-signed batch
+submitted twice in one `settleClaimsFor` call passed the anchor for both copies and settled
+**twice** (`settledCount=2` — one authorization double-paid). The pre-slim per-claim
+`claim.nonce == lastNonce+1` check (fresh storage) had caught this; deriving the nonce lost it.
+
+**Fix:** `DatumRelay.settleClaimsFor` and `DatumAttestationVerifier.settleClaimsAttested` now
+reject (`E87`) any second batch that would settle for an already-accepted
+`(user, campaignId, actionType)` chain in the same call — restoring the pre-pass anchor to
+*exact* (each chain's `lastNonce` read is then authoritative). Single `settleClaims` preserved
+(no gas regression). Checked only among accepted batches, so an expired/stale sibling for the
+same chain doesn't false-trigger. Dual-sig is **not** touched — it settles per-batch with a
+fresh anchor and already rejects the duplicate (graceful skip).
+
+- Why not the alternatives: per-batch settle calls re-pay the per-call fixed overhead × N
+  (against the batch-size goal); putting `firstNonce` on `ClaimBatch` and checking at settle
+  time is insecure (the permissionless submitter could substitute `firstNonce` — `settleClaims`
+  can't re-verify the user's signature). The guard keeps the check bound to the signature, in
+  the single call.
+- Regression tests `R-dup` (duplicate → revert E87) + `R-dup-ok` (distinct chains both settle).
+  Full suite **1662 passing, 0 failing**.
 
 ### Net result (#1 + #2)
 
