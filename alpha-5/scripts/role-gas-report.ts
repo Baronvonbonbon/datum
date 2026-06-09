@@ -50,11 +50,16 @@ import path from "path";
 // Cost-projection knobs
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Gas-price scenarios (gwei). 1 gwei = 1e9 wei = 1e-9 ETH/PAS. */
+/** Gas-price scenarios (gwei). 1 gwei = 1e9 wei = 1e-9 ETH/PAS.
+ *  NOTE: live Paseo eth_gasPrice is 1000 gwei (1e12 wei/gas) — verified against
+ *  real receipts' effectiveGasPrice (see docs/gas-economics.md). The old 1-gwei
+ *  "Paseo" row was wrong by 1000×. Real per-op PAS cost + break-even analysis
+ *  lives in docs/gas-economics.md (uses live-tx pallet-revive gas, which runs
+ *  ~6× below the hardhat EVM gas measured here). */
 const GAS_PRICE_SCENARIOS: Array<{ label: string; gwei: number; note: string }> = [
-  { label: "Paseo (cheap testnet)",       gwei: 1,   note: "Current Paseo eth-rpc baseline" },
-  { label: "Polkadot Hub (conservative)", gwei: 5,   note: "Plausible mainnet steady state" },
-  { label: "Polkadot Hub (busy)",         gwei: 50,  note: "High-load worst case" },
+  { label: "Paseo (live)",                gwei: 1000, note: "Real Paseo eth_gasPrice = 1e12 wei/gas (verified on-chain)" },
+  { label: "Polkadot Hub (conservative)", gwei: 5,    note: "Plausible mainnet steady state" },
+  { label: "Polkadot Hub (busy)",         gwei: 50,   note: "High-load worst case" },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,6 +474,14 @@ async function deployAll() {
   }
   await (await tokenRewardVault.setSettlement(await settlement.getAddress())).wait();
 
+  // DualSig: gasless dual-sig settlement path (settleSignedClaims → processVerifiedBatch).
+  const dualSig = await (await F("DatumDualSigSettlement")).deploy();
+  await (await dualSig.setSettlement(await settlement.getAddress())).wait();
+  await (await dualSig.setPauseRegistry(await pauseReg.getAddress())).wait();
+  await (await dualSig.setPublishers(await publishers.getAddress())).wait();
+  await (await dualSig.setCampaigns(await campaigns.getAddress())).wait();
+  await (await settlement.setDualSig(await dualSig.getAddress())).wait();
+
   await (await claimVal.setZKVerifier(await zkVerifier.getAddress())).wait();
 
   await (await lifecycle.setCampaigns(await campaigns.getAddress())).wait();
@@ -529,7 +542,7 @@ async function deployAll() {
     councilA, councilB, councilC, councilGuardian,
     reporter2, curator, challenger,
     pauseReg, timelock, publishers, ledger, vault, campaigns, lifecycle,
-    claimVal, settlement, governance, datumRelay, attestVerifier, tokenRewardVault,
+    claimVal, settlement, dualSig, governance, datumRelay, attestVerifier, tokenRewardVault,
     publisherStake, challengeBonds, publisherGov, paramGov, router, council,
     clickReg, curatorContract, activationBonds, stakeRootV1, stakeRootV2,
     identityVer, mockToken, zkStake,
@@ -711,6 +724,19 @@ async function measureAll(ctx: any) {
   const sc10 = buildClaimChain(cidR10, ctx.publisher.address, ctx.user.address, CPM, 10, 100n);
   await measure("Relay", "settleClaims (10 claims × 100 imps)",
     ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR10, claims: sc10 }]));
+  // Scale probe: 25 & 50 (= live maxBatchSize cap) to map the per-claim gas curve.
+  try {
+    const cidR25 = await activateCampaign(ctx, BUDGET, parseDOT("20"), CPM);
+    const sc25 = buildClaimChain(cidR25, ctx.publisher.address, ctx.user.address, CPM, 25, 100n);
+    await measure("Relay", "settleClaims (25 claims × 100 imps)",
+      ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR25, claims: sc25 }]));
+  } catch (e: any) { markSkipped("Relay", "settleClaims (25 claims × 100 imps)", (e?.shortMessage ?? e?.message ?? String(e)).slice(0, 80)); }
+  try {
+    const cidR50 = await activateCampaign(ctx, BUDGET, parseDOT("20"), CPM);
+    const sc50 = buildClaimChain(cidR50, ctx.publisher.address, ctx.user.address, CPM, 50, 100n);
+    await measure("Relay", "settleClaims (50 claims × 100 imps, = batch cap)",
+      ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidR50, claims: sc50 }]));
+  } catch (e: any) { markSkipped("Relay", "settleClaims (50 claims × 100 imps, = batch cap)", (e?.shortMessage ?? e?.message ?? String(e)).slice(0, 80)); }
 
   // ─── CPC settle (actionType=1) ──────────────────────────────────────────
   // Click-based settlement requires (a) a multi-pot campaign with a CPC
@@ -763,6 +789,57 @@ async function measureAll(ctx: any) {
   } catch (e: any) {
     const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
     markSkipped("Relay", "settleClaims (1 CPA action)", msg);
+  }
+
+  // ─── Gasless dual-sig path: settleSignedClaims + withdrawUserBySig ───────
+  // The production gasless flow: user signs nothing on-chain; relay submits +
+  // pays gas. Publisher side is the relaySigner (== relay here); advertiser
+  // self-signs (expectedAdvertiserRelaySigner = 0). A dedicated beneficiary
+  // signer keeps ctx.user's balance intact for the withdrawUser row below.
+  try {
+    const dsUser = (await ethers.getSigners())[16];
+    const cidDS = await activateCampaignWithPots(ctx, [{ actionType: 0, budget: BUDGET, dailyCap: DAILY, rate: CPM }]);
+    const net = await ethers.provider.getNetwork();
+    const dsClaim = buildClaim({ cid: cidDS, publisher: ctx.publisher.address, user: dsUser.address, rate: CPM, events: 100n, nonce: 1n, prev: ethers.ZeroHash });
+    const claimsHash = ethers.keccak256(ethers.solidityPacked(["bytes32"], [dsClaim.claimHash]));
+    const deadlineBlock = BigInt(await ethers.provider.getBlockNumber()) + 1000n;
+    const dsDomain = { name: "DatumSettlement", version: "1", chainId: net.chainId, verifyingContract: await ctx.dualSig.getAddress() };
+    const cbTypes = { ClaimBatch: [
+      { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "claimsHash", type: "bytes32" },
+      { name: "deadlineBlock", type: "uint256" }, { name: "expectedRelaySigner", type: "address" }, { name: "expectedAdvertiserRelaySigner", type: "address" },
+    ] };
+    const cbValue = { user: dsUser.address, campaignId: cidDS, claimsHash, deadlineBlock, expectedRelaySigner: ctx.relay.address, expectedAdvertiserRelaySigner: ethers.ZeroAddress };
+    const publisherSig = await ctx.relay.signTypedData(dsDomain, cbTypes, cbValue);      // publisher's relaySigner == relay
+    const advertiserSig = await ctx.advertiser.signTypedData(dsDomain, cbTypes, cbValue); // advertiser self-signs
+    const batch = {
+      user: dsUser.address, campaignId: cidDS, claims: [dsClaim], deadlineBlock,
+      expectedRelaySigner: ctx.relay.address, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+      userSig: "0x", publisherSig, advertiserSig,
+    };
+    await measure("Relay", "settleSignedClaims (1 claim × 100 imps, dual-sig)",
+      ctx.dualSig.connect(ctx.relay).settleSignedClaims([batch]));
+
+    // dsUser now holds a vault balance → measure the gasless withdrawal.
+    const bal = await ctx.vault.userBalance(dsUser.address);
+    if (bal > 0n) {
+      const wNonce = await ctx.vault.withdrawNonce(dsUser.address);
+      const deadline = BigInt(await ethers.provider.getBlockNumber()) + 100n;
+      const maxFee = bal / 100n; // 1%
+      const wDomain = { name: "DatumPaymentVault", version: "1", chainId: net.chainId, verifyingContract: await ctx.vault.getAddress() };
+      const waTypes = { WithdrawAuth: [
+        { name: "user", type: "address" }, { name: "recipient", type: "address" }, { name: "maxFee", type: "uint256" },
+        { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
+      ] };
+      const wsig = await dsUser.signTypedData(wDomain, waTypes, { user: dsUser.address, recipient: dsUser.address, maxFee, nonce: wNonce, deadline });
+      await measure("Relay", "withdrawUserBySig (gasless, relay-submitted)",
+        ctx.vault.connect(ctx.relay).withdrawUserBySig(dsUser.address, dsUser.address, maxFee, deadline, wsig));
+    } else {
+      markSkipped("Relay", "withdrawUserBySig (gasless, relay-submitted)", "dsUser had zero credit after dual-sig settle");
+    }
+  } catch (e: any) {
+    const msg = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 120);
+    markSkipped("Relay", "settleSignedClaims (dual-sig)", msg);
+    markSkipped("Relay", "withdrawUserBySig (gasless, relay-submitted)", "prerequisite dual-sig settle failed");
   }
 
   // Now publisher and user have balances; withdraw measurements work.
@@ -1119,7 +1196,7 @@ const COVERAGE_MATRIX: CoverageEntry[] = [
   { contract: "DatumTimelock",               measuredOps: [],                                                  notes: "Owner role only; exercised indirectly via governance phase tests" },
   { contract: "DatumPublishers",             measuredOps: ["registerPublisher", "setRelaySigner", "setProfile"] },
   { contract: "DatumBudgetLedger",           measuredOps: [],                                                  notes: "State changes triggered by Settlement, not direct calls" },
-  { contract: "DatumPaymentVault",           measuredOps: ["vault.withdrawPublisher", "vault.withdrawUser"] },
+  { contract: "DatumPaymentVault",           measuredOps: ["vault.withdrawPublisher", "vault.withdrawUser", "withdrawUserBySig (gasless, relay-submitted)"] },
   { contract: "DatumCampaigns",              measuredOps: ["createCampaign"] },
   { contract: "DatumCampaignLifecycle",      measuredOps: [],                                                  notes: "Driven by Settlement and Governance" },
   { contract: "DatumClaimValidator",         measuredOps: [],                                                  notes: "Validation invoked inside settleClaims gas" },
@@ -1162,7 +1239,7 @@ const COVERAGE_MATRIX: CoverageEntry[] = [
   { contract: "DatumZKStake",                measuredOps: ["zkStake.depositWith", "zkStake.requestWithdrawal"] },
   { contract: "DatumClickRegistry",          measuredOps: ["settleClaims (1 CPC click)"],                       notes: "Exercised via the CPC settle path (recordClick + markClaimed)" },
   { contract: "DatumInterestCommitments",    measuredOps: [],                                                  notes: "Deferred — extension-driven write path" },
-  { contract: "DatumDualSigSettlement",      measuredOps: [],                                                  notes: "Deferred — advertiser cosig flow needs paired EIP-712 sigs" },
+  { contract: "DatumDualSigSettlement",      measuredOps: ["settleSignedClaims (1 claim × 100 imps, dual-sig)"], notes: "Gasless path: publisher relaySigner + advertiser EIP-712 co-sigs; relay submits + pays gas" },
   { contract: "DatumEmissionEngine",         measuredOps: ["emissionEngine.adjustRate", "emissionEngine.rollEpoch"], notes: "rollEpoch typically SKIPs in-process (time-gated; needs epoch-duration warp)" },
   { contract: "DatumMintCoordinator",        measuredOps: [],                                                  notes: "Wired in deploy but no direct state-changing op exercised; mint happens inside settleClaims gas" },
   // ── Token plane ─────────────────────────────────────────────────────────
@@ -2061,6 +2138,35 @@ async function main() {
   console.log("Deploying full alpha-5 stack...");
   const ctx = await deployAll();
   console.log("Deploy complete. Measuring operations:\n");
+
+  // ── PROBE: settle batch-size breakpoint (force gasLimit, capture eth_call reason) ──
+  if (process.env.PROBE_SETTLE_LIMIT === "1") {
+    const CPM = parseDOT("0.2"), BUDGET = parseDOT("40"), DAILY = parseDOT("40");
+    console.log("[PROBE] settle batch-size limit (explicit gasLimit, eth_call reason on revert)");
+    for (const n of [4, 5, 6, 7, 8]) {
+      try {
+        const cid = await activateCampaign(ctx, BUDGET, DAILY, CPM);
+        const claims = buildClaimChain(cid, ctx.publisher.address, ctx.user.address, CPM, n, 100n);
+        const batch = [{ user: ctx.user.address, campaignId: cid, claims }];
+        // 1) eth_call to surface the revert reason (if any)
+        let reason = "ok";
+        try { await ctx.settlement.connect(ctx.user).settleClaims.staticCall(batch); }
+        catch (e: any) { reason = (e?.shortMessage ?? e?.reason ?? e?.message ?? String(e)).split("\n")[0].slice(0, 90); }
+        // 2) force-send with explicit gasLimit (bypass estimateGas)
+        let sent = "—", gas = "—";
+        try {
+          const tx = await ctx.settlement.connect(ctx.user).settleClaims(batch, { gasLimit: 12_000_000 });
+          const r = await tx.wait(); sent = r.status === 1 ? "MINED" : "REVERTED"; gas = String(r.gasUsed);
+        } catch (e: any) { sent = "SEND-FAIL: " + (e?.shortMessage ?? e?.message ?? String(e)).split("\n")[0].slice(0, 60); }
+        console.log(`[PROBE] n=${String(n).padStart(2)}  ethcall=${reason.padEnd(40)} forced=${sent} gas=${gas}`);
+      } catch (e: any) {
+        console.log(`[PROBE] n=${String(n).padStart(2)}  setup-failed: ${(e?.message ?? e).toString().slice(0, 80)}`);
+      }
+    }
+    console.log("[PROBE] done — exiting before full measureAll");
+    return;
+  }
+
   await measureAll(ctx);
 
   const md = emitMarkdown({ chainId, explorer });

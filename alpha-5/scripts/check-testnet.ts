@@ -24,7 +24,7 @@ async function main() {
     "function getCampaignForSettlement(uint256 id) view returns (uint8 status, address publisher, uint256 bidCpmWei, uint16 snapshotTakeRateBps)",
     "function createCampaign(address publisher, uint256 dailyCap, uint256 bidCpm, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
     "function minimumCpmFloor() view returns (uint256)",
-    "function MINIMUM_BUDGET_PLANCK() view returns (uint256)",
+    "function MINIMUM_BUDGET_WEI() view returns (uint256)",
   ]);
 
   const pauseIface = new Interface([
@@ -84,8 +84,8 @@ async function main() {
   const minFloor = await call(addrs.campaigns, campIface, "minimumCpmFloor");
   console.log(`minimumCpmFloor: ${minFloor} planck = ${formatDOT(minFloor?.[0] ?? 0n)} DOT`);
 
-  const minBudget = await call(addrs.campaigns, campIface, "MINIMUM_BUDGET_PLANCK");
-  console.log(`MINIMUM_BUDGET_PLANCK: ${minBudget}`);
+  const minBudget = await call(addrs.campaigns, campIface, "MINIMUM_BUDGET_WEI");
+  console.log(`MINIMUM_BUDGET_WEI: ${minBudget}`);
 
   // ─── Publisher state ─────────────────────────────────────────────────────────
   const bob = new Wallet(ACCOUNTS.bob, rawProvider);
