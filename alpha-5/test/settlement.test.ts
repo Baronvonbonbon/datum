@@ -508,7 +508,7 @@ describe("DatumSettlement", function () {
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
     });
 
-    it("R2: relay with expired deadline reverts E29", async function () {
+    it("R2: relay with expired deadline is skipped gracefully (not reverted)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const deadline = (await ethers.provider.getBlockNumber()) - 1;
@@ -527,9 +527,14 @@ describe("DatumSettlement", function () {
         advertiserSig: "0x",
       };
 
-      await expect(
-        relay.connect(publisher).settleClaimsFor([signedBatch])
-      ).to.be.revertedWith("E29");
+      // Graceful skip: an expired batch must not DoS a multi-user call — it's
+      // counted as rejected and emits BatchSkippedStale(reason=0).
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(relay.connect(publisher).settleClaimsFor([signedBatch]))
+        .to.emit(relay, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 0);
     });
 
     it("R3: relay with tampered signature reverts E31", async function () {
@@ -585,7 +590,7 @@ describe("DatumSettlement", function () {
       ).to.be.revertedWith("E31");
     });
 
-    it("R5: replay of settled batch rejects all claims", async function () {
+    it("R5: replay of settled batch is skipped gracefully (rejects all claims)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const deadline = (await ethers.provider.getBlockNumber()) + 200;
@@ -607,12 +612,45 @@ describe("DatumSettlement", function () {
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
       expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
 
-      // SLIM (#2): replay now reverts at the firstNonce anchor (E86) — once the
-      // batch has settled, lastNonce advances and the signed firstNonce (1) no
-      // longer equals lastNonce+1, so the cosigned envelope can't be re-played.
-      await expect(
-        relay.connect(publisher).settleClaimsFor([signedBatch])
-      ).to.be.revertedWith("E86");
+      // SLIM (#2) + graceful skip: once settled, lastNonce advances and the
+      // signed firstNonce (1) no longer equals lastNonce+1, so the replayed
+      // batch is skipped (counted rejected, BatchSkippedStale reason=1) rather
+      // than reverting the whole call.
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(relay.connect(publisher).settleClaimsFor([signedBatch]))
+        .to.emit(relay, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 1);
+    });
+
+    it("R-skip: a stale batch does NOT DoS valid sibling batches in the same call", async function () {
+      const cidGood = await createTestCampaign();
+      const cidStale = await createTestCampaign();
+      const good = buildClaimChain(cidGood, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const stale = buildClaimChain(cidStale, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const now = await ethers.provider.getBlockNumber();
+      const dlGood = now + 200;
+      const dlStale = now - 1; // already expired → graceful skip
+
+      const mk = async (cid: bigint, cl: any[], dl: number) => ({
+        user: user.address, campaignId: cid, claims: cl, deadlineBlock: dl,
+        firstNonce: cl[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: await signBatch(user, cid, cl, dl), publisherSig: "0x", advertiserSig: "0x",
+      });
+      const goodBatch = await mk(cidGood, good, dlGood);
+      const staleBatch = await mk(cidStale, stale, dlStale);
+
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([goodBatch, staleBatch]);
+      expect(res.settledCount).to.equal(1n);   // the live batch settled
+      expect(res.rejectedCount).to.equal(1n);  // the stale batch skipped (not a revert)
+
+      const pubBefore = await vault.publisherBalance(publisher.address);
+      await relay.connect(publisher).settleClaimsFor([goodBatch, staleBatch]);
+      expect(await vault.publisherBalance(publisher.address)).to.be.gt(pubBefore); // good batch paid out
+      expect(await settlement.lastNonce(user.address, cidGood, 0)).to.equal(1n);   // good chain advanced
+      expect(await settlement.lastNonce(user.address, cidStale, 0)).to.equal(0n);  // stale chain untouched
     });
 
     it("R6: direct settleClaims still works after relay addition", async function () {
@@ -945,16 +983,21 @@ describe("DatumSettlement", function () {
       ).to.be.revertedWithCustomError(dualSig, "E83");
     });
 
-    it("D5: expired deadline reverts E81", async function () {
+    it("D5: expired deadline is skipped gracefully (not reverted)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       // A9: deadline is block.number — pick one already past.
       const expired = (await ethers.provider.getBlockNumber()) - 1;
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner, expired);
 
-      await expect(
-        dualSig.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(dualSig, "E81");
+      // Graceful skip: an expired dual-signed batch is counted as rejected and
+      // emits BatchSkippedStale(reason=0), without reverting the whole call.
+      const res = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(dualSig.connect(other).settleSignedClaims([batch]))
+        .to.emit(dualSig, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 0);
     });
 
     it("D6: tampered claim list invalidates publisher sig (E82)", async function () {

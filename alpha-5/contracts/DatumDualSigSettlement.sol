@@ -70,6 +70,10 @@ contract DatumDualSigSettlement is
     event PublishersSet(address indexed publishers);
     event CampaignsSet(address indexed campaigns);
     event PlumbingLocked();
+    /// @notice A dual-signed batch was skipped (not settled, not reverted)
+    ///         because it was stale. reason: 0 = expired deadline, 1 =
+    ///         firstNonce anchor mismatch. claimCount is folded into rejectedCount.
+    event BatchSkippedStale(address indexed user, uint256 indexed campaignId, uint256 firstNonce, uint256 claimCount, uint8 reason);
 
     // ─────────────────────────────────────────────────────────────────────
     // Errors
@@ -168,8 +172,14 @@ contract DatumDualSigSettlement is
             // I-3: reject empty batches -- sigs over no claims do nothing and just burn gas.
             if (batch.claims.length == 0) revert E28();
 
-            // A9: block.number deadline (matches DatumRelay's unit).
-            if (block.number > batch.deadlineBlock) revert E81();
+            // Graceful skip (timing): an expired batch is stale, not malformed —
+            // skip it (count its claims as rejected) so it can't DoS the rest of
+            // a multi-batch submission. Checked before sig recovery.
+            if (block.number > batch.deadlineBlock) {
+                result.rejectedCount += batch.claims.length;
+                emit BatchSkippedStale(batch.user, batch.campaignId, batch.firstNonce, batch.claims.length, 0);
+                continue;
+            }
 
             // Build the EIP-712 struct hash over the batch envelope.
             bytes32 claimsHash = _hashClaims(batch.claims);
@@ -220,6 +230,19 @@ contract DatumDualSigSettlement is
                 if (advSigner != batch.expectedAdvertiserRelaySigner) revert E83();
             } else {
                 if (advSigner != expectedAdvertiser) revert E83();
+            }
+
+            // Graceful skip (staleness): replay anchor. Pre-checked here (after
+            // sig verification) so a malformed cosig still reverts, but a valid
+            // cosig over a stale firstNonce is skipped, not reverted. Read fresh
+            // per iteration, so two batches for the same chain in one call work:
+            // the first settles (advancing lastNonce), the second is then stale
+            // and skipped. processVerifiedBatch keeps its own E86 require as a
+            // defense-in-depth for any direct/buggy caller.
+            if (batch.firstNonce != settlement.lastNonce(batch.user, batch.campaignId, batch.claims[0].actionType) + 1) {
+                result.rejectedCount += batch.claims.length;
+                emit BatchSkippedStale(batch.user, batch.campaignId, batch.firstNonce, batch.claims.length, 1);
+                continue;
             }
 
             // ── Forward to Settlement ───────────────────────────────────────

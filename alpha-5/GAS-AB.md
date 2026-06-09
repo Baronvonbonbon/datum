@@ -109,9 +109,7 @@ binds to `keccak(abi.encode(slimClaim))`). New error **E86** on a stale anchor.
 - Full suite **1659 passing, 0 failing**. Behaviour tests for now-removed semantics
   (claimHash tamper, prevHash genesis, nonce gap) rewritten to assert the derive-on-chain
   model; signed-path replay (R5/dual-sig) now reverts E86 instead of soft-rejecting.
-- **Replay anchor reverts** (E86) rather than soft-skipping a stale batch — simplest + safe,
-  but a relay batching many users would have one stale batch revert the whole call. A
-  production version should skip stale batches per-iteration; noted, not done.
+- **Replay anchor:** initially reverted `E86`; now **graceful per-iteration skip** (see below).
 
 ### M2b — heavy-field sidecar (DONE)
 
@@ -131,6 +129,22 @@ one entry for ZK/click/CPA/PoW). `mkProof()`/`computeClaimHash()` test helpers i
   ~nothing on EVM. M2b is a **calldata-bytes / Polkadot-PoV** win, not an EVM-gas win.
 - Full suite **1659 passing, 0 failing**. ZK/PoW/click/nullifier tests rewritten to put proof
   material in the sidecar; the PoW solver now hashes against the on-chain-derived claim hash.
+
+### M2d — graceful per-iteration skip (DONE)
+
+Across all three signed paths (`DatumRelay.settleClaimsFor`,
+`DatumDualSigSettlement.settleSignedClaims`, `DatumAttestationVerifier.settleClaimsAttested`),
+a batch that is **stale** — expired `deadlineBlock` (reason 0) or `firstNonce != lastNonce+1`
+(reason 1) — is now **skipped, not reverted**: its claims are folded into `result.rejectedCount`
+and a `BatchSkippedStale(user, campaignId, firstNonce, claimCount, reason)` event is emitted.
+**Malformed/malicious** inputs (bad sig, wrong signer, sig length, empty batch) still revert the
+whole call. The relay/attestation paths compact valid batches before the single `settleClaims`;
+the dual-sig path reads `lastNonce` fresh per iteration so two batches for the same chain in one
+call work (first settles, second is then stale → skipped). `processVerifiedBatch` keeps its `E86`
+require as defense-in-depth for direct callers.
+
+- One stale/expired batch no longer DoS-es valid sibling batches in the same multi-user call
+  (test `R-skip`). Full suite **1660 passing, 0 failing**.
 
 ### Net result (#1 + #2)
 
