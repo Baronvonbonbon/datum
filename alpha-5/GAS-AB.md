@@ -60,4 +60,34 @@ Back-compat `validateClaim` retained (composes the two) for direct callers/tests
 
 ## #2 Slim wire format (replace in place)
 
-_pending_
+Per-claim calldata today = **736 B** (N=20 batch = 14,944 B). Breakdown for a view claim:
+
+| group | fields | bytes | removable? |
+|-------|--------|-------|------------|
+| needed | publisher, eventCount, rateWei, actionType | 128 | no |
+| replay-critical | nonce, previousClaimHash | 64 | **only with a signing-scheme replay guard** |
+| safe-redundant | campaignId (dup of batch), claimHash (recomputed) | 64 | yes, no signing change |
+| heavy/path-specific (zero for views) | zkProof[8]=256, actionSig[3]=96, nullifier, stakeRootUsed, powNonce, clickSessionHash | 480 | yes, via optional proof sidecar |
+
+### Two findings that reshape #2
+1. **It's a calldata-BYTES win, not an EVM-gas win.** The heavy fields are all-zero for a
+   view claim, and zero calldata costs 4 gas/byte — so removing them saves only ~2.5k EVM
+   gas/claim (vs #1's 12.7k). The real prize is **−74% calldata bytes** (736→192), which
+   matters if the binding limit is Polkadot Hub PoV/weight (calldata-size bound), not EVM gas.
+2. **Replay constraint on nonce/previousClaimHash.** These are derivable for on-chain
+   *validation*, but they're the claim's commitment to a position in the per-(user,campaign,
+   type) chain. The contract enforces `nonce==lastNonce+1` regardless of what's sent — so if
+   the user's signature stops covering the nonce (because it's dropped from the wire), the
+   *same* signed slim-claim can be settled repeatedly, each time taking the next nonce =
+   **replay**. Removing them safely requires a batch-level replay guard (batch nonce/deadline)
+   in the signed envelope — i.e. the relay+extension EIP-712 redesign (the "full end-to-end"
+   depth). So a contracts-only #2 must KEEP nonce + previousClaimHash.
+
+### Achievable slim
+- **Safe (no signing redesign):** remove campaignId + claimHash + move the 480 B of
+  heavy fields to an optional `ClaimProof` sidecar (empty for views). 736 → **192 B/view
+  claim (−74%)**, keeps nonce/prevHash, replay-safe.
+- **Full (with signing redesign):** also drop nonce/prevHash behind a batch replay guard →
+  **128 B (−83%)**. Touches relay + extension + EIP-712 domain.
+
+_Status: paused for a scope decision — see chat. #1 is committed; #2 not yet implemented._
