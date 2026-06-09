@@ -58,7 +58,7 @@ contract DatumDualSigSettlement is
     /// @notice Mirrors the historic Settlement value so off-chain signers
     ///         keep producing valid digests after the carve-out.
     bytes32 public constant CLAIM_BATCH_TYPEHASH = keccak256(
-        "ClaimBatch(address user,uint256 campaignId,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner,address expectedAdvertiserRelaySigner)"
+        "ClaimBatch(address user,uint256 campaignId,uint256 firstNonce,bytes32 claimsHash,uint256 deadlineBlock,address expectedRelaySigner,address expectedAdvertiserRelaySigner)"
     );
 
     // ─────────────────────────────────────────────────────────────────────
@@ -177,6 +177,7 @@ contract DatumDualSigSettlement is
                 CLAIM_BATCH_TYPEHASH,
                 batch.user,
                 batch.campaignId,
+                batch.firstNonce,
                 claimsHash,
                 batch.deadlineBlock,
                 batch.expectedRelaySigner,
@@ -223,7 +224,7 @@ contract DatumDualSigSettlement is
 
             // ── Forward to Settlement ───────────────────────────────────────
             IDatumSettlement.SettlementResult memory sub =
-                settlement.processVerifiedBatch(batch.user, batch.campaignId, batch.claims);
+                settlement.processVerifiedBatch(batch.user, batch.campaignId, batch.firstNonce, batch.claims);
             result.settledCount  += sub.settledCount;
             result.rejectedCount += sub.rejectedCount;
             result.totalPaid     += sub.totalPaid;
@@ -236,9 +237,13 @@ contract DatumDualSigSettlement is
 
     /// @dev Deterministic hash over all claims in a batch for EIP-712 signing.
     function _hashClaims(IDatumSettlement.Claim[] calldata claims) internal pure returns (bytes32) {
+        // SLIM (#2): claims no longer carry a precomputed claimHash, so bind the
+        // signature to a content hash of each slim claim (publisher, amounts,
+        // type, and any proof fields). Off-chain signers must mirror this:
+        // keccak(abi.encode(Claim)) per claim, then keccak of the concatenation.
         bytes32[] memory hashes = new bytes32[](claims.length);
         for (uint256 i = 0; i < claims.length; i++) {
-            hashes[i] = claims[i].claimHash;
+            hashes[i] = keccak256(abi.encode(claims[i]));
         }
         return keccak256(abi.encodePacked(hashes));
     }

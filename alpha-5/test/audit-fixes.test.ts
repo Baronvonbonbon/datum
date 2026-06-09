@@ -255,10 +255,12 @@ describe("Audit fixes", function () {
       };
     }
 
+    // SLIM (#2): firstNonce added; claimsHash binds to keccak(abi.encode(slimClaim)).
     const types = {
       ClaimBatch: [
         { name: "user", type: "address" },
         { name: "campaignId", type: "uint256" },
+        { name: "firstNonce", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
         { name: "expectedRelaySigner", type: "address" },
@@ -266,11 +268,12 @@ describe("Audit fixes", function () {
       ],
     };
 
-    function hashClaimsArr(claims: { claimHash: string }[]) {
-      return ethers.solidityPackedKeccak256(
-        new Array(claims.length).fill("bytes32"),
-        claims.map((c) => c.claimHash)
-      );
+    const SLIM_CLAIM_TUPLE =
+      "tuple(address publisher,uint256 eventCount,uint256 rateWei,uint8 actionType,bytes32 clickSessionHash,bytes32[8] zkProof,bytes32 nullifier,bytes32 stakeRootUsed,bytes32[3] actionSig,bytes32 powNonce)";
+    function hashClaimsArr(claims: any[]) {
+      const coder = ethers.AbiCoder.defaultAbiCoder();
+      const hashes = claims.map((c) => ethers.keccak256(coder.encode([SLIM_CLAIM_TUPLE], [c])));
+      return ethers.keccak256(ethers.concat(hashes));
     }
 
     async function makeBatch(
@@ -283,6 +286,7 @@ describe("Audit fixes", function () {
       const value = {
         user: user.address,
         campaignId: cid,
+        firstNonce: (claims[0] as any).nonce,
         claimsHash: hashClaimsArr(claims),
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,
@@ -294,6 +298,7 @@ describe("Audit fixes", function () {
       return {
         user: user.address,
         campaignId: cid,
+        firstNonce: (claims[0] as any).nonce,
         claims,
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,

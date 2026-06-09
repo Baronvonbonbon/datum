@@ -9,16 +9,19 @@ interface IDatumSettlement {
     // Structs
     // -------------------------------------------------------------------------
 
+    /// @dev SLIM (#2): the per-claim wire format. `campaignId` is carried once
+    ///      at the batch level; `nonce`, `previousClaimHash` and `claimHash`
+    ///      are derived on-chain (the contract assigns nonce = lastNonce+1,
+    ///      reads prevHash from storage, and recomputes claimHash) -- so they
+    ///      no longer travel in calldata or in the user's signature. Replay is
+    ///      bound by the signed-batch `firstNonce` anchored to lastNonce+1
+    ///      (see SignedClaimBatch).
     struct Claim {
-        uint256 campaignId;
         address publisher;
         uint256 eventCount;          // number of events (impressions, clicks, or actions)
         uint256 rateWei;          // clearing rate: per-1000 for view, flat per-event for click/action
         uint8   actionType;          // 0=view, 1=click, 2=remote-action
         bytes32 clickSessionHash;    // type-1 only: keccak256(user, campaignId, impressionNonce); bytes32(0) for others
-        uint256 nonce;
-        bytes32 previousClaimHash;
-        bytes32 claimHash;
         bytes32[8] zkProof;          // Groth16/BN254: 8 × uint256 (256 bytes); all-zero = no proof
         bytes32 nullifier;           // FP-5: Poseidon(userSecret, campaignId, windowId); bytes32(0) = skip
         bytes32 stakeRootUsed;       // Path A: stake-root the proof was generated against; bytes32(0) = skip stake gate
@@ -51,6 +54,9 @@ interface IDatumSettlement {
     struct SignedClaimBatch {
         address user;
         uint256 campaignId;
+        uint256 firstNonce;      // SLIM (#2): nonce assigned to claims[0]; must == on-chain lastNonce+1.
+                                 //   Replaces the per-claim nonce in the signed payload and anchors the
+                                 //   batch to chain state so a settled batch cannot be replayed.
         Claim[] claims;
         uint256 deadlineBlock;   // A9: block.number expiry — matches DatumRelay for unit-uniformity
         address expectedRelaySigner;            // A1: publisher's relay signer at sign time; address(0) = require strict publisher EOA sig
@@ -110,6 +116,7 @@ interface IDatumSettlement {
     function processVerifiedBatch(
         address user,
         uint256 campaignId,
+        uint256 firstNonce,
         Claim[] calldata claims
     ) external returns (SettlementResult memory result);
 

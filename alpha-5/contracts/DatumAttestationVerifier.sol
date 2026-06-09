@@ -37,8 +37,12 @@ contract DatumAttestationVerifier is EIP712, DatumUpgradable {
     // cosig cannot be replayed with altered claim contents (rates, eventCounts,
     // swapped open-campaign publisher field) or past its expiry. Mirrors the
     // dual-sig path's CLAIM_BATCH_TYPEHASH in DatumSettlement.
+    // SLIM (#2): firstNonce added so the publisher cosig is anchored to a
+    // chain position. With per-claim nonces dropped from the wire, the cosig
+    // (bound only to content + deadline) would otherwise be replayable — the
+    // user is the tx sender here, so there is no user sig to block it.
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
-        "PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)"
+        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,bytes32 claimsHash,uint256 deadlineBlock)"
     );
 
     // -------------------------------------------------------------------------
@@ -77,6 +81,7 @@ contract DatumAttestationVerifier is EIP712, DatumUpgradable {
     struct AttestedBatch {
         address user;
         uint256 campaignId;
+        uint256 firstNonce;    // SLIM (#2): nonce of claims[0]; anchored to lastNonce+1
         IDatumSettlement.Claim[] claims;
         uint256 deadlineBlock; // A1-fix: bound to publisher sig
         bytes publisherSig;
@@ -131,16 +136,26 @@ contract DatumAttestationVerifier is EIP712, DatumUpgradable {
             // A1-fix: enforce deadline.
             require(block.number <= ab.deadlineBlock, "E81");
 
+            // SLIM (#2): replay anchor. firstNonce must equal the chain head + 1
+            // for this (user, campaign, actionType). Combined with firstNonce
+            // being in the publisher's signed payload below, this blocks the
+            // user from re-submitting the same cosig after lastNonce advances.
+            require(
+                ab.firstNonce == settlement.lastNonce(ab.user, ab.campaignId, ab.claims[0].actionType) + 1,
+                "E86"
+            );
+
             // Mandatory: verify publisher co-signature.
-            // A1-fix: hash all claim.claimHash values into a single
-            //         claimsHash. Matches Settlement._hashClaims for symmetry.
+            // SLIM (#2): claimHash dropped from the wire — bind to a content
+            //         hash of each slim claim, keccak(abi.encode(claim)).
+            //         Matches DatumDualSigSettlement._hashClaims for symmetry.
             // R-M3: digest built via OZ _hashTypedDataV4 so the domain separator
             //       rebuilds on chainid mismatch (chain-fork safe).
             bytes32 claimsHash;
             {
                 bytes32[] memory _hashes = new bytes32[](ab.claims.length);
                 for (uint256 i = 0; i < ab.claims.length; i++) {
-                    _hashes[i] = ab.claims[i].claimHash;
+                    _hashes[i] = keccak256(abi.encode(ab.claims[i]));
                 }
                 claimsHash = keccak256(abi.encodePacked(_hashes));
             }
@@ -148,6 +163,7 @@ contract DatumAttestationVerifier is EIP712, DatumUpgradable {
                 PUBLISHER_ATTESTATION_TYPEHASH,
                 ab.campaignId,
                 ab.user,
+                ab.firstNonce,
                 claimsHash,
                 ab.deadlineBlock
             ));

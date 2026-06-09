@@ -252,12 +252,15 @@ contract DatumRelay is DatumUpgradable, EIP712 {
             // domain separator rebuilds on chainid mismatch (chain-fork safe).
             // Recovery uses manual ecrecover to preserve E30/E31 error codes
             // that off-chain clients depend on.
+            // SLIM (#2): firstNonce/lastNonce are explicit envelope fields now
+            // (the per-claim nonce was dropped). lastNonce is derived from
+            // firstNonce + count - 1; the user signs the range.
             bytes32 structHash = keccak256(abi.encode(
                 BATCH_TYPEHASH,
                 sb.user,
                 sb.campaignId,
-                sb.claims[0].nonce,
-                sb.claims[sb.claims.length - 1].nonce,
+                sb.firstNonce,
+                sb.firstNonce + sb.claims.length - 1,
                 sb.claims.length,
                 sb.deadlineBlock
             ));
@@ -277,6 +280,16 @@ contract DatumRelay is DatumUpgradable, EIP712 {
             require(uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0, "E30");
             address signer = ecrecover(digest, v, r, s);
             require(signer != address(0) && signer == sb.user, "E31");
+
+            // SLIM (#2): replay anchor. The signed firstNonce must equal the
+            // current chain head + 1 for this (user, campaign, actionType).
+            // settleClaims (forwarded below) derives nonces from the same
+            // chain head in this tx, and lastNonce advances past firstNonce
+            // after settlement -- so the signed batch can't be replayed.
+            require(
+                sb.firstNonce == settlement.lastNonce(sb.user, sb.campaignId, sb.claims[0].actionType) + 1,
+                "E86"
+            );
 
             // A3: Enforce publisher cosig at AssuranceLevel >= 1.
             // Campaigns interface for relay lookups already includes the view.
@@ -298,11 +311,13 @@ contract DatumRelay is DatumUpgradable, EIP712 {
                     }
                 }
                 if (expectedPub != address(0)) {
-                    // A1-fix: hash all claim.claimHash values into a single
-                    // claimsHash. Matches Settlement._hashClaims for symmetry.
+                    // A1-fix: hash all claims into a single claimsHash.
+                    // SLIM (#2): claimHash was dropped from the wire, so bind to
+                    // a content hash of each slim claim — keccak(abi.encode(claim)).
+                    // Matches DatumDualSigSettlement._hashClaims for symmetry.
                     bytes32[] memory _hashes = new bytes32[](sb.claims.length);
                     for (uint256 i = 0; i < sb.claims.length; i++) {
-                        _hashes[i] = sb.claims[i].claimHash;
+                        _hashes[i] = keccak256(abi.encode(sb.claims[i]));
                     }
                     bytes32 claimsHash = keccak256(abi.encodePacked(_hashes));
                     bytes32 pubStructHash = keccak256(abi.encode(

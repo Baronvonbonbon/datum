@@ -585,6 +585,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
     function processVerifiedBatch(
         address user,
         uint256 campaignId,
+        uint256 firstNonce,
         Claim[] calldata claims
     ) external nonReentrant whenNotFrozen returns (SettlementResult memory result) {
         if (msg.sender != _dualSig) revert OnlyDualSig();
@@ -592,6 +593,11 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
         if (_pauseRegistry.pausedSettlement()) revert Paused();
         if (claims.length == 0) revert E28();
         if (claims.length > _maxBatchSize) revert E28();
+        // SLIM (#2): replay anchor. The dual-sig EIP-712 envelope commits to
+        // firstNonce; require it equals the current chain head + 1 for this
+        // (user, campaign, actionType). After settlement lastNonce advances
+        // past firstNonce, so the same signed batch can't be re-submitted.
+        if (firstNonce != _lastNonce[user][campaignId][claims[0].actionType] + 1) revert E86();
         _delegateProcessBatch(user, campaignId, claims, true, result);
     }
 

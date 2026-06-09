@@ -276,7 +276,7 @@ describe("DatumActivationBonds: emergency mute (Phase 2b)", function () {
         actionSig: Array(3).fill(ethers.ZeroHash) as any,
         powNonce: ethers.ZeroHash,
       };
-      const [ok, reason] = await validator.validateClaim(claim, muter.address, 1n, ethers.ZeroHash);
+      const [ok, reason] = await validator.validateClaim(claim, muter.address, cid, 1n, ethers.ZeroHash);
       expect(ok).to.equal(false);
       expect(reason).to.equal(22);
 
@@ -285,7 +285,7 @@ describe("DatumActivationBonds: emergency mute (Phase 2b)", function () {
       await bonds.settleMute(cid);
       // Restore to Active for the second assertion
       await mock.setCampaign(cid, advertiser.address, ethers.ZeroAddress, 0n, 5000, 1);
-      const [ok2, reason2] = await validator.validateClaim(claim, muter.address, 1n, ethers.ZeroHash);
+      const [ok2, reason2] = await validator.validateClaim(claim, muter.address, cid, 1n, ethers.ZeroHash);
       expect(ok2).to.equal(false);
       expect(reason2).to.not.equal(22); // some downstream reason, not the mute one
     });

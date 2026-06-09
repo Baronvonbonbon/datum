@@ -72,13 +72,22 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
+        // SLIM (#2): the per-claim nonce no longer travels on the claim. For
+        // whole-batch reject paths below (which run before batchActionType is
+        // computed) we label the i-th rejected claim with startNonce + i,
+        // derived from the chain head for the batch's action type. Purely
+        // informational for the ClaimRejected events; nothing is consumed.
+        uint256 startNonce = claims.length > 0
+            ? _lastNonce[user][campaignId][claims[0].actionType] + 1
+            : 0;
+
         // CB2 (2026-05-13): user self-pause kill switch. Reject the whole
         // batch when the user has paused their own account — emits per-claim
         // ClaimRejected so observers can see the cause.
         if (_userPaused[user]) {
             for (uint256 j = 0; j < claims.length; j++) {
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 27);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 27);
             }
             return (result.settledCount, result.rejectedCount, result.totalPaid);
         }
@@ -94,7 +103,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (advOk && adv != address(0) && _userBlocksAdvertiser[user][adv]) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 28);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 28);
                 }
                 emit UserBlocklistRejected(user, adv);
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
@@ -121,7 +130,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
                     emit ZKAssuranceFailed(campaignId, user);
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 26);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 26);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -173,7 +182,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 if (!ok) {
                     for (uint256 j = 0; j < claims.length; j++) {
                         result.rejectedCount++;
-                        emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 30);
+                        emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 30);
                     }
                     return (result.settledCount, result.rejectedCount, result.totalPaid);
                 }
@@ -218,7 +227,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!accept) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, reasonCode);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, reasonCode);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -238,7 +247,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (lastBlock != 0 && block.number < lastBlock + interval) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, claims[j].nonce, 18);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 18);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -249,7 +258,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!_reputation.canSettle(claims[0].publisher)) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 20);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 20);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -305,8 +314,8 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (blocked) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    if (failClosed) emit BlocklistFailedClosed(claims[j].campaignId, batchPublisher);
-                    emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 11);
+                    if (failClosed) emit BlocklistFailedClosed(campaignId, batchPublisher);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 11);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -316,7 +325,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         if (batchPublisher != address(0) && _userBlocksPublisher[user][batchPublisher]) {
             for (uint256 j = 0; j < claims.length; j++) {
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, 28);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, 28);
                 emit UserBlocklistRejected(user, batchPublisher);
             }
             return (result.settledCount, result.rejectedCount, result.totalPaid);
@@ -332,7 +341,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!ctx.ok) {
                 for (uint256 j = 0; j < claims.length; j++) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(claims[j].campaignId, user, claims[j].nonce, ctx.reasonCode);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, startNonce + j, ctx.reasonCode);
                 }
                 return (result.settledCount, result.rejectedCount, result.totalPaid);
             }
@@ -341,16 +350,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         for (uint256 i = 0; i < claims.length; i++) {
             IDatumSettlement.Claim calldata claim = claims[i];
 
-            if (claim.campaignId != campaignId) {
-                result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 0);
-                // F-012 fix (2026-05-20): mismatched campaignId is a
-                // structurally malformed batch; abort the remainder so
-                // the chain state stays linear and downstream claims
-                // don't get processed against the wrong campaign.
-                gapFound = true;
-                continue;
-            }
+            // SLIM (#2): campaignId is the batch's; nonce/prevHash are derived
+            // from chain state. The assigned nonce for this claim is the
+            // current chain head + 1 -- used in the hash preimage, stored on
+            // settle, and emitted in events. A rejected claim does not consume
+            // the nonce, so the next claim reuses it (the chain stays linear).
+            uint256 assignedNonce = _lastNonce[user][campaignId][batchActionType] + 1;
+            bytes32 prevHash      = _lastClaimHash[user][campaignId][batchActionType];
 
             // HOIST (#1): single-actionType invariant. ctx (pot rate, ZK/PoW
             // flags) was resolved for batchActionType; a claim with a
@@ -358,14 +364,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // reject it and abort the remainder (keeps the chain linear).
             if (claim.actionType != batchActionType) {
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 21);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 21);
                 gapFound = true;
                 continue;
             }
 
             if (gapFound) {
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 1);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 1);
                 continue;
             }
 
@@ -375,30 +381,31 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // instead of once per claim.
 
             // Delegate per-claim validation to ClaimValidator satellite (SE-1),
-            // threading the once-per-batch ctx so no campaign/publisher
-            // staticcalls run here. cTakeRate comes from ctx.takeRate.
-            uint256 expectedNonce  = _lastNonce[user][claim.campaignId][claim.actionType] + 1;
-            bytes32 expectedPrevHash = _lastClaimHash[user][claim.campaignId][claim.actionType];
-
+            // threading the once-per-batch ctx + derived campaignId/nonce/prevHash
+            // so no campaign/publisher staticcalls run here.
             (bool ok, uint8 reasonCode, bytes32 computedHash) =
-                _claimValidator.validateClaimWithContext(claim, user, expectedNonce, expectedPrevHash, ctx);
+                _claimValidator.validateClaimWithContext(claim, user, campaignId, assignedNonce, prevHash, ctx);
 
             if (!ok) {
-                if (reasonCode == 7) gapFound = true;
+                // SLIM (#2): any validation failure aborts the remainder. With
+                // explicit nonces this happened implicitly (the next claim's
+                // nonce no longer matched); with derived nonces we set it
+                // explicitly to preserve the abort-on-first-rejection chain.
+                gapFound = true;
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, reasonCode);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, reasonCode);
                 continue;
             }
 
             // BM-2: Per-user settlement cap check (per actionType)
-            uint256 newTotal = _userCampaignSettled[user][claim.campaignId][claim.actionType] + claim.eventCount;
+            uint256 newTotal = _userCampaignSettled[user][campaignId][claim.actionType] + claim.eventCount;
             if (newTotal > MAX_USER_EVENTS) {
                 result.rejectedCount++;
-                emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 13);
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 13);
                 gapFound = true;
                 continue;
             }
-            _userCampaignSettled[user][claim.campaignId][claim.actionType] = newTotal;
+            _userCampaignSettled[user][campaignId][claim.actionType] = newTotal;
 
             // #1: Per-user per-campaign per-window cap (advertiser-set).
             //     Hedge #4: switched to safe variant. Returns (ok=true,
@@ -406,18 +413,18 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             //     Both branches treat "no cap" identically (skip the block),
             //     so we just check max > 0 after the safe call.
             if (address(_campaigns) != address(0)) {
-                (, uint32 capMax, uint32 capWin) = _campaigns.getCampaignUserCapSafe(claim.campaignId);
+                (, uint32 capMax, uint32 capWin) = _campaigns.getCampaignUserCapSafe(campaignId);
                 if (capMax > 0) {
                     if (capWin > 0) {
                         uint256 wid = block.number / uint256(capWin);
-                        uint256 cur = _userCampaignWindowEvents[user][claim.campaignId][claim.actionType][wid];
+                        uint256 cur = _userCampaignWindowEvents[user][campaignId][claim.actionType][wid];
                         if (cur + claim.eventCount > uint256(capMax)) {
                             result.rejectedCount++;
-                            emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 29);
+                            emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 29);
                             gapFound = true;
                             continue;
                         }
-                        _userCampaignWindowEvents[user][claim.campaignId][claim.actionType][wid] = cur + claim.eventCount;
+                        _userCampaignWindowEvents[user][campaignId][claim.actionType][wid] = cur + claim.eventCount;
                     }
                 }
             }
@@ -427,7 +434,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (address(_rateLimiter) != address(0) && claim.actionType == 0) {
                 if (!_rateLimiter.tryConsume(claim.publisher, claim.eventCount)) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 14);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 14);
                     gapFound = true;
                     continue;
                 }
@@ -437,7 +444,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (address(_publisherStake) != address(0)) {
                 if (!_publisherStake.isAdequatelyStaked(claim.publisher)) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 15);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 15);
                     gapFound = true;
                     continue;
                 }
@@ -451,21 +458,21 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 claim.actionType == 0 &&
                 claim.nullifier != bytes32(0)
             ) {
-                if (!_nullifiers.tryConsume(claim.campaignId, claim.nullifier)) {
+                if (!_nullifiers.tryConsume(campaignId, claim.nullifier)) {
                     result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(claim.campaignId, user, claim.nonce, 19);
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 19);
                     gapFound = true;
                     continue;
                 }
             }
 
             // Effects first (CEI): update chain state before external calls
-            _lastClaimHash[user][claim.campaignId][claim.actionType] = computedHash;
-            _lastNonce[user][claim.campaignId][claim.actionType] = claim.nonce;
+            _lastClaimHash[user][campaignId][claim.actionType] = computedHash;
+            _lastNonce[user][campaignId][claim.actionType] = assignedNonce;
 
             // CPC: mark click session as claimed (type-1 only)
             if (claim.actionType == 1 && address(_clickRegistry) != address(0) && claim.clickSessionHash != bytes32(0)) {
-                _clickRegistry.markClaimed(user, claim.campaignId, claim.clickSessionHash);
+                _clickRegistry.markClaimed(user, campaignId, claim.clickSessionHash);
             }
 
             // Compute payment
@@ -483,7 +490,7 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
             // Deduct from budget ledger and transfer DOT to payment vault
             bool exhausted = _budgetLedger.deductAndTransfer(
-                claim.campaignId, claim.actionType, totalPayment, address(_paymentVault)
+                campaignId, claim.actionType, totalPayment, address(_paymentVault)
             );
             if (exhausted) {
                 agg.exhausted = true;
@@ -512,13 +519,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             result.totalPaid += totalPayment;
 
             emit IDatumSettlement.ClaimSettled(
-                claim.campaignId,
+                campaignId,
                 user,
                 claim.publisher,
                 claim.eventCount,
                 claim.rateWei,
                 claim.actionType,
-                claim.nonce,
+                assignedNonce,
                 publisherPayment,
                 userPayment,
                 protocolFee

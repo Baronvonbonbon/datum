@@ -367,6 +367,7 @@ abstract contract DatumSettlementStorage is
     error E83();
     error E84();
     error E85();
+    error E86(); // SLIM (#2): signed firstNonce != on-chain lastNonce+1 (replay anchor)
     error AboveCap();
     error AlreadySet();
     error IsFrozen();

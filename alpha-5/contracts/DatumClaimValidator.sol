@@ -480,8 +480,9 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     function validateClaimWithContext(
         IDatumSettlement.Claim calldata claim,
         address user,
-        uint256 expectedNonce,
-        bytes32 expectedPrevHash,
+        uint256 campaignId,
+        uint256 assignedNonce,
+        bytes32 prevHash,
         IDatumClaimValidator.BatchContext memory ctx
     ) public view override returns (bool, uint8, bytes32) {
         // Check 1: non-zero events within allowed range
@@ -491,15 +492,12 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         // Check 5: rate ceiling (pot rate resolved in ctx)
         if (claim.rateWei > ctx.potRate) return (false, 6, bytes32(0));
 
-        // Check 6: nonce chain
-        if (claim.nonce != expectedNonce) return (false, 7, bytes32(0));
-
-        // Check 7: previous hash chain
-        if (claim.nonce == 1) {
-            if (claim.previousClaimHash != bytes32(0)) return (false, 8, bytes32(0));
-        } else {
-            if (claim.previousClaimHash != expectedPrevHash) return (false, 9, bytes32(0));
-        }
+        // SLIM (#2): no nonce / prevHash / claimHash equality checks. The
+        // contract assigns the nonce (assignedNonce = lastNonce+1) and reads
+        // prevHash from storage, then recomputes the canonical claim hash from
+        // those derived values below. Nothing supplied by the caller is
+        // trusted for chain position; replay is bound by the signed-batch
+        // firstNonce anchored to lastNonce+1 in the relay / dual-sig paths.
 
         // Check 8: claim hash (9-field preimage: campaignId, publisher, user,
         // eventCount, rateWei, actionType, clickSessionHash, nonce, prevHash).
@@ -507,18 +505,17 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         // schema is unambiguous if fields are added later. Off-chain mirrors must use
         // ethers AbiCoder.defaultAbiCoder().encode(...) — not solidityPacked.
         bytes32 computedHash = keccak256(abi.encode(
-            claim.campaignId,
+            campaignId,
             claim.publisher,
             user,
             claim.eventCount,
             claim.rateWei,
             claim.actionType,
             claim.clickSessionHash,
-            claim.nonce,
-            claim.previousClaimHash,
+            assignedNonce,
+            prevHash,
             claim.stakeRootUsed
         ));
-        if (claim.claimHash != computedHash) return (false, 10, bytes32(0));
 
         // Check 8b: #5 — Per-impression PoW with scaling difficulty. ctx.enforcePow
         //   resolved once per batch; the per-user/per-eventCount target read
@@ -546,14 +543,14 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
             bool proofPresent = false;
             for (uint256 i = 0; i < 8; i++) { if (claim.zkProof[i] != bytes32(0)) { proofPresent = true; break; } }
             if (!proofPresent) return (false, 16, bytes32(0));
-            if (!_verifyPathA(claim, user, computedHash)) return (false, 16, bytes32(0));
+            if (!_verifyPathA(claim, user, campaignId, computedHash)) return (false, 16, bytes32(0));
         }
 
         // Check 10 (type-1 only): verify click session exists and is unclaimed
         if (claim.actionType == 1) {
             if (address(clickRegistry) == address(0)) return (false, 22, bytes32(0)); // E90 → reason 22
             if (claim.clickSessionHash == bytes32(0)) return (false, 22, bytes32(0));
-            try clickRegistry.hasUnclaimed(user, claim.campaignId, claim.clickSessionHash) returns (bool unclaimed) {
+            try clickRegistry.hasUnclaimed(user, campaignId, claim.clickSessionHash) returns (bool unclaimed) {
                 if (!unclaimed) return (false, 22, bytes32(0));
             } catch {
                 return (false, 22, bytes32(0));
@@ -583,14 +580,15 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     function validateClaim(
         IDatumSettlement.Claim calldata claim,
         address user,
-        uint256 expectedNonce,
-        bytes32 expectedPrevHash
+        uint256 campaignId,
+        uint256 assignedNonce,
+        bytes32 prevHash
     ) external view override returns (bool, uint8, uint16, bytes32) {
         IDatumClaimValidator.BatchContext memory ctx =
-            resolveBatchContext(claim.campaignId, claim.publisher, claim.actionType, user);
+            resolveBatchContext(campaignId, claim.publisher, claim.actionType, user);
         if (!ctx.ok) return (false, ctx.reasonCode, 0, bytes32(0));
         (bool valid, uint8 reasonCode, bytes32 computedHash) =
-            validateClaimWithContext(claim, user, expectedNonce, expectedPrevHash, ctx);
+            validateClaimWithContext(claim, user, campaignId, assignedNonce, prevHash, ctx);
         if (!valid) return (false, reasonCode, 0, bytes32(0));
         return (true, 0, ctx.takeRate, computedHash);
     }
@@ -607,7 +605,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
 
     /// @dev Path A: build the 7-pub array and call DatumZKVerifier.verifyA.
     ///      Returns false on any lookup failure or pairing mismatch.
-    function _verifyPathA(IDatumSettlement.Claim calldata claim, address user, bytes32 computedHash)
+    function _verifyPathA(IDatumSettlement.Claim calldata claim, address user, uint256 campaignId, bytes32 computedHash)
         internal view returns (bool)
     {
         // Pub 3: stake root — wallet/relay submits which root the proof was
@@ -633,7 +631,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
         //   consumption time (not just at write time). Defends users from a
         //   campaign whose minStake was set before the cap was tightened.
         uint256 minStake = 0;
-        try ICampaignsZkKnobs(address(campaigns)).getCampaignMinStake(claim.campaignId) returns (uint256 v) {
+        try ICampaignsZkKnobs(address(campaigns)).getCampaignMinStake(campaignId) returns (uint256 v) {
             minStake = v;
         } catch {}
         if (minStake > 0) {
@@ -660,7 +658,7 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
 
         // Pub 6: required category (0 = any).
         bytes32 reqCat = bytes32(0);
-        try ICampaignsZkKnobs(address(campaigns)).getCampaignRequiredCategory(claim.campaignId) returns (bytes32 c) {
+        try ICampaignsZkKnobs(address(campaigns)).getCampaignRequiredCategory(campaignId) returns (bytes32 c) {
             reqCat = c;
         } catch {}
 

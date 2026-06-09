@@ -90,4 +90,34 @@ Per-claim calldata today = **736 B** (N=20 batch = 14,944 B). Breakdown for a vi
 - **Full (with signing redesign):** also drop nonce/prevHash behind a batch replay guard →
   **128 B (−83%)**. Touches relay + extension + EIP-712 domain.
 
-_Status: paused for a scope decision — see chat. #1 is committed; #2 not yet implemented._
+### M2a — drop 4 derivable fields + firstNonce replay redesign (DONE)
+
+Dropped `campaignId`, `nonce`, `previousClaimHash`, `claimHash` from the wire. The
+contract assigns `nonce = lastNonce+1`, reads prevHash from storage, recomputes the
+claim hash, and uses the batch-level campaignId. Replay for the signed gasless paths is
+re-anchored on an explicit signed `firstNonce` required to equal `lastNonce+1`
+(relay/dual-sig/attestation EIP-712 typehashes all gain `firstNonce`; cosig claimsHash now
+binds to `keccak(abi.encode(slimClaim))`). New error **E86** on a stale anchor.
+
+| metric | baseline | M2a | Δ |
+|--------|----------|-----|---|
+| raw Claim tuple | 736 B | **608 B** | −128 B |
+| calldata / claim (N=20) | 747 B | **619 B** | −17% |
+| gas / claim (marginal) | 44,570 | **30,652** | −31% (vs #1's 31,880: another −1.2k) |
+| gas total (N=20) | 1,199,867 | **936,821** | −22% |
+
+- Full suite **1659 passing, 0 failing**. Behaviour tests for now-removed semantics
+  (claimHash tamper, prevHash genesis, nonce gap) rewritten to assert the derive-on-chain
+  model; signed-path replay (R5/dual-sig) now reverts E86 instead of soft-rejecting.
+- **Replay anchor reverts** (E86) rather than soft-skipping a stale batch — simplest + safe,
+  but a relay batching many users would have one stale batch revert the whole call. A
+  production version should skip stale batches per-iteration; noted, not done.
+
+### M2b — heavy-field sidecar (view claim → ~192 B)
+
+_pending — moves zkProof[8]/actionSig[3]/nullifier/stakeRootUsed/powNonce/clickSessionHash
+into an optional `ClaimProof` sidecar (empty for plain views)._
+
+### M2c — off-chain signers (relay-bot + extension)
+
+_pending — mirror the slim struct + new typehashes + firstNonce in the JS signers._

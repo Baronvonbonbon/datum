@@ -230,7 +230,7 @@ describe("Audit F-001 / F-002: single-publisher per batch enforcement", function
     const c1 = buildClaim(cid, pubB.address, user.address, 2n, c0.hash);
 
     await expect(
-      settlement.connect(owner).processVerifiedBatch(user.address, cid, [c0.claim, c1.claim])
+      settlement.connect(owner).processVerifiedBatch(user.address, cid, 1n, [c0.claim, c1.claim])
     ).to.be.revertedWithCustomError(settlement, "E34");
   });
 });

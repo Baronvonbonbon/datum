@@ -42,17 +42,25 @@ interface IDatumClaimValidator {
     ) external view returns (BatchContext memory ctx);
 
     /// @notice Per-claim validation using a pre-resolved batch context. Runs
-    ///         only the claim-varying checks (event range, rate ceiling, nonce
-    ///         chain, hash recompute, PoW target, ZK proof, click session,
-    ///         actionSig). No campaign/publisher staticcalls.
+    ///         only the claim-varying checks (event range, rate ceiling, hash
+    ///         recompute, PoW target, ZK proof, click session, actionSig). No
+    ///         campaign/publisher staticcalls.
+    /// @dev    SLIM (#2): nonce and prevHash are no longer on the claim; the
+    ///         caller passes the on-chain-assigned `assignedNonce`
+    ///         (= lastNonce+1) and `prevHash` (= stored lastClaimHash). The
+    ///         claim-hash preimage is rebuilt from these + the batch
+    ///         `campaignId`. There is no nonce/prevHash/claimHash equality
+    ///         check anymore — the contract derives them, it doesn't verify
+    ///         a supplied copy.
     /// @return valid        Whether the claim passed.
     /// @return reasonCode   Rejection reason (0 = valid).
     /// @return computedHash The computed claim hash for storage.
     function validateClaimWithContext(
         IDatumSettlement.Claim calldata claim,
         address user,
-        uint256 expectedNonce,
-        bytes32 expectedPrevHash,
+        uint256 campaignId,
+        uint256 assignedNonce,
+        bytes32 prevHash,
         BatchContext memory ctx
     ) external view returns (bool valid, uint8 reasonCode, bytes32 computedHash);
 
@@ -60,10 +68,11 @@ interface IDatumClaimValidator {
     ///         monolithic entry: resolveBatchContext + validateClaimWithContext
     ///         in one call. Used by direct callers/tests; the settle hot path
     ///         uses the split form to hoist the invariant reads.
-    /// @param claim             The claim to validate.
-    /// @param user              The claiming user.
-    /// @param expectedNonce     The expected nonce (lastNonce + 1).
-    /// @param expectedPrevHash  The expected previous claim hash.
+    /// @param claim          The (slim) claim to validate.
+    /// @param user           The claiming user.
+    /// @param campaignId     The batch campaign id (carried at batch level now).
+    /// @param assignedNonce  The on-chain-assigned nonce (lastNonce + 1).
+    /// @param prevHash       The stored previous claim hash.
     /// @return valid        Whether the claim passed all checks.
     /// @return reasonCode   Rejection reason (0 = valid).
     /// @return takeRate     Publisher take rate in bps.
@@ -71,7 +80,8 @@ interface IDatumClaimValidator {
     function validateClaim(
         IDatumSettlement.Claim calldata claim,
         address user,
-        uint256 expectedNonce,
-        bytes32 expectedPrevHash
+        uint256 campaignId,
+        uint256 assignedNonce,
+        bytes32 prevHash
     ) external view returns (bool valid, uint8 reasonCode, uint16 takeRate, bytes32 computedHash);
 }
