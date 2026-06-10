@@ -138,16 +138,28 @@ was missing `UpgradeHooksFired`). First run green: contracts 4m43s, frontend 1m0
 *Recommended follow-up:* make the `CI` check a required status check in branch
 protection so it blocks merges.
 
+**☑ Wire-format SSOT (2026-06-10, `1a649d3`):** `web/src/shared/wireFormat.ts` is
+the canonical EIP-712 typehash + slim-claim source. `web/test/wireFormat.test.ts`
+is the **drift gate**: it reads the typehash STRINGS out of the Solidity sources
+(DatumRelay / DatumAttestationVerifier / DatumDualSigSettlement) and asserts the
+canonical module reconstructs each exactly, AND extracts every off-chain
+consumer's EIP-712 type def (relay-bot template, reseed-demo, web daemon) and
+asserts they match — **caught + fixed a real drift** (reseed-demo's dual-sig
+ClaimBatch was missing `firstNonce`). The web daemon now imports the canonical
+types (can't drift). CI frontend job now runs `npm test` (vitest) so the SSOT +
+migration-guard gates enforce on every push. (ABI-drift + clean-recompile gates
+already in `ci.yml`.)
+
 **Remaining:**
-1. Pin the claim wire + EIP-712 typehashes in one canonical module; generate /
-   assert consumers (relay-bot, extension, web daemon, seed scripts) against it.
-2. **Port the live relay-bot to SLIM-#2** (or adopt the template + re-add its
-   PoW/endpoints — FP-8 epoch features target deferred modules, safe to drop for
-   slim) and align `reseed-demo` settle-sim (slim claims, `firstNonce` dual-sig
-   typehash, correct endpoint).
-3. CI check: every off-chain consumer's typehashes match the deployed contracts.
-**Gate:** an end-to-end gasless-relay settle round-trips on Paseo against
-alpha-core. **Verify:** CI drift check green; one live settle on Paseo.
+1. **Port the LIVE relay-bot to SLIM-#2** — the gitignored `relay-bot/relay-bot.mjs`
+   is still pre-SLIM (fat claims, `/relay/submit`+PoW+FP-8). The template is
+   current and the SSOT gate now enforces typehashes; this is the operational
+   port + systemd restart (user's infra).
+2. **Full `reseed-demo` settle-sim slim-port** — its dual-sig typehash is now
+   fixed/gated, but the settle-sim still builds fat claims to `/claim`; the
+   seeding path itself works with `SIMULATE=0` (used for the live seed).
+**Gate (end-to-end):** a gasless-relay settle round-trips on Paseo against
+alpha-core — needs (1)+(2) + the live relay-bot running. SSOT/CI gates ☑.
 
 ---
 
