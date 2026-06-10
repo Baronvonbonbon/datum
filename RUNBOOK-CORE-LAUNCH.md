@@ -67,19 +67,31 @@ re-audit deltas. **Gate:** no open High/Critical; Mediums dispositioned.
 
 ---
 
-## Phase 2 — Prove the migration machinery (U3 / U5 / U6) ☐ [TASK]  *(the true upgrade gate)*
+## Phase 2 — Prove the migration machinery (U3 / U5 / U6) ◐ [TASK]  *(the true upgrade gate)*
 
 U1 (router freeze/migrate wedge) is **fixed**; U2 `_migrate` overrides **landed**.
-Remaining before mainnet (see `PRE-MAINNET-CHECKLIST.md` §U3/U5/U6):
-- **U5 — golden-path migration harness:** deploy v1 with realistic state →
-  coordinated router rotation → re-run the *entire* production test suite against
-  v2 → assert zero balance loss / no orphaned state / no permission gap.
+
+**☑ U5 first increment (2026-06-10, `test/upgrade-u5-cluster.test.ts`, `f54103a`):**
+golden-path **coordinated funds-cluster rotation** — the gap no existing test
+covered (the 17 per-contract migration tests + upgrade-e2e rotate one contract at
+a time; this rotates the cluster TOGETHER, the U4 "coordinated rotation as the
+upgrade unit"). Covers BudgetLedger + PaymentVault rotated as one unit (freeze all
+→ migrate all → sweep all) asserting **cluster-wide native-PAS conservation, full
+per-entity state preserved on every v2, v2 solvent + functional** (advertiser
+refund + user withdrawal succeed post-migration), residual-PAS reconciliation, and
+governance-gating at every step.
+
+**Remaining:**
+- **U5 breadth:** extend the coordinated harness to the rest of the funds/state
+  cluster (ChallengeBonds, ActivationBonds, Campaigns+Lifecycle, the stakes) and,
+  ideally, re-run the production suite against the migrated set.
 - **U3 — gas-paginated migration** for unbounded state (Campaigns, Publishers,
   NullifierRegistry won't fit one mainnet block) + `migrationCursor` view.
 - **U6 — indexer/consumer guards** for the partial-migration window (webapp +
   relay refuse "current" reads while `migrated == false`).
-**Gate:** U5 harness green end-to-end. **Verify:** CI job runs the v1→v2
-migration + re-runs prod suite against v2.
+**Gate:** coordinated harness green across the full funds/state cluster.
+**Verify:** CI runs the v1→v2 coordinated rotation; the clean-recompile gate
+(Phase 3) keeps it honest.
 
 ---
 
