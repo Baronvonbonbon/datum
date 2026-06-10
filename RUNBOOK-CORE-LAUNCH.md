@@ -71,20 +71,22 @@ re-audit deltas. **Gate:** no open High/Critical; Mediums dispositioned.
 
 U1 (router freeze/migrate wedge) is **fixed**; U2 `_migrate` overrides **landed**.
 
-**☑ U5 first increment (2026-06-10, `test/upgrade-u5-cluster.test.ts`, `f54103a`):**
-golden-path **coordinated funds-cluster rotation** — the gap no existing test
-covered (the 17 per-contract migration tests + upgrade-e2e rotate one contract at
-a time; this rotates the cluster TOGETHER, the U4 "coordinated rotation as the
-upgrade unit"). Covers BudgetLedger + PaymentVault rotated as one unit (freeze all
-→ migrate all → sweep all) asserting **cluster-wide native-PAS conservation, full
-per-entity state preserved on every v2, v2 solvent + functional** (advertiser
-refund + user withdrawal succeed post-migration), residual-PAS reconciliation, and
-governance-gating at every step.
+**☑ U5 coordinated funds-cluster rotation (2026-06-10, `test/upgrade-u5-cluster.test.ts`,
+`6885d45`):** the gap no existing test covered (the 17 per-contract tests +
+upgrade-e2e rotate one contract at a time; this rotates the cluster TOGETHER, the
+U4 "coordinated rotation as the upgrade unit"). Now covers **all six native-PAS
+custodians rotated as one unit** — BudgetLedger, PaymentVault, ChallengeBonds,
+ActivationBonds, PublisherStake, AdvertiserStake (freeze all → migrate all →
+sweep all) — asserting **cluster-wide native-PAS conservation** (the complete
+"no balance loss" gate; sum(v2)==sum(v1)==total), **full per-entity state on every
+v2**, **v2 solvent + functional** (user withdrawal + advertiser refund succeed
+post-migration), residual-PAS reconciliation, and governance-gating at every step.
 
 **Remaining:**
-- **U5 breadth:** extend the coordinated harness to the rest of the funds/state
-  cluster (ChallengeBonds, ActivationBonds, Campaigns+Lifecycle, the stakes) and,
-  ideally, re-run the production suite against the migrated set.
+- **U5 registry tier:** add Campaigns (heavier `migrateDelegate` +
+  `DatumCampaignsMigrationLogic` mechanism; already isolation-tested in
+  `campaigns-migration.test.ts`) + Lifecycle to the coordinated rotation; ideally
+  re-run the production suite against the migrated set.
 - **U3 — gas-paginated migration** for unbounded state (Campaigns, Publishers,
   NullifierRegistry won't fit one mainnet block) + `migrationCursor` view.
 - **U6 — indexer/consumer guards** for the partial-migration window (webapp +
