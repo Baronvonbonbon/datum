@@ -68,13 +68,15 @@ if (!PUBLISHER_KEY || PUBLISHER_KEY === "0xYOUR_PRIVATE_KEY_HERE") {
 }
 
 const ADDRESSES = {
-  relay:         process.env.RELAY_ADDRESS         || "0x8c1E922f59D856750713fDfCC3C5D4956D3Ac132",
-  settlement:    process.env.SETTLEMENT_ADDRESS    || "0x6A2A6723A6EC2e2f9AF0cdaeF6335D1FF1B86022",
-  campaigns:     process.env.CAMPAIGNS_ADDRESS     || "0xFAc18eCcc47b5e152945ffb646dB41EFAE2d001C",
-  pauseRegistry: process.env.PAUSE_REGISTRY_ADDRESS || "0x983b3aDf73bF97303A8196de8444B09DD0Fd3f12",
+  // Fallbacks track the current Paseo MVP slim deploy (2026-06-10). Override
+  // any of these via env for other deployments.
+  relay:         process.env.RELAY_ADDRESS         || "0x384D9c9676b6344B82a19cB192341892622BBFb0",
+  settlement:    process.env.SETTLEMENT_ADDRESS    || "0x7714563C43413Cfc14b2104EA20f4c596ab75901",
+  campaigns:     process.env.CAMPAIGNS_ADDRESS     || "0xe9E5813102C26c14d352DaeDb54f07e7F7564143",
+  pauseRegistry: process.env.PAUSE_REGISTRY_ADDRESS || "0xa19508Ec7a90Adc8cee76D0C6006e52F5cA7A5dD",
   // SLIM (#2): the AttestationVerifier the EXTENSION submits through — the
   // /.well-known/datum-attest cosig is signed over THIS contract's domain.
-  attestationVerifier: process.env.ATTESTATION_VERIFIER_ADDRESS || "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af",
+  attestationVerifier: process.env.ATTESTATION_VERIFIER_ADDRESS || "0x659d0e2b05e51DB72f81667088a3372f9f21f848",
 };
 
 // ── ABIs (minimal — only the functions we need) ─────────────────────────────
