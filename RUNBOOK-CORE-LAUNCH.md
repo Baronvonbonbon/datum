@@ -22,7 +22,7 @@ skip the upgrade-machinery gate.
 
 ---
 
-## Phase 0 — Bump to `alpha-core` ☐ [TASK]
+## Phase 0 — Bump to `alpha-core` ☑ DONE (2026-06-10, `756522b`)
 
 Rename the active line `alpha-5` → `alpha-core` and declare it the core-launch
 baseline. Clean `git mv` (preserves history; single source of truth — no
@@ -40,6 +40,18 @@ divergent copy, which is the drift that left the relay-bot pre-SLIM).
 **Gate:** `npx hardhat compile` + full test suite green; `web` vite build +
 `extension` webpack build green; `git grep alpha-5` returns only archival/historical
 mentions. **Verify:** all three builds pass on the renamed tree.
+
+**Outcome:** rename done (`git mv`, history preserved), `datum-alpha-core@0.6.0`,
+all path refs migrated, builds green. The clean recompile the bump forced
+**exposed an incomplete 18-dec-wei denomination migration** that stale artifacts
+had hidden (the "1659 passing" greens were false). Completed it as part of this
+phase: `test/helpers/dot.ts` planck→wei; **two real contract bugs** fixed —
+`DatumEmissionEngine`/`MintCoordinator` `dotPaid` wei-normalization (was ~10^8×
+over-mint) and `DatumAdvertiserStake.recordBudgetSpent` budget divisor (was 10^8×
+inflated bonding curve); stake/bond/quorum ceilings rescaled planck→wei across
+AdvertiserStake/PublisherStake/ActivationBonds/GovernanceV2. **Full suite 1659
+passing on a real clean recompile.** This makes Phase 3's CI clean-recompile gate
+non-negotiable — without it, denomination/ABI drift silently false-greens.
 
 ---
 
