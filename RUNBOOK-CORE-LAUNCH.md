@@ -82,16 +82,22 @@ sweep all) — asserting **cluster-wide native-PAS conservation** (the complete
 v2**, **v2 solvent + functional** (user withdrawal + advertiser refund succeed
 post-migration), residual-PAS reconciliation, and governance-gating at every step.
 
+**☑ U5 registry tier (2026-06-10, `bf45295`):** coordinated rotation now spans
+**both tiers of the U4 cluster** — the 6 fund holders (PAS conservation) *and* the
+registry: Campaigns full-state replay via the `migrateDelegate` →
+`DatumCampaignsMigrationLogic.importCampaignFull` mechanism (creates a real v1
+campaign, freezes it, replays struct+pots+gates into v2) + Lifecycle freeze →
+replace → rewire (stateless coordinator — status lives on Campaigns). 1663 passing.
+
 **Remaining:**
-- **U5 registry tier:** add Campaigns (heavier `migrateDelegate` +
-  `DatumCampaignsMigrationLogic` mechanism; already isolation-tested in
-  `campaigns-migration.test.ts`) + Lifecycle to the coordinated rotation; ideally
-  re-run the production suite against the migrated set.
+- **U5 optional:** re-run the production suite against the migrated set (the
+  aspirational "full suite vs v2" form). The coordinated harness already proves
+  state/balance preservation + post-migration function across the whole cluster.
 - **U3 — gas-paginated migration** for unbounded state (Campaigns, Publishers,
   NullifierRegistry won't fit one mainnet block) + `migrationCursor` view.
 - **U6 — indexer/consumer guards** for the partial-migration window (webapp +
   relay refuse "current" reads while `migrated == false`).
-**Gate:** coordinated harness green across the full funds/state cluster.
+**Gate:** coordinated harness green across the full funds/state cluster ☑.
 **Verify:** CI runs the v1→v2 coordinated rotation; the clean-recompile gate
 (Phase 3) keeps it honest.
 
