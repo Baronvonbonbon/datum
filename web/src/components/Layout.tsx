@@ -5,6 +5,7 @@ import { useBlock } from "../hooks/useBlock";
 import { useSettings } from "../context/SettingsContext";
 import { useRoles } from "../hooks/useRoles";
 import { usePaused } from "../hooks/usePaused";
+import { useMidMigration } from "../hooks/useMidMigration";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
@@ -294,6 +295,7 @@ export function Layout() {
   const { isAdmin } = useRoles();
   const { isAdvertiser, isPublisher, isVoter } = useRoles();
   const protocolPaused = usePaused();
+  const migratingContracts = useMidMigration();
   const { pineStatus, readProvider } = useContracts();
   const [showConnect, setShowConnect] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -330,6 +332,14 @@ export function Layout() {
       {protocolPaused && (
         <div className="nano-pause-banner">
           Protocol is paused — transactions will be rejected until an admin unpauses the system.
+        </div>
+      )}
+
+      {/* ── Protocol-upgrade-in-progress banner (U6) ────────────────────── */}
+      {migratingContracts.length > 0 && (
+        <div className="nano-pause-banner">
+          Protocol upgrade in progress — {migratingContracts.join(", ")} {migratingContracts.length === 1 ? "is" : "are"} migrating
+          state. Displayed data may be incomplete; avoid transactions until this clears.
         </div>
       )}
 
