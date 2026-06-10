@@ -194,11 +194,11 @@ function landing() {
 <h2>How to run the manual e2e test</h2>
 <ol class="howto">
 <li>Make sure the local IPFS node is serving creatives (<code>${esc(manifest.gateway)}</code>) and, to settle, the lab relay is running (<code>${esc(manifest.relayUrl)}</code>).</li>
-<li>Build + load the DATUM extension (<code>alpha-5/extension</code>) pointed at the alpha-5 v5 addresses.</li>
+<li>Build + load the DATUM extension (<code>alpha-core/extension</code>) pointed at the alpha-5 v5 addresses.</li>
 <li>Open any site above. The SDK declares its ad slots; the extension classifies the page, runs a second-price auction over the active campaigns, fetches the winning creative from IPFS, and injects it at the exact IAB size.</li>
 <li>Claims auto-submit to the relay, which co-signs and settles on-chain. Watch the indexer (<code>datum-labs/indexer</code>) for <code>ClaimSettled</code>.</li>
 </ol>
-<p class="foot-note">Full details, addresses, and the campaign↔creative map: <code>alpha-5/scripts/demo-network/README.md</code>.</p>
+<p class="foot-note">Full details, addresses, and the campaign↔creative map: <code>alpha-core/scripts/demo-network/README.md</code>.</p>
 </main>
 </body></html>`;
 }

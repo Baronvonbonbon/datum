@@ -47,7 +47,7 @@ cd ../web && npx vite build && cd ../alpha-5
 cd extension && npm run build && cd ..
 
 # 7. restart the relay + indexer so they reload addresses
-#    (datum-labs/relay + datum-labs/indexer read alpha-5/deployed-addresses.json
+#    (datum-labs/relay + datum-labs/indexer read alpha-core/deployed-addresses.json
 #     via DATUM_ADDRESSES; just restart the services)
 ```
 
@@ -70,8 +70,8 @@ The old contracts remain live on Paseo (nothing is destroyed by a fresh deploy).
 | Consumer | Mechanism | Action |
 |---|---|---|
 | extension `deployed-addresses.json` | deploy.ts writes it | auto |
-| relay (`datum-labs/relay`) | reads `alpha-5/deployed-addresses.json` (DATUM_ADDRESSES) | restart |
-| indexer (`datum-labs/indexer`) | reads `alpha-5/deployed-addresses.json` | restart |
+| relay (`datum-labs/relay`) | reads `alpha-core/deployed-addresses.json` (DATUM_ADDRESSES) | restart |
+| indexer (`datum-labs/indexer`) | reads `alpha-core/deployed-addresses.json` | restart |
 | web `public/deployed-addresses.json` | runtime fetch | `repoint-addresses.mjs` |
 | web `src/shared/networks.ts` | build-time map | `repoint-addresses.mjs` + rebuild |
 | SDK (`sdk/datum-sdk.js`) | addresses passed in by caller | none |

@@ -134,7 +134,7 @@ claimHash = keccak256(abi.encode(
 - PoW: find `powNonce` s.t. `keccak256(claimHash || powNonce) <= target`, put it in `proof[0]`.
 - ZK: the circuit's public `claimHash` input must be this value.
 
-## 6. Extension specifics (`alpha-5/extension/src`)
+## 6. Extension specifics (`alpha-core/extension/src`)
 
 - The extension keeps `nonce` / `previousClaimHash` / `claimHash` **internally** (it tracks
   the local chain head to build the next claim and to derive `claimHash` for ZK/PoW) — that's

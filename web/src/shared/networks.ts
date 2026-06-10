@@ -39,7 +39,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 
 // Alpha-5 Paseo addresses — 43-contract deploy of 2026-05-21.
 //
-// Source of truth: alpha-5/deployed-addresses.json. When that file
+// Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block must be updated alongside. We keep
 // the values inline rather than importing the JSON so the webapp
 // build stays self-contained and works on Cloudflare's "cd web &&
@@ -58,10 +58,10 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // tag lane). 13 contracts × 33 PG-routable selectors on the
 // ParameterGovernance whitelist; 20 of those selectors are PG-tunable
 // parameters across the Phase A + Phase B surface. Previous v4 addresses
-// archived at alpha-5/deployed-addresses.v4-pre-advertiser-track.json.
+// archived at alpha-core/deployed-addresses.v4-pre-advertiser-track.json.
 // Live Paseo deploy 2026-05-25 (C0+C1+C2 — claim-hash schema bump + policy envelope).
 // Previous v5 addresses archived at alpha-4/deployed-addresses.json.bak-2026-05-06.
-// Synced from alpha-5/deployed-addresses.json (deployedAt 2026-05-23). Live
+// Synced from alpha-core/deployed-addresses.json (deployedAt 2026-05-23). Live
 // router resolution still overlays these on load via DatumGovernanceRouter,
 // but the hardcoded values are what get used on cold-load (before the router
 // resolve returns) — they MUST match the active deploy or first-render reads

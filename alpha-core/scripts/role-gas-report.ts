@@ -12,7 +12,7 @@
 //
 //   npx hardhat run scripts/role-gas-report.ts --network polkadotTestnet
 //     → Paseo testnet via eth-rpc. Real gas, real tx hashes (Blockscout-
-//       linkable). Slower; requires funded signer keys in alpha-5/.env.
+//       linkable). Slower; requires funded signer keys in alpha-core/.env.
 //       The mine/fund helpers auto-detect substrate (chainId 420420420)
 //       and route accordingly.
 //

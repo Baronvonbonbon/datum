@@ -12,7 +12,7 @@
     "noEmit": true,
     "paths": {
       "@shared/*": ["./src/shared/*"],
-      "@ext/*":    ["../alpha-5/extension/src/*"]
+      "@ext/*":    ["../alpha-core/extension/src/*"]
     }
   },
   "include": ["src"]

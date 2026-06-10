@@ -833,12 +833,12 @@ Users should treat their wallet addresses as long-term pseudonymous identifiers 
 
 | Surface | Path | What it sees |
 |---------|------|--------------|
-| Browser extension (alpha-5 v0.5.x) | `alpha-5/extension/` | Everything in §3 |
+| Browser extension (alpha-5 v0.5.x) | `alpha-core/extension/` | Everything in §3 |
 | Web app | `web/` | On-chain reads + wallet sign requests; no server-side tracking |
 | Publisher SDK | `sdk/datum-sdk.js` | Publisher config + click events; no user PII |
 | WordPress plugin | `wordpress-plugin/datum-publisher/` | Wraps the SDK; publisher config in WP options |
 | Publisher relay | `relay-bot/` (gitignored) | Submitted batches, attestation calls (§4) |
 | IPFS node + proxy | `ipfs-node/` | Uploaded creative metadata + standard access logs |
 | Pine RPC light client | `pine/` | Local JSON-RPC translation; no centralized query log |
-| Smart contracts | `alpha-5/contracts/` (59 production) | All on-chain data in §6 + §7 |
+| Smart contracts | `alpha-core/contracts/` (59 production) | All on-chain data in §6 + §7 |
 | Demo page | `docs/index.html` | Reference page using the SDK |

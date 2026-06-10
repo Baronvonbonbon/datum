@@ -400,7 +400,7 @@ user (own first, then optional admin view).
 
 ---
 
-## 3. Extension (`alpha-5/extension/`)
+## 3. Extension (`alpha-core/extension/`)
 
 The extension is **the wallet**. It holds the user's keys, signs
 every tx, and exposes an EIP-1193 provider at `window.datum` for

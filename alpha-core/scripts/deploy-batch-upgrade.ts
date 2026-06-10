@@ -220,7 +220,7 @@ async function main() {
     console.log(`  • Full redeploy (deploy.ts) to bake the cypherpunk fix into Settlement + make the new vault live,`);
     console.log(`    then re-copy deployed-addresses.json into web/public + extension.`);
   }
-  console.log(`  • See alpha-5/UPGRADE-BATCH-RUNBOOK.md for the cypherpunk-fix + risk notes.`);
+  console.log(`  • See alpha-core/UPGRADE-BATCH-RUNBOOK.md for the cypherpunk-fix + risk notes.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

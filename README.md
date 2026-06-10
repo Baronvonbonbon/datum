@@ -165,7 +165,7 @@ Either side in the dual-sig path can refute by withholding their signature.
 
 ## Architecture
 
-### Smart Contracts — `alpha-5/contracts/`
+### Smart Contracts — `alpha-core/contracts/`
 
 **53 production contracts** + 5-contract token plane (`contracts/token/`). Compiled to EVM bytecode with solc 0.8.24 (evmVersion `cancun`, viaIR, optimizer 200 runs). Executed on Paseo Hub via pallet-revive. **1579/1579 tests passing.**
 
@@ -190,9 +190,9 @@ Highlights:
 
 **EIP-170 two-Logic split** (2026-05-19): Settlement was 9.8 KB over the 24,576 B cap. Closed via `DatumSettlement` (thin shell) + `DatumSettlementStorage` (layout) + `DatumSettlementLogicA` (relay path) + `DatumSettlementLogicB` (`_processBatch`). All three contracts share an identical storage layout asserted by `test/settlement-layout.test.ts` against `settlement-layout.snapshot.json`.
 
-See `alpha-5/SYSTEM-OVERVIEW.md` for the single-document tour and `alpha-5/narrative-analysis/` for per-contract narratives.
+See `alpha-core/SYSTEM-OVERVIEW.md` for the single-document tour and `alpha-core/narrative-analysis/` for per-contract narratives.
 
-### Browser Extension — `alpha-5/extension/`
+### Browser Extension — `alpha-core/extension/`
 
 v0.2.0, alpha-5 contract support. Manifest V3, Chrome/Chromium. 4-tab popup: Claims, Earnings, Settings, Filters. **212+ Jest tests.** ABIs synced.
 
@@ -302,12 +302,12 @@ When Bob and Carol have an out-of-band agreement (or the campaign is L2), both c
 # Prerequisites: Node 18+, Chrome
 
 # Contracts (alpha-5)
-cd alpha-5
+cd alpha-core
 npm install
 npx hardhat test                          # 1579 pass
 
 # Extension
-cd alpha-5/extension && npm install && npm run build
+cd alpha-core/extension && npm install && npm run build
 # Load dist/ as unpacked extension in chrome://extensions
 
 # Web App
@@ -325,14 +325,14 @@ cd web && npm install && npm run dev
 | Web App | https://datum.javcon.io |
 
 ```bash
-cd alpha-5
+cd alpha-core
 export DEPLOYER_PRIVATE_KEY="0x..."
 npx hardhat run scripts/deploy.ts --network polkadotTestnet
 npx hardhat run scripts/deploy-token.ts --network polkadotTestnet      # token plane
 npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet
 ```
 
-Contract addresses: `alpha-5/deployed-addresses.json`. Full status, prior snapshots, and archived alpha-3/alpha-4 references: [STATUS.md](STATUS.md).
+Contract addresses: `alpha-core/deployed-addresses.json`. Full status, prior snapshots, and archived alpha-3/alpha-4 references: [STATUS.md](STATUS.md).
 
 ---
 

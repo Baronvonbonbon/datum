@@ -1,11 +1,11 @@
-// Post-deploy address re-point: propagate alpha-5/deployed-addresses.json (the
+// Post-deploy address re-point: propagate alpha-core/deployed-addresses.json (the
 // canonical file deploy.ts writes) to the web app's two address spots.
 //
 //   node scripts/repoint-addresses.mjs            (after a redeploy)
 //
 // Auto-handled elsewhere (no action needed):
 //   - extension/deployed-addresses.json  <- written by deploy.ts (EXT_ADDR_FILE)
-//   - relay + indexer                    <- read alpha-5/deployed-addresses.json
+//   - relay + indexer                    <- read alpha-core/deployed-addresses.json
 //                                           directly (DATUM_ADDRESSES default)
 //
 // This script touches only the web app:

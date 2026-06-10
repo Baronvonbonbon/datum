@@ -16,7 +16,7 @@ landing in the cache within ~30 seconds.
 
 ## 0. Pre-deploy checks
 
-Run all from `alpha-5/`.
+Run all from `alpha-core/`.
 
 ### 0a. Compile + tests are green
 

@@ -8,7 +8,7 @@
 const fs = require("fs");
 const path = require("path");
 
-// alpha-5/artifacts/contracts (Hardhat `paths.artifacts = ./artifacts`)
+// alpha-core/artifacts/contracts (Hardhat `paths.artifacts = ./artifacts`)
 const srcDir = path.resolve(__dirname, "../../artifacts/contracts");
 const destDir = path.resolve(__dirname, "../src/shared/abis");
 fs.mkdirSync(destDir, { recursive: true });

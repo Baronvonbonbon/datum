@@ -1162,7 +1162,7 @@ export function AboutEconomics() {
         </div>
         <p style={{ fontSize: 15, color: "var(--text)", lineHeight: 1.6, margin: 0, maxWidth: 700 }}>
           What each role earns and what each role pays, projected from <strong>measured Paseo gas figures</strong>{" "}
-          (<Link to="https://github.com/Baronvonbonbon/datum/blob/main/alpha-5/docs/gas-paseo-20260528.md" target="_blank" rel="noopener" style={{ color: "var(--accent)" }}>full gas report</Link>).
+          (<Link to="https://github.com/Baronvonbonbon/datum/blob/main/alpha-core/docs/gas-paseo-20260528.md" target="_blank" rel="noopener" style={{ color: "var(--accent)" }}>full gas report</Link>).
           Costs scale with impressions, batch density, and the PAS price you assume —
           all three are tunable below. Compared against three published legacy ad-tech splits
           (IAB 2024, Google Ad Manager, ANA 2023). Two big numbers up front:{" "}
@@ -1793,7 +1793,7 @@ export function AboutEconomics() {
         fontSize: 13, color: "var(--text)", lineHeight: 1.6,
       }}>
         <strong style={{ color: "var(--text-strong)" }}>Honesty disclosures:</strong>{" "}
-        Gas figures are from `alpha-5/docs/gas-paseo-20260528.md` — `eth_estimateGas`
+        Gas figures are from `alpha-core/docs/gas-paseo-20260528.md` — `eth_estimateGas`
         against the live alpha-5 deploy at the testnet's hardcoded `gasPrice = 10¹²
         wei/gas`. PoW is disabled during the benchmark run because the funded test
         users carry accumulated buckets across runs; the per-claim PoW preimage cost

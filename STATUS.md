@@ -17,7 +17,7 @@ The system is **upgradable today, locked tomorrow**. Two-phase commitment:
 
 2. **Production (when OpenGov is in charge):** Governance can fire `lock*()` functions per-contract, ratifying cypherpunk commitments piecemeal. The original "code-is-law" guarantees become OpenGov-choice commitments rather than baked-in invariants.
 
-End-state target: every lock fired, oracleReporter retired, parachain sunset finalized. See `alpha-5/narrative-analysis/upgrade-ladder-design.md`.
+End-state target: every lock fired, oracleReporter retired, parachain sunset finalized. See `alpha-core/narrative-analysis/upgrade-ladder-design.md`.
 
 ---
 
@@ -31,7 +31,7 @@ DATUM is a decentralized ad exchange on Polkadot Hub. Users earn DOT and DATUM t
 
 ## Components
 
-### Smart Contracts — `alpha-5/contracts/` (canonical, EVM)
+### Smart Contracts — `alpha-core/contracts/` (canonical, EVM)
 
 **53 production contracts** + token plane (5 contracts in `contracts/token/`). Executed on Paseo Hub via pallet-revive's EVM compatibility path. **1579/1579 alpha-5 tests passing.**
 
@@ -191,7 +191,7 @@ AssuranceLevel gradient:
 
 ---
 
-### Browser Extension — `alpha-5/extension/`
+### Browser Extension — `alpha-core/extension/`
 
 v0.2.0, alpha-5 contract support. **212+ Jest tests passing.** Manifest V3, Chrome/Chromium. ABIs synced from alpha-5 artifacts.
 
@@ -349,7 +349,7 @@ Local Kubo IPFS daemon (1 GB cap, localhost-only API + gateway) fronted by Cloud
 | PeopleChainXcmBridge | `0x4118c4c6cd5F88DA032Fc17317f779218Fc71230` |
 | PeopleChainBondedReporter | `0x69B897773B3FB5d7238b211AA0DBC844bb4c85DC` |
 
-Authoritative source: `alpha-5/deployed-addresses.json`. Previous v4 addresses archived at `alpha-5/deployed-addresses.v4-pre-advertiser-track.json`. Earlier archived snapshots in `deployed-addresses.v{1,2,3}-*.json`.
+Authoritative source: `alpha-core/deployed-addresses.json`. Previous v4 addresses archived at `alpha-core/deployed-addresses.v4-pre-advertiser-track.json`. Earlier archived snapshots in `deployed-addresses.v{1,2,3}-*.json`.
 
 ---
 
@@ -434,7 +434,7 @@ Five-contract sidecar: `DatumMintAuthority` (95M cap), `DatumWrapper` (WDATUM), 
 
 ## Economics Reference
 
-See `alpha-5/ECONOMICS.md` for full break-even analysis by role.
+See `alpha-core/ECONOMICS.md` for full break-even analysis by role.
 
 **At recommended 0.500 PAS/1000 CPM ($2.50 @ $5/DOT), 50% publisher take rate:**
 
@@ -453,7 +453,7 @@ User withdrawal break-even: **9 impressions** at 0.500 PAS/1000 CPM. Relay profi
 
 ```
 datum/
-├── alpha-5/                         # Active line — EVM-only, 53 prod contracts + 5 token plane
+├── alpha-core/                         # Active line — EVM-only, 53 prod contracts + 5 token plane
 │   ├── contracts/                   # Production + token plane + mocks
 │   │   └── token/                   # DATUM token plane (5)
 │   ├── test/                        # 1579 tests

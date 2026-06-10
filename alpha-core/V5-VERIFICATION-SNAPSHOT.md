@@ -93,4 +93,4 @@ work tracked elsewhere:
 - All migration machinery (`_migrate()` overrides, router `msg.sender`
   wedge) — per `PRE-MAINNET-CHECKLIST.md` §U1-U7.
 - `DatumTagRegistry` and `DatumZKStake` — deferred to token-plane deploy,
-  per `alpha-5/DEPLOY-COVERAGE.md`.
+  per `alpha-core/DEPLOY-COVERAGE.md`.

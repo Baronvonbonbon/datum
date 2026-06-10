@@ -32,17 +32,20 @@ archive/alpha-4/circuits/impression_0000.zkey
 archive/alpha-4/circuits/impression.r1cs
 archive/alpha-4/circuits/impression.sym
 archive/alpha-4/circom
-alpha-5/circuits/ptau12.ptau
-alpha-5/circuits/ptau13.ptau
-alpha-5/circuits/impression_0000.zkey
-alpha-5/circuits/impression.r1cs
-alpha-5/circuits/impression.sym
-alpha-5/circuits/identity_0000.zkey
-alpha-5/circuits/identity.r1cs
-alpha-5/circuits/identity.sym
-alpha-5/circom
+alpha-core/circuits/ptau12.ptau
+alpha-core/circuits/ptau13.ptau
+alpha-core/circuits/impression_0000.zkey
+alpha-core/circuits/impression.r1cs
+alpha-core/circuits/impression.sym
+alpha-core/circuits/identity_0000.zkey
+alpha-core/circuits/identity.r1cs
+alpha-core/circuits/identity.sym
+alpha-core/circom
 .env
 
 # DATUM token deploy outputs (per-network)
 archive/alpha-4/token-addresses-*.json
-alpha-5/token-addresses-*.json
+alpha-core/token-addresses-*.json
+
+# Claude Code local state (worktrees, locks, task db)
+.claude/

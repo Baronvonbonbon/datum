@@ -11,7 +11,7 @@
 // contract change + recompile:  node scripts/sync-abis.mjs
 //
 // Files in web abis that have NO matching artifact (token-plane contracts not
-// compiled into alpha-5/artifacts/contracts/<Name>.sol/) are left untouched
+// compiled into alpha-core/artifacts/contracts/<Name>.sol/) are left untouched
 // and reported, so nothing is dropped silently.
 
 import fs from "node:fs";
@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..");
 const webAbiDir = path.join(repoRoot, "web", "src", "shared", "abis");
-const artDir = path.join(repoRoot, "alpha-5", "artifacts", "contracts");
+const artDir = path.join(repoRoot, "alpha-core", "artifacts", "contracts");
 
 let synced = 0;
 const skipped = [];
@@ -38,7 +38,7 @@ for (const file of fs.readdirSync(webAbiDir).filter((f) => f.endsWith(".json")))
   synced++;
 }
 
-console.log(`[sync-abis] regenerated ${synced} ABI(s) from alpha-5 artifacts.`);
+console.log(`[sync-abis] regenerated ${synced} ABI(s) from alpha-core artifacts.`);
 if (skipped.length) {
   console.log(`[sync-abis] no artifact found (left untouched): ${skipped.join(", ")}`);
 }

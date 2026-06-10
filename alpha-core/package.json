@@ -1,7 +1,7 @@
 {
-  "name": "datum-alpha-5",
-  "version": "0.5.0",
-  "description": "DATUM Alpha-5 — EVM-optimized settlement contracts",
+  "name": "datum-alpha-core",
+  "version": "0.6.0",
+  "description": "DATUM alpha-core — EVM-optimized settlement contracts (core-launch baseline)",
   "scripts": {
     "compile": "npx hardhat compile",
     "compile:mainnet": "npx hardhat --config hardhat.config.mainnet.ts compile",

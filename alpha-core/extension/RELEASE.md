@@ -11,7 +11,7 @@ Current version: **0.3.0** (`manifest.json` + `package.json` are kept in sync).
 ## 1. Build the store artifact
 
 ```bash
-cd alpha-5/extension
+cd alpha-core/extension
 npm ci                 # clean install (first time / CI)
 npm run type-check     # tsc --noEmit
 npm test               # jest

@@ -99,7 +99,7 @@ Reputation, governance clusters, tags, ClickRegistry, …) with per-contract
 migration tests (`test/*-migration.test.ts`, `test/upgrade-e2e.test.ts`)
 and the live migrator scripts (`bump-all-paseo.ts`,
 `migrate-campaigns.ts`, `deploy-batch-upgrade.ts`). See
-`alpha-5/MIGRATION-COVERAGE-PLAN.md` for per-contract coverage.
+`alpha-core/MIGRATION-COVERAGE-PLAN.md` for per-contract coverage.
 
 Original scope (kept for history):
 
@@ -239,7 +239,7 @@ The minimal viable order for getting `migrate` actually working end-to-end:
 
 ### Gasless user withdrawal — `DatumPaymentVault.withdrawUserBySig`
 
-Implemented + tested (`alpha-5/test/payment-vault-bysig.test.ts`) but **not yet
+Implemented + tested (`alpha-core/test/payment-vault-bysig.test.ts`) but **not yet
 deployed**. Lets a new user withdraw without holding gas: the user signs an
 EIP-712 `WithdrawAuth` off-chain; any submitter (the relay / an off-chain worker)
 broadcasts `withdrawUserBySig`, pays gas, and is reimbursed up to the user-signed
@@ -280,13 +280,13 @@ Before enabling `DatumBootstrapPool`:
 ## Secrets / key hygiene (SCRUB BEFORE ANY PUBLIC RELEASE)
 
 Plaintext private keys are hardcoded in committed scripts — e.g.
-`alpha-5/scripts/activate-pending.ts:19` (`ALICE_KEY = "0x6eda…"`, the deployer),
-plus ~12 other `alpha-5/scripts/*.ts` (setup-demo, setup-testnet, benchmark-paseo,
+`alpha-core/scripts/activate-pending.ts:19` (`ALICE_KEY = "0x6eda…"`, the deployer),
+plus ~12 other `alpha-core/scripts/*.ts` (setup-demo, setup-testnet, benchmark-paseo,
 e2e-token-rewards, verify-*, gas-costs, diag-*, check-testnet, fill-missing-creatives).
 These are Paseo **testnet** keys (valueless funds), so the immediate risk is low —
 but before open-sourcing or any mainnet work:
 
-- [ ] Move every hardcoded key to a gitignored `.env` (the pattern `alpha-5/.env`
+- [ ] Move every hardcoded key to a gitignored `.env` (the pattern `alpha-core/.env`
       already uses) and load via `process.env`. No literals in tracked files.
 - [ ] `git grep -nE '0x[0-9a-fA-F]{64}'` → confirm zero private-key literals remain
       in tracked sources (filter out legit 32-byte hashes/roots).

@@ -12,7 +12,7 @@
  *   circuits/identity-setVK-calldata.json      — setVerifyingKey() args for deploy.ts
  *
  * Prerequisites:
- *   - circom on PATH (or at alpha-5/circom)
+ *   - circom on PATH (or at alpha-core/circom)
  *   - snarkjs (already in package.json)
  *   - Internet access on first run (downloads ptau12 from Hermez)
  *
@@ -51,7 +51,7 @@ const CIRCOM_BIN = (() => {
   try { execSync("circom --version", { stdio: "pipe" }); return "circom"; } catch {}
   const local = path.join(ROOT, "circom");
   if (existsSync(local)) return local;
-  throw new Error("circom not found — install it or place binary at alpha-5/circom");
+  throw new Error("circom not found — install it or place binary at alpha-core/circom");
 })();
 
 if (!existsSync(R1CS)) {

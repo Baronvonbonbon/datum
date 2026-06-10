@@ -17,7 +17,7 @@ export default mergeConfig(
       exclude: [
         "node_modules",
         "dist",
-        "../alpha-5/**",
+        "../alpha-core/**",
       ],
       // The webapp's modules don't share state across tests; reset
       // the in-memory module cache between test files so singletons

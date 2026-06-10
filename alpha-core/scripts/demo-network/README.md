@@ -95,7 +95,7 @@ shape (`creative.images[]` = one URL per IAB format) and is stored on-chain as
 ## Rebuild from scratch
 
 ```bash
-cd alpha-5/scripts/demo-network
+cd alpha-core/scripts/demo-network
 node generate-creatives.mjs                 # 42 SVGs (no chain, no IPFS)
 node pin-and-set-metadata.mjs --pin-only    # pin to IPFS + build metadata JSON, write CIDs to manifest
 node pin-and-set-metadata.mjs               # ... and setMetadata on-chain (needs BOB/CHARLIE keys)
@@ -108,7 +108,7 @@ node build-testpages.mjs                    # regenerate web/public/testpages/
 1. **IPFS** running (creatives) and, to settle, the **lab relay** running
    (`datum-labs/relay`, `http://127.0.0.1:3400`) holding the publisher's
    relaySigner key. For display only, neither the relay nor registration is needed.
-2. **Build + load the extension** (`alpha-5/extension`, `npm run build`, load
+2. **Build + load the extension** (`alpha-core/extension`, `npm run build`, load
    `dist/` unpacked) pointed at the alpha-5 v5 addresses.
 3. **Serve the webapp** (`cd web && npm run dev`) and open
    `http://localhost:5173/testpages/`. Pick a site.

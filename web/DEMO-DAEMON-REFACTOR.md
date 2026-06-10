@@ -4,7 +4,7 @@
 **Goal:** stop the in‑browser demo daemon from re‑implementing the extension's
 message router by hand, so the two can't drift.
 
-**Outcome:** the single switch is `alpha-5/extension/src/background/router.ts`
+**Outcome:** the single switch is `alpha-core/extension/src/background/router.ts`
 (`routeMessage(msg, sender, env)`); the service worker (`background/index.ts` →
 `swEnv`) and the demo daemon (`web/src/lib/extensionDaemon.ts` → `demoEnv`) both call
 it. The daemon's ~60-arm mirror is deleted — it keeps only a thin pre-router for
@@ -31,7 +31,7 @@ The trouble: message routing exists in **two hand‑maintained copies**:
 
 | | file | `case` arms |
 |---|---|---|
-| real background (service worker) | `alpha-5/extension/src/background/index.ts` → `handleMessage` | **56** |
+| real background (service worker) | `alpha-core/extension/src/background/index.ts` → `handleMessage` | **56** |
 | demo daemon (in‑page) | `web/src/lib/extensionDaemon.ts` → `handleMessage` | **60** |
 
 They have already drifted, and every drift is a silent demo‑only break:
@@ -160,7 +160,7 @@ stay free of those.
 
 ## Migration plan (staged, each step independently shippable)
 
-**Phase 0 — pin behavior. ✅ DONE (2026-06-01, `alpha-5/extension/test/messageRouting.test.ts`).**
+**Phase 0 — pin behavior. ✅ DONE (2026-06-01, `alpha-core/extension/test/messageRouting.test.ts`).**
 Static contract test: extracts the `case` labels from the background router and the
 demo daemon and asserts the daemon handles every background protocol type, except a
 curated `SW_ONLY` allowlist (16 entries, each with a reason: PROVIDER_* page-provider,

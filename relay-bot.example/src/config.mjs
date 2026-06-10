@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..", "..");
-const ADDRESSES_PATH = join(REPO_ROOT, "alpha-5", "deployed-addresses.json");
+const ADDRESSES_PATH = join(REPO_ROOT, "alpha-core", "deployed-addresses.json");
 
 const REQUIRED = ["RELAY_PRIVATE_KEY"];
 

@@ -176,5 +176,5 @@ host.
 | —     | identity-oracle XCM submit                       | planned (`submit/identityOracle.mjs` stub) |
 | —     | bulletin gateway proxy                            | planned (`/bulletin/<cid>` 501s until wired) |
 
-See `alpha-5/narrative-analysis/e2e-client-design.md` §5 for the
+See `alpha-core/narrative-analysis/e2e-client-design.md` §5 for the
 design discussion.

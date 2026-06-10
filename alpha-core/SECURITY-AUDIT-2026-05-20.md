@@ -2,8 +2,8 @@
 
 - **Date:** 2026-05-20
 - **Reviewer:** Internal (Claude, deep pass)
-- **Scope:** all `alpha-5/contracts/*.sol` (production + token plane + libs),
-  `alpha-5/scripts/`, `alpha-5/circuits/impression.circom` and `identity.circom`,
+- **Scope:** all `alpha-core/contracts/*.sol` (production + token plane + libs),
+  `alpha-core/scripts/`, `alpha-core/circuits/impression.circom` and `identity.circom`,
   off-chain trust surface (`relay-bot/`, extension EIP-712 signing).
 - **Threat model:** pre-mainnet hardening. Severity bar reports Crit / High /
   Med / Low / Info. Both phases audited (pre-OpenGov upgradable, and post-lock
@@ -262,7 +262,7 @@ all paths: `settleClaims`, `settleClaimsMulti`, `processVerifiedBatch`).
 
 
 
-`DatumSettlementLogicB.processBatch` (alpha-5/contracts/DatumSettlementLogicB.sol:448) sets
+`DatumSettlementLogicB.processBatch` (alpha-core/contracts/DatumSettlementLogicB.sol:448) sets
 the per-batch publisher exactly once via
 `if (agg.publisher == address(0)) agg.publisher = claim.publisher;`. The aggregation
 loop then accumulates `publisherPayment` per-claim using each claim's own `cTakeRate`
@@ -344,7 +344,7 @@ Logic during alpha/beta. Existing tests still pass (1473 total).
 
 
 
-`DatumSettlement.lockLogic` (alpha-5/contracts/DatumSettlement.sol:484-487) is
+`DatumSettlement.lockLogic` (alpha-core/contracts/DatumSettlement.sol:484-487) is
 `onlyOwner` only — no `whenOpenGovPhase` modifier. The contract inherits
 `DatumUpgradable.whenOpenGovPhase` and the SYSTEM-OVERVIEW + audit-hedges doc
 prescribe the lock-once-on-OpenGov pattern (`"Don't fire it during alpha/beta;
@@ -375,7 +375,7 @@ before firing lock-once functions.
 
 
 
-`DatumUpgradable.whenOpenGovPhase` (alpha-5/contracts/DatumUpgradable.sol:119-124)
+`DatumUpgradable.whenOpenGovPhase` (alpha-core/contracts/DatumUpgradable.sol:119-124)
 short-circuits to `_` if `address(router) == address(0)`. The doc comment
 acknowledges this is for backwards-compatibility with tests / pre-`setRouter()`
 deploy state. But every `lock*()` function in the ladder relies on this modifier
@@ -997,7 +997,7 @@ Regression tests: `test/audit-f026-wrapper-dos.test.ts` (7 cases).
 
 
 
-`DatumWrapper.requestWrap` (alpha-5/contracts/token/DatumWrapper.sol:108-113)
+`DatumWrapper.requestWrap` (alpha-core/contracts/token/DatumWrapper.sol:108-113)
 adds the requested amount to `pendingWrap[msg.sender]` AND to the global
 `totalCommittedCanonical`. Subsequent `wrap()` calls require:
 
@@ -1445,7 +1445,7 @@ governed by PG.
 
 ### F-037 — `impression.circom` `nonceSquared` constraint is a no-op (INFO)
 
-`alpha-5/circuits/impression.circom:114-116`:
+`alpha-core/circuits/impression.circom:114-116`:
 
 ```
 signal nonceSquared;

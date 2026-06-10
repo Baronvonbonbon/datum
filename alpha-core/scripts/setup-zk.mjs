@@ -10,7 +10,7 @@
  *   5. Generate a sample proof for benchmark-paseo.ts
  *
  * Prerequisites:
- *   npm install snarkjs circomlib            (in alpha-5/)
+ *   npm install snarkjs circomlib            (in alpha-core/)
  *   npm install -g circom                    (or: brew install circom)
  *   OR: curl -L https://github.com/iden3/circom/releases/download/v2.1.9/circom-linux-amd64 \
  *           -o /usr/local/bin/circom && chmod +x /usr/local/bin/circom
@@ -57,7 +57,7 @@ const CIRCOM_BIN = (() => {
   try { execSync("circom --version", { stdio: "pipe" }); return "circom"; } catch {}
   const local = path.join(ROOT, "circom");
   if (existsSync(local)) return local;
-  throw new Error("circom not found — install it or place binary at alpha-5/circom");
+  throw new Error("circom not found — install it or place binary at alpha-core/circom");
 })();
 
 if (!existsSync(R1CS)) {

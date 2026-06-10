@@ -27,7 +27,7 @@
 // claimHash are derived on-chain; path-specific fields live in an optional proof
 // sidecar; SignedClaimBatch carries firstNonce (== on-chain lastNonce+1); cosig
 // claimsHash is keccak(concat keccak(abi.encode(slimClaim))). The canonical spec
-// is alpha-5/OFFCHAIN-SLIM-PORTING.md; the live client is alpha-5/extension.
+// is alpha-core/OFFCHAIN-SLIM-PORTING.md; the live client is alpha-core/extension.
 
 import { Wallet, JsonRpcProvider, Contract, verifyTypedData, AbiCoder, keccak256 } from "ethers";
 import express from "express";

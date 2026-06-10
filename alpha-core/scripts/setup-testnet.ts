@@ -502,7 +502,7 @@ async function main() {
   const missing = coreKeys.filter(k => !addrs[k]);
   if (missing.length > 0) {
     console.error("Missing contract addresses:", missing.join(", "));
-    console.error("Re-run deploy.ts for alpha-5 (20-contract deploy).");
+    console.error("Re-run deploy.ts for alpha-core (20-contract deploy).");
     process.exitCode = 1;
     return;
   }

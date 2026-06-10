@@ -1,9 +1,9 @@
 {
-  "at": "2026-06-08T09:31:45.469Z",
+  "at": "2026-06-10T14:25:02.001Z",
   "gateway": "https://ipfs-datum.javcon.io/ipfs/",
   "campaigns": [
     {
-      "cid": 154,
+      "cid": 1,
       "topic": "Polkadot",
       "category": "Technology",
       "c1": "#552bbf",
@@ -19,7 +19,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 155,
+      "cid": 2,
       "topic": "Zero-Knowledge",
       "category": "Cryptography",
       "c1": "#0f2027",
@@ -31,11 +31,11 @@
       "wiki": "https://en.wikipedia.org/wiki/Zero-knowledge_proof",
       "svgCid": "QmZFLAN1LDhGjB5GKUy4pUnMrqktZqnWKAK6fNV5YsKwJG",
       "metaCid": "QmRwYZbdY8yK1tF4zCTWP7WDNXU8PMZ9MtZZE3iXAqmD6Y",
-      "status": "Pending",
-      "relaySigner": "0x0000000000000000000000000000000000000000"
+      "status": "Active",
+      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 156,
+      "cid": 3,
       "topic": "Privacy",
       "category": "Privacy",
       "c1": "#232526",
@@ -51,7 +51,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 157,
+      "cid": 4,
       "topic": "Open Source",
       "category": "Software",
       "c1": "#11998e",
@@ -67,7 +67,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 158,
+      "cid": 5,
       "topic": "Renewables",
       "category": "Energy",
       "c1": "#2193b0",
@@ -83,7 +83,7 @@
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     },
     {
-      "cid": 159,
+      "cid": 6,
       "topic": "Coffee",
       "category": "Food & Drink",
       "c1": "#6f4e37",
@@ -95,70 +95,6 @@
       "wiki": "https://en.wikipedia.org/wiki/Coffee",
       "svgCid": "QmVAiswJCjgqJU563LEfJSMyWkjYhnkEp1nKhXGtwkZxjT",
       "metaCid": "QmZgWi9187zb5yLK9MuSiWyYm6KWCmMfViLZ1D8gQHANuF",
-      "status": "Active",
-      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
-    },
-    {
-      "cid": 160,
-      "topic": "Jazz",
-      "category": "Music",
-      "c1": "#41295a",
-      "c2": "#2f0743",
-      "accent": "#ff6e7f",
-      "title": "Jazz",
-      "text": "Swing, bebop, and improvisation. The American art form that taught the world to listen.",
-      "cta": "Read on Wikipedia",
-      "wiki": "https://en.wikipedia.org/wiki/Jazz",
-      "svgCid": "QmQweG5ioEHPuMiHwkSMm6Lqgb9y5cAaxyNWwCkktMac4f",
-      "metaCid": "QmeVtCs1HBTVYgibCZRQdfLBFTwFY7f3CoTzp1jcViHrKZ",
-      "status": "Active",
-      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
-    },
-    {
-      "cid": 161,
-      "topic": "Astronomy",
-      "category": "Science",
-      "c1": "#0b0b2b",
-      "c2": "#1b2a4a",
-      "accent": "#ffd86b",
-      "title": "Astronomy",
-      "text": "Galaxies, exoplanets, and deep time. The oldest science, still asking the biggest questions.",
-      "cta": "Read on Wikipedia",
-      "wiki": "https://en.wikipedia.org/wiki/Astronomy",
-      "svgCid": "QmRaVbLSefFYxzvfm2Y6TBW8P3HC3DquwJSUcdNwnMU93j",
-      "metaCid": "QmRYk3FsH4o2LGjKRA8Z2VZpbp5MKruMsb97GNgodZLUq3",
-      "status": "Active",
-      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
-    },
-    {
-      "cid": 162,
-      "topic": "Mountaineering",
-      "category": "Outdoors",
-      "c1": "#134e5e",
-      "c2": "#71b280",
-      "accent": "#0c3a47",
-      "title": "Mountaineering",
-      "text": "Ridges, ropes, and thin air. The history and craft of climbing the world's high places.",
-      "cta": "Read on Wikipedia",
-      "wiki": "https://en.wikipedia.org/wiki/Mountaineering",
-      "svgCid": "QmNg9ntiyA9yM5qgKEafonWHwyRXkbqKzcBQGFREdTXjHg",
-      "metaCid": "QmYT1FRVxV39ixJb5RNm4sf4Y72zHwtF4owrA9h38xN4bh",
-      "status": "Active",
-      "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
-    },
-    {
-      "cid": 163,
-      "topic": "Cartography",
-      "category": "Geography",
-      "c1": "#355c7d",
-      "c2": "#6c5b7b",
-      "accent": "#c06c84",
-      "title": "Cartography",
-      "text": "The art and science of the map — projecting a round world onto a flat and useful page.",
-      "cta": "Read on Wikipedia",
-      "wiki": "https://en.wikipedia.org/wiki/Cartography",
-      "svgCid": "QmRK87LnBpePj8YqZ7CEyoHqZj5E3zo7ZeU4kUEVdyPAUt",
-      "metaCid": "QmcFpQwSYuFNfCUXwPFfxexkCcaL2B6UvszggVJ9X1R67h",
       "status": "Active",
       "relaySigner": "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"
     }
