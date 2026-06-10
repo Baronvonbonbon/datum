@@ -52,7 +52,6 @@ const CONTRACT_FIELDS: Record<string, ContractFieldMeta> = {
   councilBlocklistCurator: { label: "CouncilBlocklistCurator", group: "optional", feature: "Curator-delegated blocklist" },
   wrapper:              { label: "DatumWrapper (WDATUM)", group: "optional", feature: "WDATUM wrap/unwrap" },
   mintAuthority:        { label: "DatumMintAuthority", group: "optional", feature: "DATUM emission admin" },
-  bootstrapPool:        { label: "DatumBootstrapPool", group: "optional", feature: "House-ad onboarding bonus" },
   vesting:              { label: "DatumVesting", group: "optional", feature: "Founder/ops vesting" },
   feeShare:             { label: "DatumFeeShare", group: "optional", feature: "Stake WDATUM, earn DOT" },
 };

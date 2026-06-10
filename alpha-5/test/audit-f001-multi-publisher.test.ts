@@ -74,15 +74,7 @@ describe("Audit F-001 / F-002: single-publisher per batch enforcement", function
         eventCount: IMPRESSIONS,
         rateWei: BID_CPM,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
       },
       hash,
     };
@@ -230,7 +222,7 @@ describe("Audit F-001 / F-002: single-publisher per batch enforcement", function
     const c1 = buildClaim(cid, pubB.address, user.address, 2n, c0.hash);
 
     await expect(
-      settlement.connect(owner).processVerifiedBatch(user.address, cid, [c0.claim, c1.claim])
+      settlement.connect(owner).processVerifiedBatch(user.address, cid, 1n, [c0.claim, c1.claim])
     ).to.be.revertedWithCustomError(settlement, "E34");
   });
 });

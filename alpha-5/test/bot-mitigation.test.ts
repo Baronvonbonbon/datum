@@ -15,6 +15,7 @@ import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners } from "./helpers/mine";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
+import { mkProof, computeClaimHash } from "./helpers/slimClaim";
 
 // BM-7: Publisher SDK version registry
 // BM-2: Per-user per-campaign settlement cap
@@ -63,15 +64,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
         eventCount: impressionsPerClaim,
         rateWei: baseCpm,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
       });
       prevHash = hash;
     }
@@ -233,15 +226,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       eventCount: impressions,
       rateWei: BID_CPM,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: prevHash,
-      claimHash: hash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+      proof: [],
     };
 
     const result = await settlement.connect(user).settleClaims.staticCall([
@@ -315,7 +300,7 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       for (let i = 0; i < 5; i++) {
         const cidI = await createTestCampaign();
         const cl = buildClaimChain(cidI, publisher.address, user.address, 1, BID_CPM, 100n);
-        cl[0].powNonce = ethers.toBeHex(0xdeadbeef + i, 32);
+        cl[0].proof = mkProof({ powNonce: ethers.toBeHex(0xdeadbeef + i, 32) });
         try {
           await settlement.connect(user).settleClaims.staticCall([
             { user: user.address, campaignId: cidI, claims: cl }
@@ -394,7 +379,13 @@ describe("Bot Mitigation (BM-7, BM-2)", function () {
       // eventCount=1 keeps the easy-band target manageable: max>>8 → ~256 hashes.
       const claims = buildClaimChain(cid, publisher.address, freshUser.address, 1, BID_CPM, 1n);
       const target = BigInt((await powEngine.powTargetForUser(freshUser.address, claims[0].eventCount)).toString());
-      claims[0].powNonce = findPowNonce(claims[0].claimHash, target);
+      // SLIM (#2b): solve PoW against the on-chain-derived claim hash (genesis:
+      // nonce=1, prevHash=0) and put the nonce in the proof sidecar.
+      const onChainHash = computeClaimHash({
+        campaignId: cid, publisher: publisher.address, user: freshUser.address,
+        eventCount: claims[0].eventCount, rateWei: BID_CPM, actionType: 0, nonce: 1n,
+      });
+      claims[0].proof = mkProof({ powNonce: findPowNonce(onChainHash, target) });
       const r = await settlement.connect(freshUser).settleClaims.staticCall([
         { user: freshUser.address, campaignId: cid, claims }
       ]);

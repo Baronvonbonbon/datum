@@ -60,6 +60,43 @@
   },
   {
     "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "firstNonce",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "claimCount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint8",
+        "name": "reason",
+        "type": "uint8"
+      }
+    ],
+    "name": "BatchSkippedStale",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
     "inputs": [],
     "name": "EIP712DomainChanged",
     "type": "event"
@@ -374,12 +411,12 @@
             "type": "uint256"
           },
           {
+            "internalType": "uint256",
+            "name": "firstNonce",
+            "type": "uint256"
+          },
+          {
             "components": [
-              {
-                "internalType": "uint256",
-                "name": "campaignId",
-                "type": "uint256"
-              },
               {
                 "internalType": "address",
                 "name": "publisher",
@@ -401,49 +438,41 @@
                 "type": "uint8"
               },
               {
-                "internalType": "bytes32",
-                "name": "clickSessionHash",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "uint256",
-                "name": "nonce",
-                "type": "uint256"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "previousClaimHash",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "claimHash",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32[8]",
-                "name": "zkProof",
-                "type": "bytes32[8]"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "nullifier",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "stakeRootUsed",
-                "type": "bytes32"
-              },
-              {
-                "internalType": "bytes32[3]",
-                "name": "actionSig",
-                "type": "bytes32[3]"
-              },
-              {
-                "internalType": "bytes32",
-                "name": "powNonce",
-                "type": "bytes32"
+                "components": [
+                  {
+                    "internalType": "bytes32",
+                    "name": "clickSessionHash",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "stakeRootUsed",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "nullifier",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes32",
+                    "name": "powNonce",
+                    "type": "bytes32"
+                  },
+                  {
+                    "internalType": "bytes32[8]",
+                    "name": "zkProof",
+                    "type": "bytes32[8]"
+                  },
+                  {
+                    "internalType": "bytes32[3]",
+                    "name": "actionSig",
+                    "type": "bytes32[3]"
+                  }
+                ],
+                "internalType": "struct IDatumSettlement.ClaimProof[]",
+                "name": "proof",
+                "type": "tuple[]"
               }
             ],
             "internalType": "struct IDatumSettlement.Claim[]",

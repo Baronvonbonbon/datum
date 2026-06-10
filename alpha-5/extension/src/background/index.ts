@@ -6,6 +6,7 @@ import { campaignPoller } from "./campaignPoller";
 import { startEarningsListener, stopEarningsListener, handleEarningsAlarm, EARNINGS_ALARM } from "./earningsListener";
 import { claimQueue } from "./claimQueue";
 import { claimBuilder, setProveZk } from "./claimBuilder";
+import { toSlimClaim, contentHashClaims } from "./claimCore";
 import { proveZk } from "./zkProve";
 import { requestPublisherAttestation } from "./publisherAttestation";
 import { getPreferences, updatePreferences } from "./userPreferences";
@@ -538,6 +539,7 @@ const swEnv: EnvContext = {
       args.publisherAddress,
       args.campaignId,
       args.userAddress,
+      args.firstNonce,
       args.claimsHash,
       args.deadlineBlock,
     );
@@ -730,30 +732,16 @@ async function autoFlushDirect() {
 
     const attestedBatches = await Promise.all(batches.map(async (b) => {
       const publisher = b.claims[0]?.publisher ?? "";
-      // A1-fix: claimsHash = keccak256(packed claim.claimHash[])
-      const claimHashes = b.claims.map((c) => c.claimHash);
-      const claimsHash = keccak256(solidityPacked(
-        new Array(claimHashes.length).fill("bytes32"),
-        claimHashes,
-      ));
-      let publisherSig = "0x";
-      try {
-        const attestResult = await requestPublisherAttestation(
-          publisher,
-          b.campaignId.toString(),
-          b.user,
-          claimsHash,
-          deadlineBlock,
-        );
-        if (attestResult.signature) publisherSig = attestResult.signature;
-        if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
-      } catch {
-        // Attestation unavailable — degraded trust mode
-      }
 
-      // #5: solve PoW per claim before assembling the batch. Skipped entirely
-      //      when enforcePow is off (target = max_uint, any nonce passes).
-      const solvedClaims = await Promise.all(b.claims.map(async (c) => {
+      // SLIM (#2): firstNonce = nonce of the batch's first claim. It must equal
+      // the on-chain lastNonce+1 (the chain state is synced from chain), and is
+      // the replay anchor the AttestationVerifier checks + the publisher signs.
+      const firstNonce = b.claims[0]?.nonce ?? 0n;
+
+      // #5: solve PoW per claim FIRST, then build the slim claims, so the
+      //     content claimsHash the publisher cosigns matches the submitted
+      //     claims byte-for-byte (powNonce lives in the proof sidecar).
+      const slimClaims = await Promise.all(b.claims.map(async (c) => {
         let powNonce = c.powNonce;
         if (powEnforced) {
           try {
@@ -765,27 +753,46 @@ async function autoFlushDirect() {
             console.warn(`[DATUM] Auto-flush: PoW solve failed:`, err);
           }
         }
-        return {
-          campaignId: c.campaignId,
+        return toSlimClaim({
           publisher: c.publisher,
           eventCount: c.eventCount,
           rateWei: c.rateWei,
           actionType: c.actionType,
           clickSessionHash: c.clickSessionHash,
-          nonce: c.nonce,
-          previousClaimHash: c.previousClaimHash,
-          claimHash: c.claimHash,
-          zkProof: c.zkProof,
+          stakeRootUsed: c.stakeRootUsed,
           nullifier: c.nullifier,
-          actionSig: c.actionSig,
           powNonce,
-        };
+          zkProof: c.zkProof,
+          actionSig: c.actionSig,
+        });
       }));
+
+      // SLIM (#2): claimsHash now binds to keccak(abi.encode(slimClaim)) per
+      // claim (not the old per-claim claimHash), computed over the FINAL slim
+      // claims so the publisher cosig matches what is submitted on-chain.
+      const claimsHash = contentHashClaims(slimClaims);
+
+      let publisherSig = "0x";
+      try {
+        const attestResult = await requestPublisherAttestation(
+          publisher,
+          b.campaignId.toString(),
+          b.user,
+          firstNonce,
+          claimsHash,
+          deadlineBlock,
+        );
+        if (attestResult.signature) publisherSig = attestResult.signature;
+        if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
+      } catch {
+        // Attestation unavailable — degraded trust mode
+      }
 
       return {
         user: b.user,
         campaignId: b.campaignId,
-        claims: solvedClaims,
+        firstNonce,
+        claims: slimClaims,
         deadlineBlock,
         publisherSig,
       };

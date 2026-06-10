@@ -39,6 +39,7 @@ import { parseDOT } from "./helpers/dot";
 import { fundSigners } from "./helpers/mine";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
+import { contentHashClaims } from "./helpers/slimClaim";
 
 describe("Audit fixes", function () {
   // ── M-1 fixtures ────────────────────────────────────────────────────────
@@ -219,28 +220,15 @@ describe("Audit fixes", function () {
       pubAddr: string,
       userAddr: string,
       nonce: bigint,
-      prevHash: string
+      _prevHash?: string   // SLIM (#2): prevHash is derived on-chain; kept for call-site compat
     ) {
-      const eventCount = 1000n;
-      const hash = ethersKeccakAbi(
-        ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-        [campaignId, pubAddr, userAddr, eventCount, CPM, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
-      );
       return {
-        campaignId,
         publisher: pubAddr,
-        eventCount,
+        eventCount: 1000n,
         rateWei: CPM,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],
+        nonce,              // JS-only bookkeeping (signed paths read claims[i].nonce)
       };
     }
 
@@ -255,10 +243,12 @@ describe("Audit fixes", function () {
       };
     }
 
+    // SLIM (#2): firstNonce added; claimsHash binds to keccak(abi.encode(slimClaim)).
     const types = {
       ClaimBatch: [
         { name: "user", type: "address" },
         { name: "campaignId", type: "uint256" },
+        { name: "firstNonce", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
         { name: "expectedRelaySigner", type: "address" },
@@ -266,12 +256,7 @@ describe("Audit fixes", function () {
       ],
     };
 
-    function hashClaimsArr(claims: { claimHash: string }[]) {
-      return ethers.solidityPackedKeccak256(
-        new Array(claims.length).fill("bytes32"),
-        claims.map((c) => c.claimHash)
-      );
-    }
+    const hashClaimsArr = contentHashClaims;
 
     async function makeBatch(
       cid: bigint,
@@ -283,6 +268,7 @@ describe("Audit fixes", function () {
       const value = {
         user: user.address,
         campaignId: cid,
+        firstNonce: (claims[0] as any).nonce,
         claimsHash: hashClaimsArr(claims),
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,
@@ -294,6 +280,7 @@ describe("Audit fixes", function () {
       return {
         user: user.address,
         campaignId: cid,
+        firstNonce: (claims[0] as any).nonce,
         claims,
         deadlineBlock: dl,
         expectedRelaySigner: ethers.ZeroAddress,

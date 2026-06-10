@@ -45,7 +45,26 @@ re-seed. That cost is acceptable while the protocol is iterating, but the
 following must land before any mainnet flip — once real user funds and
 campaigns are on-chain, the redeploy-and-re-seed posture stops being viable.
 
-### U1 — Fix the `msg.sender` wedge in `router.upgradeContract`
+### U1 — Fix the `msg.sender` wedge in `router.upgradeContract` ✅ FIXED 2026-06-10
+
+**Resolution (option 1, co-authority):** `DatumUpgradable.freeze()` and
+`migrate()` now use `onlyGovernanceOrRouter` — the router is accepted as
+`msg.sender` alongside the governor, so `upgradeContract`'s atomic
+freeze+migrate actually fires. The router only originates these calls from
+governor-gated surfaces (`upgradeContract` is onlyGovernor; high-tier
+proposals are governor-staged + Council-vetoable + phase ≥ Council), so no
+authority widens. `upgradeContract` now emits
+`UpgradeHooksFired(name, freezeOk, migrateOk)` instead of silently
+discarding the results; the pre-existing two-tx flow
+(`scripts/bump-all-paseo.ts`: governor calls freeze/migrate/migrateFundsTo
+directly, then rotates) stays valid — the hooks then report `(false,false)`
+benignly. Verify gate landed in
+`test/governance-router-registry.test.ts` ("atomic freeze+migrate hooks (U1)"):
+one-tx upgrade asserts `migrated == true` + `migrationSource == oldAddr` +
+state copied; plus two-tx idempotence, non-governor rejection, and
+downgrade refusal through the router path.
+
+Original finding (kept for history):
 
 `DatumGovernanceRouter.upgradeContract(name, newAddr)` atomically fires:
 ```solidity
@@ -70,7 +89,19 @@ on Hardhat that asserts `migrate()` actually runs is the gate.
 `router.upgradeContract`, and asserts the new contract's `migrated == true`
 and `migrationSource == oldAddr`.
 
-### U2 — `_migrate()` overrides on every stateful contract
+### U2 — `_migrate()` overrides on every stateful contract — ✅ LANDED (alpha-5, 2026-06)
+
+Status 2026-06-10: overrides + enumeration scaffolding shipped across the
+stateful set (BudgetLedger, PaymentVault incl. `migrateFundsTo` native
+sweep via `DatumFundMigratable`, both Stakes, bonds, Campaigns via
+`migrateDelegate`/`DatumCampaignsMigrationLogic`, NullifierRegistry,
+Reputation, governance clusters, tags, ClickRegistry, …) with per-contract
+migration tests (`test/*-migration.test.ts`, `test/upgrade-e2e.test.ts`)
+and the live migrator scripts (`bump-all-paseo.ts`,
+`migrate-campaigns.ts`, `deploy-batch-upgrade.ts`). See
+`alpha-5/MIGRATION-COVERAGE-PLAN.md` for per-contract coverage.
+
+Original scope (kept for history):
 
 The default `_migrate(oldContract) internal virtual { oldContract; }` does
 nothing. After U1 is fixed, each stateful contract needs an override that

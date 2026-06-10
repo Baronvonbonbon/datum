@@ -444,6 +444,33 @@ async function main() {
     }
   }
 
+  // ── MVP slim mode (DATUM_MVP=1) ─────────────────────────────────────────────
+  // Deploy + wire only the core settlement spine; every optional / governance /
+  // token-plane / ZK module is left undeployed and its references stay
+  // address(0) (= "feature off", per Settlement.validateConfiguration's
+  // optional-refs contract). Each deferred module activates later through its
+  // existing lock-once setter — no redeploy of the spine. The relay-signed (L1)
+  // and dual-sig (L2) settle paths both ship. See narrative-analysis/mvp-slim-deploy.md.
+  const MVP = process.env.DATUM_MVP === "1";
+  const MVP_CORE_KEYS = new Set<string>([
+    "pauseRegistry", "timelock", "publishers", "campaigns",
+    "budgetLedger", "paymentVault", "campaignLifecycle",
+    "attestationVerifier", "settlement", "settlementLogicA", "settlementLogicB",
+    "relay", "claimValidator", "tokenRewardVault",
+    "nullifierRegistry", "governanceRouter", "dualSig",
+    "campaignsMigrationLogic",
+    // PoW is the per-user Sybil/spam gate on the claim path (reason-27 fix);
+    // launch ships with it enforced rather than activating it post-abuse.
+    "powEngine",
+  ]);
+  // True when a contract should be skipped in this run (MVP + not core).
+  const mvpDefer = (key: string) => MVP && !MVP_CORE_KEYS.has(key);
+  if (MVP) {
+    console.log("\n*** DATUM_MVP=1 — SLIM DEPLOY: core settlement spine only ***");
+    console.log("    Deferred modules stay unwired (address(0)); activate later via setters.");
+    console.log(`    Core contracts: ${MVP_CORE_KEYS.size}\n`);
+  }
+
   let step = 0;
   function logStep(label: string) {
     step++;
@@ -456,6 +483,13 @@ async function main() {
     contractName: string,
     args: any[] = [],
   ): Promise<string> {
+    if (mvpDefer(key)) {
+      // Slim mode: don't deploy. Clear any stale address from a prior full
+      // run so every `if (addresses.<key>)` guard downstream treats it as off.
+      delete addresses[key];
+      console.log(`  SKIP (MVP): ${contractName} [${key}] — deferred; ref stays address(0)`);
+      return ZERO_ADDRESS;
+    }
     if (addresses[key] && addresses[key] !== ZERO_ADDRESS) {
       const code = await rawProvider.getCode(addresses[key]);
       if (code && code !== "0x" && code.length > 2) {
@@ -1106,6 +1140,14 @@ async function main() {
     setter: string,
     targetAddr: string,
   ): Promise<void> {
+    // Slim-deploy safety: if either side of the wire is undeployed (deferred
+    // module ⇒ undefined/zero address), skip silently. Every CORE wire has both
+    // sides present, so this only ever short-circuits an optional feature.
+    if (!contractAddr || contractAddr === ZERO_ADDRESS ||
+        !targetAddr || targetAddr === ZERO_ADDRESS) {
+      console.log(`  SKIP (deferred/unwired): ${label}`);
+      return;
+    }
     const current = await readAddr(contractAddr, getter);
     if (current === targetAddr.toLowerCase()) {
       console.log(`  OK (already set): ${label}`);
@@ -1221,12 +1263,24 @@ async function main() {
   );
 
   // ── ClaimValidator: setZKVerifier(zkVerifier) ──
-  await wireIfNeeded(
-    "ClaimValidator.zkVerifier",
-    "DatumClaimValidator", addresses.claimValidator,
-    "zkVerifier", "setZKVerifier",
-    addresses.zkVerifier,
-  );
+  // DORMANT BY DEFAULT: the claim-bound ZK predicate slot
+  // (DatumClaimValidator._verifyClaimPredicate) is a general, optional tool but
+  // has no production circuit/MPC ceremony for the current deploy, and its
+  // reference predicate (interest/stake) is shelved with the second-price
+  // auction. Leaving zkVerifier UNWIRED makes every campaign non-ZK regardless
+  // of requiresZkProof. Wire it (with the matching VK) only when a concrete
+  // predicate is greenlit: re-run with WIRE_ZK_PREDICATE=1.
+  // See docs/ZK-PREDICATE-DESIGN.md.
+  if (process.env.WIRE_ZK_PREDICATE === "1") {
+    await wireIfNeeded(
+      "ClaimValidator.zkVerifier",
+      "DatumClaimValidator", addresses.claimValidator,
+      "zkVerifier", "setZKVerifier",
+      addresses.zkVerifier,
+    );
+  } else {
+    console.log("  SKIP: ClaimValidator.setZKVerifier — ZK predicate dormant (set WIRE_ZK_PREDICATE=1 to enable)");
+  }
 
   // ── ClaimValidator.setStakeRoot(stakeRoot) — V1 PRIMARY oracle ──
   // Settable by owner pre-plumbing-lock; production oracle for the
@@ -1259,7 +1313,7 @@ async function main() {
   // For testnet: deployer is the sole reporter, threshold = 1. Mainnet
   // adds external parties via addReporter before launch, then setThreshold
   // to a real N-of-M (e.g., 3-of-5).
-  {
+  if (addresses.stakeRoot) {
     const v1Iface = new ethers.Interface([
       "function isReporter(address) view returns (bool)",
       "function threshold() view returns (uint256)",
@@ -1300,7 +1354,7 @@ async function main() {
   // Reads circuits/identity-setVK-calldata.json produced by
   // scripts/setup-zk-identity.mjs. Skips with WARNING if absent or if VK
   // already set (lock-once).
-  {
+  if (addresses.identityVerifier) {
     const vkCalldataPath = path.join(__dirname, "..", "circuits", "identity-setVK-calldata.json");
     const idIface = new ethers.Interface([
       "function vkSet() view returns (bool)",
@@ -1329,7 +1383,7 @@ async function main() {
   // ── ZKVerifier: setVerifyingKey (Groth16 VK from trusted setup) ──
   // Reads circuits/setVK-calldata.json produced by `node scripts/setup-zk.mjs`.
   // Skips if vkSet is already true (idempotent) or if calldata file is absent.
-  {
+  if (addresses.zkVerifier) {
     const vkCalldataPath = path.join(__dirname, "..", "circuits", "setVK-calldata.json");
     // Path A circuit (impression.circom) has 7 public inputs → 8 IC points
     // (IC0..IC7). Must match DatumZKVerifier.setVerifyingKey signature.
@@ -1405,7 +1459,7 @@ async function main() {
   // Re-apply commit-reveal phases. The GovernanceV2 constructor already sets
   // 14400/14400; this call is a no-op when the on-chain values already match
   // but lets per-deploy tuning happen here without rewriting the constructor.
-  {
+  if (addresses.governanceV2) {
     const govIface = new ethers.Interface([
       "function commitBlocks() view returns (uint64)",
       "function revealBlocks() view returns (uint64)",
@@ -1570,7 +1624,7 @@ async function main() {
     "rateLimiter", "setRateLimiter",
     addresses.settlementRateLimiter,
   );
-  {
+  if (addresses.settlementRateLimiter) {
     const iface = new ethers.Interface([
       "function rlWindowBlocks() view returns (uint256)",
       "function setRateLimits(uint256,uint256)",
@@ -1789,7 +1843,7 @@ async function main() {
 
   // #3: PublisherGovernance.advertiserClaimBond — 1 DOT default (10^10 planck).
   //     Governance can re-tune later. 0 = track disabled.
-  {
+  if (addresses.publisherGovernance) {
     const govIface = new ethers.Interface([
       "function advertiserClaimBond() view returns (uint256)",
       "function setAdvertiserClaimBond(uint256)",
@@ -1814,7 +1868,7 @@ async function main() {
   // #5: Flip enforcePow ON at deploy. Defaults are sane (256 hashes @ easy band).
   // `enforcePow` lives on DatumPowEngine (read by ClaimValidator via
   // IDatumPowEngine.enforcePow()), not on Settlement.
-  {
+  if (addresses.powEngine) {
     const powIface = new ethers.Interface([
       "function enforcePow() view returns (bool)",
       "function setEnforcePow(bool)",
@@ -2280,8 +2334,21 @@ async function main() {
     if (cur) {
       console.log("  OK (already locked): Campaigns.bootstrapped = true");
     } else {
-      await sendCall(addresses.campaigns, ["function lockBootstrap()"], "lockBootstrap", []);
-      console.log("  SET: Campaigns.lockBootstrap()");
+      // lockBootstrap is whenOpenGovPhase-gated (router must be set AND
+      // router.phase()==2). Pre-OpenGov it reverts ("router-unset"/"not-opengov"),
+      // so only fire it once the ladder reaches OpenGov — same posture as the
+      // lockPlumbing block below. On a fresh Admin-phase deploy this is a no-op;
+      // governance fires it later as a cypherpunk commitment.
+      const phaseIface = new ethers.Interface(["function phase() view returns (uint8)"]);
+      const phaseVal = ethers.AbiCoder.defaultAbiCoder().decode(["uint8"],
+        await rawProvider.call({ to: addresses.governanceRouter, data: phaseIface.encodeFunctionData("phase") })
+      )[0];
+      if (Number(phaseVal) === 2) {
+        await sendCall(addresses.campaigns, ["function lockBootstrap()"], "lockBootstrap", []);
+        console.log("  SET: Campaigns.lockBootstrap()");
+      } else {
+        console.log(`  SKIP: Campaigns.lockBootstrap() — phase=${phaseVal} (whenOpenGovPhase; fires at OpenGov=2)`);
+      }
     }
   }
 
@@ -2298,6 +2365,10 @@ async function main() {
   //     `plumbingLocked()` read short-circuits re-runs. Must also run BEFORE
   //     ownership transfer to Timelock (deployer is still the owner here).
   async function lockPlumbingIfNeeded(label: string, addr: string): Promise<void> {
+    if (!addr || addr === ZERO_ADDRESS) {
+      console.log(`  SKIP (deferred): ${label}.lockPlumbing`);
+      return;
+    }
     const iface = new ethers.Interface([
       "function plumbingLocked() view returns (bool)",
       "function lockPlumbing()",
@@ -2510,6 +2581,10 @@ async function main() {
     _contractName: string,
     contractAddr: string,
   ): Promise<void> {
+    if (!contractAddr || contractAddr === ZERO_ADDRESS) {
+      console.log(`  SKIP (deferred): ${label} ownership transfer`);
+      return;
+    }
     const currentOwner = await readAddr(contractAddr, "owner");
     if (currentOwner === addresses.timelock.toLowerCase()) {
       console.log(`  OK (already transferred): ${label}`);
@@ -2593,6 +2668,10 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   logStep("Wiring ParameterGovernance whitelist + ownership for FP contracts");
+
+  if (!addresses.parameterGovernance) {
+    console.log("  SKIP (MVP/slim): ParameterGovernance not deployed — no param-gov whitelist or ownership migration.");
+  } else {
 
   // Catalog of governable parameter setters. Keep this in sync with the
   // webapp's parameterCatalog.ts so the UI can render structured propose forms.
@@ -2770,6 +2849,7 @@ async function main() {
       ["function bootstrapAcceptOwnership(address)"], "bootstrapAcceptOwnership", [targetAddr]);
     console.log(`  ACCEPTED: ParameterGovernance now owns ${targetKey}`);
   }
+  } // end if (addresses.parameterGovernance)
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 4: Post-deploy validation
@@ -2838,7 +2918,8 @@ async function main() {
   await check("Lifecycle.settlementContract", await readAddr(addresses.campaignLifecycle, "settlementContract"), addresses.settlement);
 
   // GovernanceV2 (GovernanceHelper + GovernanceSlash merged inline in alpha-4)
-  await check("GovernanceV2.lifecycle", await readAddr(addresses.governanceV2, "lifecycle"), addresses.campaignLifecycle);
+  if (addresses.governanceV2)
+    await check("GovernanceV2.lifecycle", await readAddr(addresses.governanceV2, "lifecycle"), addresses.campaignLifecycle);
 
   // GovernanceRouter (Phase 0 — admin functions inline, deployer is initial governor)
   await check("GovernanceRouter.campaigns", await readAddr(addresses.governanceRouter, "campaigns"), addresses.campaigns);
@@ -2849,7 +2930,8 @@ async function main() {
   // ClaimValidator
   await check("ClaimValidator.campaigns", await readAddr(addresses.claimValidator, "campaigns"), addresses.campaigns);
   await check("ClaimValidator.publishers", await readAddr(addresses.claimValidator, "publishers"), addresses.publishers);
-  await check("ClaimValidator.zkVerifier", await readAddr(addresses.claimValidator, "zkVerifier"), addresses.zkVerifier);
+  if (addresses.zkVerifier)
+    await check("ClaimValidator.zkVerifier", await readAddr(addresses.claimValidator, "zkVerifier"), addresses.zkVerifier);
 
   // TokenRewardVault
   await check("Settlement.tokenRewardVault", await readAddr(addresses.settlement, "tokenRewardVault"), addresses.tokenRewardVault);
@@ -2857,21 +2939,27 @@ async function main() {
   await check("TokenRewardVault.settlement", await readAddr(addresses.tokenRewardVault, "settlement"), addresses.settlement);
 
   // FP-1+FP-4: PublisherStake
-  await check("PublisherStake.settlementContract", await readAddr(addresses.publisherStake, "settlementContract"), addresses.settlement);
-  await check("PublisherStake.slashContract", await readAddr(addresses.publisherStake, "slashContract"), addresses.publisherGovernance);
-  await check("Settlement.publisherStake", await readAddr(addresses.settlement, "publisherStake"), addresses.publisherStake);
+  if (addresses.publisherStake) {
+    await check("PublisherStake.settlementContract", await readAddr(addresses.publisherStake, "settlementContract"), addresses.settlement);
+    await check("PublisherStake.slashContract", await readAddr(addresses.publisherStake, "slashContract"), addresses.publisherGovernance);
+    await check("Settlement.publisherStake", await readAddr(addresses.settlement, "publisherStake"), addresses.publisherStake);
+  }
 
   // FP-2: ChallengeBonds
-  await check("ChallengeBonds.campaignsContract", await readAddr(addresses.challengeBonds, "campaignsContract"), addresses.campaigns);
-  await check("ChallengeBonds.lifecycleContract", await readAddr(addresses.challengeBonds, "lifecycleContract"), addresses.campaignLifecycle);
-  await check("ChallengeBonds.governanceContract", await readAddr(addresses.challengeBonds, "governanceContract"), addresses.publisherGovernance);
-  await check("Campaigns.challengeBonds", await readAddr(addresses.campaigns, "challengeBonds"), addresses.challengeBonds);
-  await check("Lifecycle.challengeBonds", await readAddr(addresses.campaignLifecycle, "challengeBonds"), addresses.challengeBonds);
+  if (addresses.challengeBonds) {
+    await check("ChallengeBonds.campaignsContract", await readAddr(addresses.challengeBonds, "campaignsContract"), addresses.campaigns);
+    await check("ChallengeBonds.lifecycleContract", await readAddr(addresses.challengeBonds, "lifecycleContract"), addresses.campaignLifecycle);
+    await check("ChallengeBonds.governanceContract", await readAddr(addresses.challengeBonds, "governanceContract"), addresses.publisherGovernance);
+    await check("Campaigns.challengeBonds", await readAddr(addresses.campaigns, "challengeBonds"), addresses.challengeBonds);
+    await check("Lifecycle.challengeBonds", await readAddr(addresses.campaignLifecycle, "challengeBonds"), addresses.challengeBonds);
+  }
 
   // ClickRegistry (CPC fraud prevention)
-  await check("ClickRegistry.relay", await readAddr(addresses.clickRegistry, "relay"), addresses.relay);
-  await check("ClickRegistry.settlement", await readAddr(addresses.clickRegistry, "settlement"), addresses.settlement);
-  await check("Settlement.clickRegistry", await readAddr(addresses.settlement, "clickRegistry"), addresses.clickRegistry);
+  if (addresses.clickRegistry) {
+    await check("ClickRegistry.relay", await readAddr(addresses.clickRegistry, "relay"), addresses.relay);
+    await check("ClickRegistry.settlement", await readAddr(addresses.clickRegistry, "settlement"), addresses.settlement);
+    await check("Settlement.clickRegistry", await readAddr(addresses.settlement, "clickRegistry"), addresses.clickRegistry);
+  }
 
   // Alpha-4: NullifierRegistry + Reputation merged into Settlement (no separate checks needed)
 
@@ -2898,9 +2986,34 @@ async function main() {
   // T1-B: ParameterGovernance — standalone, no cross-contract wiring needed at deploy time
   // (ownership transfer to ParameterGovernance happens per-contract via governance proposals)
 
-  // ── Validate all 21 addresses present and non-zero ──
+  // ── Settlement.validateConfiguration(): all settlement-critical refs wired
+  //    and the nullifier window set. Optional modules (publishers,
+  //    tokenRewardVault, publisherStake, clickRegistry, attestationVerifier,
+  //    rateLimiter, reputation, powEngine) report as disabled, not missing —
+  //    so this passes in MVP slim mode too. ──
+  {
+    const vcIface = new ethers.Interface([
+      "function validateConfiguration() view returns (bool valid, string missingField)",
+    ]);
+    const vcRaw = await rawProvider.call({
+      to: addresses.settlement,
+      data: vcIface.encodeFunctionData("validateConfiguration"),
+    });
+    const [vcOk, vcMissing] = ethers.AbiCoder.defaultAbiCoder().decode(["bool", "string"], vcRaw);
+    if (vcOk) {
+      console.log("  OK: Settlement.validateConfiguration() — all required refs wired");
+    } else {
+      console.error(`  FAIL: Settlement.validateConfiguration() — missing: ${vcMissing}`);
+      valid = false;
+    }
+  }
+
+  // ── Validate required addresses present and non-zero ──
+  // MVP slim mode validates only the core settlement spine; the full deploy
+  // validates the entire roster.
+  const VALIDATE_KEYS: readonly string[] = MVP ? Array.from(MVP_CORE_KEYS) : REQUIRED_KEYS;
   logStep("Checking all addresses present");
-  for (const key of REQUIRED_KEYS) {
+  for (const key of VALIDATE_KEYS) {
     if (!addresses[key] || addresses[key] === ZERO_ADDRESS) {
       console.error(`  MISSING: ${key}`);
       valid = false;
@@ -2942,8 +3055,8 @@ async function main() {
   // ═══════════════════════════════════════════════════════════════════════════
 
   console.log("\n=== DATUM Alpha-5 Deployment Complete ===\n");
-  console.log("21 contracts deployed and wired:\n");
-  for (const key of REQUIRED_KEYS) {
+  console.log(`${VALIDATE_KEYS.length} contracts deployed and wired${MVP ? " (MVP slim — core settlement spine)" : ""}:\n`);
+  for (const key of VALIDATE_KEYS) {
     console.log(`  ${key.padEnd(24)} ${addresses[key]}`);
   }
   console.log(`\n  network                 ${addresses.network}`);

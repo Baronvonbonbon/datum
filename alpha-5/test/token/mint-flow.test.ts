@@ -5,12 +5,10 @@
 //   2. Deploy DatumMintAuthority (issuer of the asset)
 //   3. Deploy DatumWrapper (mint-gated to authority)
 //   4. Deploy DatumVesting (5M founder allocation)
-//   5. Deploy DatumBootstrapPool (1M house-ad pool)
-//   6. Wire mint authority addresses
-//   7. Simulate settlement-driven mint
-//   8. Test wrap/unwrap
-//   9. Test vesting cliff + release
-//  10. Test bootstrap claim (one-time per address, depletion behaviour)
+//   5. Wire mint authority addresses
+//   6. Simulate settlement-driven mint
+//   7. Test wrap/unwrap
+//   8. Test vesting cliff + release
 
 import { expect } from "chai";
 import { ethers } from "hardhat";
@@ -19,8 +17,6 @@ import {
   DatumMintAuthority,
   DatumWrapper,
   DatumVesting,
-  DatumBootstrapPool,
-  MockCampaigns,
 } from "../../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { mineBlocks } from "../helpers/mine";
@@ -29,8 +25,6 @@ const ASSET_ID = 31337n;                         // Cypherpunk vanity ID
 const DECIMALS = 10n;
 const UNIT = 10n ** DECIMALS;
 const FOUNDER_ALLOC = 5_000_000n * UNIT;
-const BOOTSTRAP_RESERVE = 1_000_000n * UNIT;
-const BOOTSTRAP_PER_ADDR = 3n * UNIT;
 const ONE_YEAR = 365n * 24n * 60n * 60n;
 const FOUR_YEARS = 4n * ONE_YEAR;
 
@@ -40,9 +34,6 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
   let authority: DatumMintAuthority;
   let wrapper: DatumWrapper;
   let vesting: DatumVesting;
-  let bootstrap: DatumBootstrapPool;
-  let mockCampaigns: MockCampaigns;
-  const HOUSE_AD_CAMPAIGN_ID = 1n;
 
   let deployer: HardhatEthersSigner;        // initial owner / will become founder vesting beneficiary
   let founder: HardhatEthersSigner;         // vesting beneficiary
@@ -50,10 +41,9 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
   let alice: HardhatEthersSigner;           // user
   let bob: HardhatEthersSigner;             // publisher
   let carol: HardhatEthersSigner;           // advertiser
-  let dave: HardhatEthersSigner;            // bootstrap recipient
 
   before(async function () {
-    [deployer, founder, settlement, alice, bob, carol, dave] = await ethers.getSigners();
+    [deployer, founder, settlement, alice, bob, carol] = await ethers.getSigners();
 
     // ── 1. AssetHubPrecompileMock ───────────────────────────────────────────
     const PrecompileF = await ethers.getContractFactory("AssetHubPrecompileMock");
@@ -87,21 +77,10 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
     const VestingF = await ethers.getContractFactory("DatumVesting");
     vesting = await VestingF.deploy(founder.address, await authority.getAddress(), startTime);
 
-    // ── 5. DatumBootstrapPool ───────────────────────────────────────────────
-    const BootstrapF = await ethers.getContractFactory("DatumBootstrapPool");
-    bootstrap = await BootstrapF.deploy(settlement.address, await authority.getAddress());
-
-    // M3-fix: wire a MockCampaigns w/ the house-ad campaign at L1.
-    const MockCampaignsF = await ethers.getContractFactory("MockCampaigns");
-    mockCampaigns = await MockCampaignsF.deploy();
-    await mockCampaigns.setCampaignAssuranceLevel(HOUSE_AD_CAMPAIGN_ID, 1);
-    await bootstrap.setCampaigns(await mockCampaigns.getAddress());
-
-    // ── 6. Wire the mint authority ──────────────────────────────────────────
+    // ── 5. Wire the mint authority ──────────────────────────────────────────
     await authority.setWrapper(await wrapper.getAddress());
     await authority.setSettlement(settlement.address);
     await authority.setVesting(await vesting.getAddress());
-    await authority.setBootstrapPool(await bootstrap.getAddress());
   });
 
   describe("Deployment + wiring", function () {
@@ -295,79 +274,9 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
     });
   });
 
-  describe("Bootstrap house ad pool", function () {
-
-    it("pool starts at BOOTSTRAP_RESERVE", async function () {
-      expect(await bootstrap.bootstrapRemaining()).to.equal(BOOTSTRAP_RESERVE);
-      expect(await bootstrap.bootstrapPerAddress()).to.equal(BOOTSTRAP_PER_ADDR);
-    });
-
-    it("settlement can claim bonus for a new address", async function () {
-      const before = await wrapper.balanceOf(dave.address);
-      const tx = await bootstrap.connect(settlement).claim.staticCall(dave.address, HOUSE_AD_CAMPAIGN_ID);
-      expect(tx).to.equal(BOOTSTRAP_PER_ADDR);
-
-      await bootstrap.connect(settlement).claim(dave.address, HOUSE_AD_CAMPAIGN_ID);
-
-      expect(await wrapper.balanceOf(dave.address)).to.equal(before + BOOTSTRAP_PER_ADDR);
-      expect(await bootstrap.hasReceivedBootstrap(dave.address)).to.equal(true);
-      expect(await bootstrap.bootstrapRemaining()).to.equal(BOOTSTRAP_RESERVE - BOOTSTRAP_PER_ADDR);
-    });
-
-    it("second claim for the same address pays nothing (no-op)", async function () {
-      const before = await wrapper.balanceOf(dave.address);
-      const result = await bootstrap.connect(settlement).claim.staticCall(dave.address, HOUSE_AD_CAMPAIGN_ID);
-      expect(result).to.equal(0);
-
-      await bootstrap.connect(settlement).claim(dave.address, HOUSE_AD_CAMPAIGN_ID);
-      expect(await wrapper.balanceOf(dave.address)).to.equal(before);
-    });
-
-    it("non-settlement caller is rejected", async function () {
-      await expect(bootstrap.connect(alice).claim(bob.address, HOUSE_AD_CAMPAIGN_ID)).to.be.revertedWith("E18");
-    });
-
-    it("zero address is a silent no-op (does not corrupt state)", async function () {
-      const result = await bootstrap.connect(settlement).claim.staticCall(ethers.ZeroAddress, HOUSE_AD_CAMPAIGN_ID);
-      expect(result).to.equal(0);
-      // Calling it should also not revert
-      await bootstrap.connect(settlement).claim(ethers.ZeroAddress, HOUSE_AD_CAMPAIGN_ID);
-    });
-
-    it("M3: refuses to dispense if house-ad campaign is below L1", async function () {
-      const newRecipient = (await ethers.getSigners())[15];
-      const lowCampaignId = 999n;
-      await mockCampaigns.setCampaignAssuranceLevel(lowCampaignId, 0);
-      const before = await wrapper.balanceOf(newRecipient.address);
-      const result = await bootstrap.connect(settlement).claim.staticCall(newRecipient.address, lowCampaignId);
-      expect(result).to.equal(0);
-      await bootstrap.connect(settlement).claim(newRecipient.address, lowCampaignId);
-      expect(await wrapper.balanceOf(newRecipient.address)).to.equal(before);
-      expect(await bootstrap.hasReceivedBootstrap(newRecipient.address)).to.equal(false);
-    });
-
-    it("owner can adjust bootstrapPerAddress within hard bounds", async function () {
-      await bootstrap.setBootstrapPerAddress(5n * UNIT);
-      expect(await bootstrap.bootstrapPerAddress()).to.equal(5n * UNIT);
-
-      await expect(bootstrap.setBootstrapPerAddress(11n * UNIT)).to.be.revertedWith("above max");
-      await expect(bootstrap.setBootstrapPerAddress(0n)).to.be.revertedWith("below min");
-
-      // Reset for downstream tests
-      await bootstrap.setBootstrapPerAddress(BOOTSTRAP_PER_ADDR);
-    });
-
-    it("estimatedRecipientsRemaining reflects pool state", async function () {
-      const remaining = await bootstrap.bootstrapRemaining();
-      const per = await bootstrap.bootstrapPerAddress();
-      const expected = remaining / per;
-      expect(await bootstrap.estimatedRecipientsRemaining()).to.equal(expected);
-    });
-  });
-
   describe("Total minted tracking", function () {
 
-    it("totalMinted reflects sum of settlement + vesting + bootstrap", async function () {
+    it("totalMinted reflects sum of settlement + vesting", async function () {
       // Hard to assert exact value across the entire test sequence, but
       // confirm totalMinted is non-zero and tracking with wrapper supply
       // plus any unwrapped canonical that's now in user hands.
@@ -384,7 +293,7 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
 
   describe("CB6-extension: CAT_TOKEN_MINT pause wiring", function () {
 
-    it("setPauseRegistry is lock-once and gates all three mint paths", async function () {
+    it("setPauseRegistry is lock-once and gates both mint paths", async function () {
       // Fresh scaffold so we don't disturb the running fixture above.
       const PrecompileF = await ethers.getContractFactory("AssetHubPrecompileMock");
       const localPrecompile = await PrecompileF.deploy();
@@ -422,17 +331,11 @@ describe("DATUM token scaffold — end-to-end mint flow", function () {
       await pauseReg.connect(deployer).pauseFastCategories(8);
       expect(await pauseReg.pausedTokenMint()).to.equal(true);
 
-      // All three mint paths revert E62 while paused.
+      // Both mint paths revert E62 while paused.
       await expect(
         localAuth.connect(settlement).mintForSettlement(
           alice.address, UNIT, bob.address, 0n, carol.address, 0n
         )
-      ).to.be.revertedWith("E62");
-
-      // mintForBootstrap path — wire a stand-in pool address to assert revert.
-      await localAuth.setBootstrapPool(dave.address);
-      await expect(
-        localAuth.connect(dave).mintForBootstrap(alice.address, UNIT)
       ).to.be.revertedWith("E62");
 
       // mintForVesting path — same.

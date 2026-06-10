@@ -148,10 +148,7 @@ describe("Audit H-3: Settlement L1+ blocklist fail-closed", function () {
     const claimHash = ethers.keccak256(hash);
     return {
       campaignId: cid, publisher: pub, eventCount, rateWei: CPM, actionType: 0,
-      clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prev, claimHash,
-      zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash,
+      proof: [],
     };
   }
 
@@ -537,9 +534,10 @@ describe("Audit M-8: minInterestAgeBlocks", function () {
   });
 
   it("fresh interest commitment rejected by ClaimValidator within age window", async function () {
-    // Drive _verifyPathA indirectly: the InterestCommitments contract records
-    // lastSetBlock; if it's < block.number - minInterestAgeBlocks, _verifyPathA
-    // returns false. Exposed as validateClaim returning (false, 16, ...).
+    // Drive _referencePredicateSuffix indirectly: the InterestCommitments
+    // contract records lastSetBlock; if it's < block.number - minInterestAgeBlocks,
+    // the predicate adapter returns ok=false and _verifyClaimPredicate returns
+    // false. Exposed as validateClaim returning (false, 16, ...).
     // Full flow tested in zk-path-a.test.ts; here we just confirm the wiring
     // exists by reading the lastSetBlock getter on a fresh commitment.
     await fundSigners();

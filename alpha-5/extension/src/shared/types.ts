@@ -445,7 +445,6 @@ export interface ContractAddresses {
   councilBlocklistCurator?: string;
   wrapper?: string;             // DatumWrapper (WDATUM ERC-20)
   mintAuthority?: string;       // DatumMintAuthority (canonical DATUM bridge)
-  bootstrapPool?: string;       // DatumBootstrapPool (house-ad bonus)
   vesting?: string;             // DatumVesting (founder + ops vesting)
   feeShare?: string;            // DatumFeeShare (stake WDATUM, earn DOT)
 }

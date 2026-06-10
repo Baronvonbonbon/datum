@@ -14,6 +14,7 @@ import { parseDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, isSubstrate, mineBlocks } from "./helpers/mine";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
+import { contentHashClaims } from "./helpers/slimClaim";
 
 // Settlement tests for alpha-2:
 // S1-S8: core settlement, payment split, rejection
@@ -68,20 +69,12 @@ describe("DatumSettlement", function () {
         [campaignId, publisherAddr, userAddr, impressionsPerClaim, baseCpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
       );
       claims.push({
-        campaignId,
         publisher: publisherAddr,
         eventCount: impressionsPerClaim,
         rateWei: baseCpm,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce,
-        previousClaimHash: prevHash,
-        claimHash: hash,
-        zkProof: new Array(8).fill(ethers.ZeroHash),
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+        proof: [],                 // SLIM (#2b): plain view claim — empty sidecar
+        nonce,                     // JS-only bookkeeping (signing reads claims[i].nonce)
       });
       prevHash = hash;
     }
@@ -293,15 +286,7 @@ describe("DatumSettlement", function () {
       eventCount: 1000n,
       rateWei: highCpm,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: ethers.ZeroHash,
-      claimHash: hash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+      proof: [],
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -319,43 +304,29 @@ describe("DatumSettlement", function () {
     expect(result.rejectedCount).to.equal(1n);
   });
 
-  // S6: Genesis claim with non-zero previousClaimHash is rejected
-  it("S6: genesis claim with non-zero previousClaimHash is rejected", async function () {
-    const cid = await createTestCampaign();
-    const nonZeroPrev = ethers.keccak256(ethers.toUtf8Bytes("not-zero"));
-    const hash = ethersKeccakAbi(
-      ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32", "bytes32"],
-      [cid, publisher.address, user.address, 1000n, BID_CPM, 0, ethers.ZeroHash, 1n, nonZeroPrev, ethers.ZeroHash]
-    );
-    const claims = [{
-      campaignId: cid,
-      publisher: publisher.address,
-      eventCount: 1000n,
-      rateWei: BID_CPM,
-      actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce: 1n,
-      previousClaimHash: nonZeroPrev,
-      claimHash: hash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
-    }];
-    const batch = { user: user.address, campaignId: cid, claims };
-    const result = await settlement.connect(user).settleClaims.staticCall([batch]);
-    expect(result.rejectedCount).to.equal(1n);
-  });
-
-  // S7: Tampered claimHash is rejected
-  it("S7: tampered claimHash is rejected", async function () {
+  // S6 (SLIM #2): previousClaimHash is derived on-chain now (read from storage),
+  // not supplied on the claim — so a garbage value in the now-ignored field has
+  // no effect and the genesis claim settles normally.
+  it("S6: supplied previousClaimHash is ignored (derived on-chain)", async function () {
     const cid = await createTestCampaign();
     const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
-    claims[0].claimHash = ethers.keccak256(ethers.toUtf8Bytes("tampered"));
+    (claims[0] as any).previousClaimHash = ethers.keccak256(ethers.toUtf8Bytes("not-zero"));
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
-    expect(result.rejectedCount).to.equal(1n);
+    expect(result.settledCount).to.equal(1n);
+    expect(result.rejectedCount).to.equal(0n);
+  });
+
+  // S7 (SLIM #2): claimHash is recomputed on-chain, not supplied — a tampered
+  // value in the now-ignored field has no effect (there's no equality check).
+  it("S7: supplied claimHash is ignored (recomputed on-chain)", async function () {
+    const cid = await createTestCampaign();
+    const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+    (claims[0] as any).claimHash = ethers.keccak256(ethers.toUtf8Bytes("tampered"));
+    const batch = { user: user.address, campaignId: cid, claims };
+    const result = await settlement.connect(user).settleClaims.staticCall([batch]);
+    expect(result.settledCount).to.equal(1n);
+    expect(result.rejectedCount).to.equal(0n);
   });
 
   // S8: Publisher can withdraw from PaymentVault
@@ -393,15 +364,7 @@ describe("DatumSettlement", function () {
       eventCount: 0n,
       rateWei: BID_CPM,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: ethers.ZeroHash,
-      claimHash: hash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
-        powNonce: ethers.ZeroHash,
+      proof: [],
     }];
     const batch = { user: user.address, campaignId: cid, claims };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
@@ -409,8 +372,10 @@ describe("DatumSettlement", function () {
     expect(result.settledCount).to.equal(0n);
   });
 
-  // Gap: gap at nonce 3 of 5 — only 1-2 settle
-  it("Gap: gap at nonce 3 of 5 — only 1-2 settle", async function () {
+  // Gap (SLIM #2): nonces are assigned sequentially on-chain; the per-claim
+  // nonce is no longer supplied, so a "gap" in the (ignored) field can't exist —
+  // all 5 settle in order.
+  it("Gap: supplied nonces are ignored — all 5 settle sequentially", async function () {
     const cid = await createTestCampaign();
     const all5 = buildClaimChain(cid, publisher.address, user.address, 5, BID_CPM, 100n);
     const gapped = [...all5];
@@ -418,8 +383,8 @@ describe("DatumSettlement", function () {
 
     const batch = { user: user.address, campaignId: cid, claims: gapped };
     const result = await settlement.connect(user).settleClaims.staticCall([batch]);
-    expect(result.settledCount).to.equal(2n);
-    expect(result.rejectedCount).to.equal(3n);
+    expect(result.settledCount).to.equal(5n);
+    expect(result.rejectedCount).to.equal(0n);
   });
 
   // Off-chain claimHash matches
@@ -528,6 +493,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -542,7 +508,7 @@ describe("DatumSettlement", function () {
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
     });
 
-    it("R2: relay with expired deadline reverts E29", async function () {
+    it("R2: relay with expired deadline is skipped gracefully (not reverted)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const deadline = (await ethers.provider.getBlockNumber()) - 1;
@@ -553,6 +519,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -560,9 +527,14 @@ describe("DatumSettlement", function () {
         advertiserSig: "0x",
       };
 
-      await expect(
-        relay.connect(publisher).settleClaimsFor([signedBatch])
-      ).to.be.revertedWith("E29");
+      // Graceful skip: an expired batch must not DoS a multi-user call — it's
+      // counted as rejected and emits BatchSkippedStale(reason=0).
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(relay.connect(publisher).settleClaimsFor([signedBatch]))
+        .to.emit(relay, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 0);
     });
 
     it("R3: relay with tampered signature reverts E31", async function () {
@@ -581,6 +553,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: tamperedSig,
@@ -604,6 +577,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -616,7 +590,7 @@ describe("DatumSettlement", function () {
       ).to.be.revertedWith("E31");
     });
 
-    it("R5: replay of settled batch rejects all claims", async function () {
+    it("R5: replay of settled batch is skipped gracefully (rejects all claims)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const deadline = (await ethers.provider.getBlockNumber()) + 200;
@@ -627,6 +601,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -637,9 +612,83 @@ describe("DatumSettlement", function () {
       await relay.connect(publisher).settleClaimsFor([signedBatch]);
       expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
 
-      const result = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
-      expect(result.settledCount).to.equal(0n);
-      expect(result.rejectedCount).to.equal(1n);
+      // SLIM (#2) + graceful skip: once settled, lastNonce advances and the
+      // signed firstNonce (1) no longer equals lastNonce+1, so the replayed
+      // batch is skipped (counted rejected, BatchSkippedStale reason=1) rather
+      // than reverting the whole call.
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([signedBatch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(relay.connect(publisher).settleClaimsFor([signedBatch]))
+        .to.emit(relay, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 1);
+    });
+
+    it("R-skip: a stale batch does NOT DoS valid sibling batches in the same call", async function () {
+      const cidGood = await createTestCampaign();
+      const cidStale = await createTestCampaign();
+      const good = buildClaimChain(cidGood, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const stale = buildClaimChain(cidStale, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const now = await ethers.provider.getBlockNumber();
+      const dlGood = now + 200;
+      const dlStale = now - 1; // already expired → graceful skip
+
+      const mk = async (cid: bigint, cl: any[], dl: number) => ({
+        user: user.address, campaignId: cid, claims: cl, deadlineBlock: dl,
+        firstNonce: cl[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: await signBatch(user, cid, cl, dl), publisherSig: "0x", advertiserSig: "0x",
+      });
+      const goodBatch = await mk(cidGood, good, dlGood);
+      const staleBatch = await mk(cidStale, stale, dlStale);
+
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([goodBatch, staleBatch]);
+      expect(res.settledCount).to.equal(1n);   // the live batch settled
+      expect(res.rejectedCount).to.equal(1n);  // the stale batch skipped (not a revert)
+
+      const pubBefore = await vault.publisherBalance(publisher.address);
+      await relay.connect(publisher).settleClaimsFor([goodBatch, staleBatch]);
+      expect(await vault.publisherBalance(publisher.address)).to.be.gt(pubBefore); // good batch paid out
+      expect(await settlement.lastNonce(user.address, cidGood, 0)).to.equal(1n);   // good chain advanced
+      expect(await settlement.lastNonce(user.address, cidStale, 0)).to.equal(0n);  // stale chain untouched
+    });
+
+    it("R-dup: duplicate same-chain batch in one call reverts E87 (no double-settle)", async function () {
+      const cid = await createTestCampaign();
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      const deadline = (await ethers.provider.getBlockNumber()) + 200;
+      const signature = await signBatch(user, cid, claims, deadline);
+      const sb = {
+        user: user.address, campaignId: cid, claims, deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: signature, publisherSig: "0x", advertiserSig: "0x",
+      };
+      // Regression: before the one-chain-per-call guard, submitting the SAME
+      // user-signed batch twice in one call settled it TWICE (settledCount=2) —
+      // an intra-call replay of one authorization. It must now revert E87.
+      await expect(
+        relay.connect(publisher).settleClaimsFor([sb, sb])
+      ).to.be.revertedWith("E87");
+    });
+
+    it("R-dup-ok: two different-chain batches in one call both settle", async function () {
+      const cidA = await createTestCampaign();
+      const cidB = await createTestCampaign();
+      const dl = (await ethers.provider.getBlockNumber()) + 200;
+      const mk = async (cid: bigint) => {
+        const cl = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+        return {
+          user: user.address, campaignId: cid, claims: cl, deadlineBlock: dl,
+          firstNonce: cl[0].nonce,
+          expectedRelaySigner: ethers.ZeroAddress, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+          userSig: await signBatch(user, cid, cl, dl), publisherSig: "0x", advertiserSig: "0x",
+        };
+      };
+      // Distinct (user, campaign, actionType) chains — no collision, both settle.
+      const res = await relay.connect(publisher).settleClaimsFor.staticCall([await mk(cidA), await mk(cidB)]);
+      expect(res.settledCount).to.equal(2n);
+      expect(res.rejectedCount).to.equal(0n);
     });
 
     it("R6: direct settleClaims still works after relay addition", async function () {
@@ -656,10 +705,13 @@ describe("DatumSettlement", function () {
 
     // Publisher co-signature tests
 
+    // SLIM-AUDIT-1: firstNonce is part of the relay-path attestation type so a
+    // cosig can't be replayed for an identical-content batch at the next nonce.
     const publisherAttestationTypes = {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
       ],
@@ -670,16 +722,15 @@ describe("DatumSettlement", function () {
       campaignId: bigint,
       userAddr: string,
       claims: any[],
-      deadlineBlock: bigint | number
+      deadlineBlock: bigint | number,
+      firstNonceOverride?: bigint
     ) {
       const domain = await getEIP712Domain();
-      const claimsHash = ethers.keccak256(ethers.solidityPacked(
-        claims.map(() => "bytes32"),
-        claims.map((c: any) => c.claimHash),
-      ));
+      const claimsHash = contentHashClaims(claims);
       const value = {
         campaignId,
         user: userAddr,
+        firstNonce: firstNonceOverride ?? BigInt(claims[0].nonce),
         claimsHash,
         deadlineBlock: BigInt(deadlineBlock),
       };
@@ -699,6 +750,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -725,6 +777,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -750,6 +803,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -780,6 +834,7 @@ describe("DatumSettlement", function () {
         campaignId: cid,
         claims,
         deadlineBlock: deadline,
+        firstNonce: claims[0].nonce,
         expectedRelaySigner: ethers.ZeroAddress,
         expectedAdvertiserRelaySigner: ethers.ZeroAddress,
         userSig: signature,
@@ -790,6 +845,57 @@ describe("DatumSettlement", function () {
       await expect(
         relay.connect(publisher).settleClaimsFor([signedBatch])
       ).to.be.revertedWith("E34");
+    });
+
+    it("R11 (SLIM-AUDIT-1): publisher cosig replayed at the next nonce window reverts E34", async function () {
+      const cid = await createTestCampaign();
+      const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 1000;
+      const userSig1 = await signBatch(user, cid, claims1, deadline);
+      const pubSig1 = await signPublisherAttestation(publisher, cid, user.address, claims1, deadline);
+
+      await relay.connect(publisher).settleClaimsFor([{
+        user: user.address,
+        campaignId: cid,
+        claims: claims1,
+        deadlineBlock: deadline,
+        firstNonce: claims1[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: userSig1,
+        publisherSig: pubSig1,
+        advertiserSig: "0x",
+      }]);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
+
+      // Identical claim CONTENT at the next nonce window. Slim claims carry no
+      // nonce/hash on the wire, so claimsHash is byte-identical to batch 1 —
+      // the user holds pubSig1 and signs the fresh user envelope themselves.
+      const claims2 = claims1.map((c) => ({ ...c, nonce: c.nonce + 1n }));
+      const userSig2 = await signBatch(user, cid, claims2, deadline);
+
+      const replayBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims: claims2,
+        deadlineBlock: deadline,
+        firstNonce: claims2[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: userSig2,
+        publisherSig: pubSig1, // replayed attestation from batch 1
+        advertiserSig: "0x",
+      };
+      await expect(
+        relay.connect(publisher).settleClaimsFor([replayBatch])
+      ).to.be.revertedWith("E34");
+
+      // Control: a FRESH attestation over the new firstNonce settles — the
+      // nonce anchor (not some other check) is what blocked the replay.
+      const pubSig2 = await signPublisherAttestation(publisher, cid, user.address, claims2, deadline);
+      await relay.connect(publisher).settleClaimsFor([{ ...replayBatch, publisherSig: pubSig2 }]);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(2n);
     });
   });
 
@@ -812,6 +918,7 @@ describe("DatumSettlement", function () {
       ClaimBatch: [
         { name: "user", type: "address" },
         { name: "campaignId", type: "uint256" },
+        { name: "firstNonce", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
         { name: "expectedRelaySigner", type: "address" },
@@ -820,10 +927,7 @@ describe("DatumSettlement", function () {
     };
 
     function hashClaims(claims: any[]): string {
-      return ethersKeccakAbi(
-        new Array(claims.length).fill("bytes32"),
-        claims.map((c) => c.claimHash)
-      );
+      return contentHashClaims(claims);
     }
 
     async function signDualBatch(
@@ -839,6 +943,7 @@ describe("DatumSettlement", function () {
       const value = {
         user: userAddr,
         campaignId,
+        firstNonce: claims[0].nonce,
         claimsHash: hashClaims(claims),
         deadlineBlock,
         expectedRelaySigner,
@@ -862,6 +967,7 @@ describe("DatumSettlement", function () {
       return {
         user: user.address,
         campaignId: cid,
+        firstNonce: claims[0].nonce,
         claims,
         deadlineBlock: dl,
         expectedRelaySigner,
@@ -971,25 +1077,31 @@ describe("DatumSettlement", function () {
       ).to.be.revertedWithCustomError(dualSig, "E83");
     });
 
-    it("D5: expired deadline reverts E81", async function () {
+    it("D5: expired deadline is skipped gracefully (not reverted)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       // A9: deadline is block.number — pick one already past.
       const expired = (await ethers.provider.getBlockNumber()) - 1;
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner, expired);
 
-      await expect(
-        dualSig.connect(other).settleSignedClaims([batch])
-      ).to.be.revertedWithCustomError(dualSig, "E81");
+      // Graceful skip: an expired dual-signed batch is counted as rejected and
+      // emits BatchSkippedStale(reason=0), without reverting the whole call.
+      const res = await dualSig.connect(other).settleSignedClaims.staticCall([batch]);
+      expect(res.settledCount).to.equal(0n);
+      expect(res.rejectedCount).to.equal(1n);
+      await expect(dualSig.connect(other).settleSignedClaims([batch]))
+        .to.emit(dualSig, "BatchSkippedStale")
+        .withArgs(user.address, cid, claims[0].nonce, 1n, 0);
     });
 
     it("D6: tampered claim list invalidates publisher sig (E82)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
       const batch = await makeDualSignedBatch(cid, claims, publisher, owner);
-      // Mutate claim's eventCount AFTER signing → claimsHash mismatch → bad sig
+      // SLIM (#2): claimsHash binds to slim claim *content* now, so mutate a
+      // real field (eventCount) AFTER signing → content hash mismatch → bad sig.
       const tamperedClaims = claims.map((c) => ({ ...c }));
-      tamperedClaims[0].claimHash = ethers.keccak256("0xdeadbeef");
+      tamperedClaims[0].eventCount = 2000n;
       const tamperedBatch = { ...batch, claims: tamperedClaims };
 
       await expect(
@@ -1083,7 +1195,11 @@ describe("DatumSettlement", function () {
   // Edge cases
   // =========================================================================
 
-  it("T2-1: replay same nonce is rejected", async function () {
+  // T2-1 (SLIM #2): the direct settleClaims path is user-authorized
+  // (msg.sender == user), so there is no signature to replay — a re-submission
+  // just settles again under the next sequential nonce. Replay protection for
+  // the *signed* gasless paths is the firstNonce anchor (see R5 / dual-sig).
+  it("T2-1: direct re-submission settles again under the next nonce", async function () {
     const cid = await createTestCampaign();
     const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
     const batch = { user: user.address, campaignId: cid, claims };
@@ -1091,9 +1207,8 @@ describe("DatumSettlement", function () {
     await settlement.connect(user).settleClaims([batch]);
     expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
 
-    const result = await settlement.connect(user).settleClaims.staticCall([batch]);
-    expect(result.settledCount).to.equal(0n);
-    expect(result.rejectedCount).to.equal(1n);
+    await settlement.connect(user).settleClaims([batch]);
+    expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(2n);
   });
 
   // =========================================================================
@@ -1134,7 +1249,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, proof: [] }],
       };
 
       const tx = await settlement.connect(user).settleClaims([batch2]);
@@ -1167,7 +1282,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, proof: [] }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);
@@ -1191,7 +1306,7 @@ describe("DatumSettlement", function () {
       const batch2 = {
         user: user.address,
         campaignId: cid,
-        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, clickSessionHash: ethers.ZeroHash, nonce, previousClaimHash: prevHash, claimHash: hash, zkProof: new Array(8).fill(ethers.ZeroHash), nullifier: ethers.ZeroHash, stakeRootUsed: ethers.ZeroHash, actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash], powNonce: ethers.ZeroHash }],
+        claims: [{ campaignId: cid, publisher: publisher.address, eventCount: 1000n, rateWei: BID_CPM, actionType: 0, proof: [] }],
       };
       const result = await settlement.connect(user).settleClaims.staticCall([batch2]);
       expect(result.settledCount).to.equal(1n);

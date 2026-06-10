@@ -5,12 +5,11 @@
 //   2. DatumMintAuthority (single bridge contract)
 //   3. DatumWrapper (WDATUM ERC-20)
 //   4. DatumVesting (5M founder allocation, 4y/1y cliff)
-//   5. DatumBootstrapPool (1M house-ad onboarding pool)
-//   6. DatumFeeShare (stake WDATUM, earn DOT)
+//   5. DatumFeeShare (stake WDATUM, earn DOT)
 //
 // Then wires:
 //   - Asset Hub asset registration (ID 31337 by default)
-//   - MintAuthority ← Wrapper, Vesting, BootstrapPool, Settlement
+//   - MintAuthority ← Wrapper, Vesting, Settlement
 //   - PaymentVault ← FeeShare (if PaymentVault address is provided)
 //   - Settlement ← MintAuthority (if Settlement address is provided)
 //   - DatumCouncil grant token = WDATUM (if Council address is provided)
@@ -40,7 +39,6 @@ interface DeployedAddresses {
   authority: string;
   wrapper: string;
   vesting: string;
-  bootstrapPool: string;
   feeShare: string;
   // Optional cross-wirings if existing alpha-4 contracts were available
   settlement?: string;
@@ -138,25 +136,9 @@ async function main() {
   console.log(`    Wired: MintAuthority.vesting = ${await vesting.getAddress()}`);
 
   // ─────────────────────────────────────────────────────────────────────────
-  // 5. DatumBootstrapPool (house-ad onboarding)
+  // 5. DatumFeeShare
   // ─────────────────────────────────────────────────────────────────────────
-  console.log("\n[5] Deploying DatumBootstrapPool (1M reserve, 3 WDATUM/addr)...");
-  // The pool needs a settlement caller. For devnet, we use the deployer if
-  // no real Settlement was passed, so the deployer can simulate house-ad claims.
-  const settlementCaller = existingSettlement ?? deployer.address;
-  const BootstrapF = await ethers.getContractFactory("DatumBootstrapPool");
-  const bootstrap = await BootstrapF.deploy(settlementCaller, await authority.getAddress());
-  await bootstrap.waitForDeployment();
-  console.log(`    DatumBootstrapPool:     ${await bootstrap.getAddress()}`);
-  console.log(`    Settlement caller:      ${settlementCaller}`);
-
-  await (await authority.setBootstrapPool(await bootstrap.getAddress())).wait();
-  console.log(`    Wired: MintAuthority.bootstrapPool = ${await bootstrap.getAddress()}`);
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // 6. DatumFeeShare
-  // ─────────────────────────────────────────────────────────────────────────
-  console.log("\n[6] Deploying DatumFeeShare (stake WDATUM, earn DOT)...");
+  console.log("\n[5] Deploying DatumFeeShare (stake WDATUM, earn DOT)...");
   const FeeShareF = await ethers.getContractFactory("DatumFeeShare");
   const feeShare = await FeeShareF.deploy(await wrapper.getAddress());
   await feeShare.waitForDeployment();
@@ -165,7 +147,7 @@ async function main() {
   // ─────────────────────────────────────────────────────────────────────────
   // Cross-wire with existing alpha-4 contracts (optional)
   // ─────────────────────────────────────────────────────────────────────────
-  console.log("\n[7] Cross-wiring with existing alpha-4 contracts (if provided)...");
+  console.log("\n[6] Cross-wiring with existing alpha-4 contracts (if provided)...");
 
   if (existingSettlement) {
     // alpha-4 EIP-170 carve-out: mintAuthority lives on DatumMintCoordinator,
@@ -225,7 +207,6 @@ async function main() {
     authority: await authority.getAddress(),
     wrapper: await wrapper.getAddress(),
     vesting: await vesting.getAddress(),
-    bootstrapPool: await bootstrap.getAddress(),
     feeShare: await feeShare.getAddress(),
     settlement: existingSettlement,
     paymentVault: existingPaymentVault,

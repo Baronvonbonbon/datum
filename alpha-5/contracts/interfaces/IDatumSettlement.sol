@@ -9,21 +9,33 @@ interface IDatumSettlement {
     // Structs
     // -------------------------------------------------------------------------
 
+    /// @dev SLIM (#2b): path-specific proof material for the rare ZK / click /
+    ///      remote-action / PoW claims. A plain view claim carries NO proof
+    ///      entry (empty array), so none of these ~480 bytes hit calldata. A
+    ///      claim that needs any of them carries exactly one entry.
+    struct ClaimProof {
+        bytes32    clickSessionHash; // type-1: keccak256(user, campaignId, impressionNonce)
+        bytes32    stakeRootUsed;    // Path A: stake-root the proof was generated against (also in claim-hash preimage)
+        bytes32    nullifier;        // FP-5: Poseidon(userSecret, campaignId, windowId)
+        bytes32    powNonce;         // #5: PoW solver output; keccak256(claimHash||powNonce) must satisfy target
+        bytes32[8] zkProof;          // Groth16/BN254: 8 × uint256 (256 bytes)
+        bytes32[3] actionSig;        // type-2: ECDSA [r, s, v-as-bytes32]
+    }
+
+    /// @dev SLIM (#2): the per-claim wire format. `campaignId` is carried once
+    ///      at the batch level; `nonce`, `previousClaimHash` and `claimHash`
+    ///      are derived on-chain (the contract assigns nonce = lastNonce+1,
+    ///      reads prevHash from storage, and recomputes claimHash) -- so they
+    ///      no longer travel in calldata or in the user's signature. Replay is
+    ///      bound by the signed-batch `firstNonce` anchored to lastNonce+1
+    ///      (see SignedClaimBatch). The path-specific proof material lives in an
+    ///      optional `proof` sidecar (#2b): empty for plain view claims.
     struct Claim {
-        uint256 campaignId;
         address publisher;
         uint256 eventCount;          // number of events (impressions, clicks, or actions)
         uint256 rateWei;          // clearing rate: per-1000 for view, flat per-event for click/action
         uint8   actionType;          // 0=view, 1=click, 2=remote-action
-        bytes32 clickSessionHash;    // type-1 only: keccak256(user, campaignId, impressionNonce); bytes32(0) for others
-        uint256 nonce;
-        bytes32 previousClaimHash;
-        bytes32 claimHash;
-        bytes32[8] zkProof;          // Groth16/BN254: 8 × uint256 (256 bytes); all-zero = no proof
-        bytes32 nullifier;           // FP-5: Poseidon(userSecret, campaignId, windowId); bytes32(0) = skip
-        bytes32 stakeRootUsed;       // Path A: stake-root the proof was generated against; bytes32(0) = skip stake gate
-        bytes32[3] actionSig;        // type-2 only: ECDSA [r, s, v-as-bytes32]; all-zero = no sig
-        bytes32 powNonce;            // #5: PoW solver output; keccak256(claimHash||powNonce) must satisfy target when enforcePow is on
+        ClaimProof[] proof;          // 0 entries = plain view; 1 entry = ZK/click/CPA/PoW material
     }
 
     struct ClaimBatch {
@@ -51,6 +63,9 @@ interface IDatumSettlement {
     struct SignedClaimBatch {
         address user;
         uint256 campaignId;
+        uint256 firstNonce;      // SLIM (#2): nonce assigned to claims[0]; must == on-chain lastNonce+1.
+                                 //   Replaces the per-claim nonce in the signed payload and anchors the
+                                 //   batch to chain state so a settled batch cannot be replayed.
         Claim[] claims;
         uint256 deadlineBlock;   // A9: block.number expiry — matches DatumRelay for unit-uniformity
         address expectedRelaySigner;            // A1: publisher's relay signer at sign time; address(0) = require strict publisher EOA sig
@@ -110,6 +125,7 @@ interface IDatumSettlement {
     function processVerifiedBatch(
         address user,
         uint256 campaignId,
+        uint256 firstNonce,
         Claim[] calldata claims
     ) external returns (SettlementResult memory result);
 

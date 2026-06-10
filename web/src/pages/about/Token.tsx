@@ -29,7 +29,6 @@ export function AboutToken() {
         "mintAuthority",
         "mintCoordinator",
         "emissionEngine",
-        "bootstrapPool",
         "vesting",
         "feeShare",
       ]}
@@ -46,7 +45,6 @@ export function AboutToken() {
               { term: "/token", def: "Dashboard. Total supply, circulating supply, mint cap remaining, fee-share balance, current phase status." },
               { term: "/token/wrapper", def: "Wrapper contract — commit-fund-claim mint flow. Users commit to a mint, fund it, then claim after the timelock elapses. Resists front-running of price-sensitive mints." },
               { term: "/token/mint-coordinator", def: "Per-batch emission orchestration. Reads the EmissionEngine to compute how many DATUM accompany each settled batch." },
-              { term: "/token/bootstrap", def: "Genesis liquidity pool — phased emissions that seed initial DATUM availability and bond it to DOT for AMM bootstrap." },
               { term: "/token/vesting", def: "Linear-vesting schedules. Team / treasury / partner allocations. Cliffs + linear release." },
               { term: "/token/fee-share", def: "Routes a configurable share of settlement protocol fees to DATUM stakers proportional to stake." },
             ]} />

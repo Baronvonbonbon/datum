@@ -7,13 +7,19 @@
 
 const ATTESTATION_TIMEOUT_MS = 3000;
 
-// A1-fix (2026-05-12): publisher now signs over claimsHash + deadlineBlock instead
-// of (firstNonce, lastNonce, claimCount). Prevents replay of a captured cosig
-// against altered claim contents and binds the cosig to an expiry block.
+// A1-fix (2026-05-12): publisher signs over claimsHash + deadlineBlock.
+// SLIM (#2): the on-chain PublisherAttestation typehash now also binds
+// `firstNonce` (the replay anchor), and `claimsHash` is the content hash of the
+// slim claims — keccak256(concat keccak256(abi.encode(slimClaim))) — not the old
+// keccak(abi.encodePacked(claim.claimHash[])). The publisher's signing endpoint
+// must sign the EIP-712 type:
+//   PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,
+//                        bytes32 claimsHash,uint256 deadlineBlock)
 interface AttestationRequest {
   campaignId: string;
   user: string;
-  claimsHash: string;   // 0x-prefixed keccak256(abi.encodePacked(claim.claimHash[]))
+  firstNonce: string;   // decimal-string; nonce assigned to claims[0] (replay anchor)
+  claimsHash: string;   // 0x keccak256(concat keccak256(abi.encode(slimClaim)))
   deadlineBlock: string; // decimal-string block.number expiry
 }
 
@@ -47,6 +53,7 @@ export async function requestPublisherAttestation(
   publisherAddress: string,
   campaignId: string,
   userAddress: string,
+  firstNonce: string | bigint,
   claimsHash: string,
   deadlineBlock: string | bigint
 ): Promise<AttestationResult> {
@@ -65,6 +72,7 @@ export async function requestPublisherAttestation(
     const body: AttestationRequest = {
       campaignId,
       user: userAddress,
+      firstNonce: typeof firstNonce === "bigint" ? firstNonce.toString() : firstNonce,
       claimsHash,
       deadlineBlock: typeof deadlineBlock === "bigint" ? deadlineBlock.toString() : deadlineBlock,
     };

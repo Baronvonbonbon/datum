@@ -61,6 +61,7 @@ import { parseDOT, formatDOT } from "./helpers/dot";
 import { ethersKeccakAbi } from "./helpers/hash";
 import { fundSigners, mineBlocks, isSubstrate } from "./helpers/mine";
 import { wireSettlementLogic } from "./helpers/settlementLogic";
+import { mkProof } from "./helpers/slimClaim";
 
 // ---------------------------------------------------------------------------
 // DOT price → planck CPM conversion ($1 CPM baseline)
@@ -110,20 +111,13 @@ function buildClaims(
       [campaignId, publisherAddr, userAddr, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash, ethers.ZeroHash]
     );
     claims.push({
-      campaignId,
       publisher: publisherAddr,
       eventCount: impressions,
       rateWei: cpm,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
+      // SLIM (#2b): ZK proof goes in the sidecar. ZK_EMPTY → plain view (no sidecar).
+      proof: zkProof === ZK_EMPTY ? [] : mkProof({ zkProof }),
       nonce,
-      previousClaimHash: prevHash,
-      claimHash: hash,
-      zkProof,
-      nullifier: ethers.ZeroHash,
-      stakeRootUsed: ethers.ZeroHash,
-      actionSig: NO_SIG,
-      powNonce: ethers.ZeroHash,
     });
     prevHash = hash;
   }
@@ -566,15 +560,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
         eventCount: 200n,
         rateWei: RL_CPM,
         actionType: 0,
-        clickSessionHash: ethers.ZeroHash,
-        nonce: 1n,
-        previousClaimHash: ethers.ZeroHash,
-        claimHash: hash,
-        zkProof: ZK_EMPTY,
-        nullifier: ethers.ZeroHash,
-        stakeRootUsed: ethers.ZeroHash,
-        actionSig: NO_SIG,
-      powNonce: ethers.ZeroHash,
+        proof: [],
       }];
       const r = await settlement.connect(user).settleClaims.staticCall([
         { user: user.address, campaignId: cid2, claims: c2 }

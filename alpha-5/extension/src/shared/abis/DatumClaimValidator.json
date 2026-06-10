@@ -522,6 +522,77 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "publisher",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "actionType",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "resolveBatchContext",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "ok",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "reasonCode",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "takeRate",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "potRate",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "potActionVerifier",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "requiresZk",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "enforcePow",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct IDatumClaimValidator.BatchContext",
+        "name": "ctx",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "router",
     "outputs": [
@@ -806,10 +877,118 @@
       {
         "components": [
           {
+            "internalType": "address",
+            "name": "publisher",
+            "type": "address"
+          },
+          {
             "internalType": "uint256",
-            "name": "campaignId",
+            "name": "eventCount",
             "type": "uint256"
           },
+          {
+            "internalType": "uint256",
+            "name": "rateWei",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "actionType",
+            "type": "uint8"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "clickSessionHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "stakeRootUsed",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "powNonce",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32[8]",
+                "name": "zkProof",
+                "type": "bytes32[8]"
+              },
+              {
+                "internalType": "bytes32[3]",
+                "name": "actionSig",
+                "type": "bytes32[3]"
+              }
+            ],
+            "internalType": "struct IDatumSettlement.ClaimProof[]",
+            "name": "proof",
+            "type": "tuple[]"
+          }
+        ],
+        "internalType": "struct IDatumSettlement.Claim",
+        "name": "claim",
+        "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assignedNonce",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "prevHash",
+        "type": "bytes32"
+      }
+    ],
+    "name": "validateClaim",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
           {
             "internalType": "address",
             "name": "publisher",
@@ -831,49 +1010,41 @@
             "type": "uint8"
           },
           {
-            "internalType": "bytes32",
-            "name": "clickSessionHash",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "uint256",
-            "name": "nonce",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "previousClaimHash",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "claimHash",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "bytes32[8]",
-            "name": "zkProof",
-            "type": "bytes32[8]"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "nullifier",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "stakeRootUsed",
-            "type": "bytes32"
-          },
-          {
-            "internalType": "bytes32[3]",
-            "name": "actionSig",
-            "type": "bytes32[3]"
-          },
-          {
-            "internalType": "bytes32",
-            "name": "powNonce",
-            "type": "bytes32"
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "clickSessionHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "stakeRootUsed",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "powNonce",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32[8]",
+                "name": "zkProof",
+                "type": "bytes32[8]"
+              },
+              {
+                "internalType": "bytes32[3]",
+                "name": "actionSig",
+                "type": "bytes32[3]"
+              }
+            ],
+            "internalType": "struct IDatumSettlement.ClaimProof[]",
+            "name": "proof",
+            "type": "tuple[]"
           }
         ],
         "internalType": "struct IDatumSettlement.Claim",
@@ -887,16 +1058,63 @@
       },
       {
         "internalType": "uint256",
-        "name": "expectedNonce",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "assignedNonce",
         "type": "uint256"
       },
       {
         "internalType": "bytes32",
-        "name": "expectedPrevHash",
+        "name": "prevHash",
         "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "ok",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "reasonCode",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "takeRate",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "potRate",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "potActionVerifier",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "requiresZk",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "enforcePow",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct IDatumClaimValidator.BatchContext",
+        "name": "ctx",
+        "type": "tuple"
       }
     ],
-    "name": "validateClaim",
+    "name": "validateClaimWithContext",
     "outputs": [
       {
         "internalType": "bool",
@@ -907,11 +1125,6 @@
         "internalType": "uint8",
         "name": "",
         "type": "uint8"
-      },
-      {
-        "internalType": "uint16",
-        "name": "",
-        "type": "uint16"
       },
       {
         "internalType": "bytes32",

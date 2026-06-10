@@ -142,10 +142,6 @@ export const CONTRACT_CATALOG: Record<ContractKey, ContractEntry> = {
     name: "DatumMintAuthority",
     blurb: "Caps and rate-limits DATUM token issuance; locks once OpenGov ratifies.",
   },
-  bootstrapPool: {
-    name: "DatumBootstrapPool",
-    blurb: "Genesis liquidity pool for the DATUM token — phased emissions.",
-  },
   vesting: {
     name: "DatumVesting",
     blurb: "Linear-vesting schedules for team/treasury allocations.",

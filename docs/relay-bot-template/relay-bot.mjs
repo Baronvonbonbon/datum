@@ -22,8 +22,14 @@
 //   2. npm install
 //   3. node relay-bot.mjs
 //   4. (Optional) Expose via Cloudflare tunnel: cloudflared tunnel --url http://127.0.0.1:3400
+//
+// SLIM (#2) wire format: the on-chain Claim is slim — campaignId/nonce/prevHash/
+// claimHash are derived on-chain; path-specific fields live in an optional proof
+// sidecar; SignedClaimBatch carries firstNonce (== on-chain lastNonce+1); cosig
+// claimsHash is keccak(concat keccak(abi.encode(slimClaim))). The canonical spec
+// is alpha-5/OFFCHAIN-SLIM-PORTING.md; the live client is alpha-5/extension.
 
-import { Wallet, JsonRpcProvider, Contract, verifyTypedData } from "ethers";
+import { Wallet, JsonRpcProvider, Contract, verifyTypedData, AbiCoder, keccak256 } from "ethers";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -66,40 +72,64 @@ const ADDRESSES = {
   settlement:    process.env.SETTLEMENT_ADDRESS    || "0x6A2A6723A6EC2e2f9AF0cdaeF6335D1FF1B86022",
   campaigns:     process.env.CAMPAIGNS_ADDRESS     || "0xFAc18eCcc47b5e152945ffb646dB41EFAE2d001C",
   pauseRegistry: process.env.PAUSE_REGISTRY_ADDRESS || "0x983b3aDf73bF97303A8196de8444B09DD0Fd3f12",
+  // SLIM (#2): the AttestationVerifier the EXTENSION submits through — the
+  // /.well-known/datum-attest cosig is signed over THIS contract's domain.
+  attestationVerifier: process.env.ATTESTATION_VERIFIER_ADDRESS || "0x73C002D6cf9dFEdb6257F7c9210e04651BFeA2af",
 };
 
 // ── ABIs (minimal — only the functions we need) ─────────────────────────────
 
+// SLIM (#2): SignedClaimBatch matches IDatumSettlement.sol. campaignId/nonce/
+// previousClaimHash/claimHash are derived on-chain (not on the claim); the
+// path-specific fields live in an optional `proof` sidecar (empty for a plain
+// view claim); firstNonce is the explicit replay anchor (== on-chain lastNonce+1).
 const RELAY_ABI = [
   {
     inputs: [{ type: "tuple[]", name: "batches", components: [
       { type: "address", name: "user" },
       { type: "uint256", name: "campaignId" },
+      { type: "uint256", name: "firstNonce" },
       { type: "tuple[]", name: "claims", components: [
-        { type: "uint256", name: "campaignId" },
         { type: "address", name: "publisher" },
-        { type: "uint256", name: "impressionCount" },
-        { type: "uint256", name: "clearingCpmPlanck" },
-        { type: "uint256", name: "nonce" },
-        { type: "bytes32", name: "previousClaimHash" },
-        { type: "bytes32", name: "claimHash" },
-        { type: "bytes",   name: "zkProof" },
+        { type: "uint256", name: "eventCount" },
+        { type: "uint256", name: "rateWei" },
+        { type: "uint8",   name: "actionType" },
+        { type: "tuple[]", name: "proof", components: [
+          { type: "bytes32",    name: "clickSessionHash" },
+          { type: "bytes32",    name: "stakeRootUsed" },
+          { type: "bytes32",    name: "nullifier" },
+          { type: "bytes32",    name: "powNonce" },
+          { type: "bytes32[8]", name: "zkProof" },
+          { type: "bytes32[3]", name: "actionSig" },
+        ]},
       ]},
-      { type: "uint256", name: "deadline" },
-      { type: "bytes",   name: "signature" },
+      { type: "uint256", name: "deadlineBlock" },
+      { type: "address", name: "expectedRelaySigner" },
+      { type: "address", name: "expectedAdvertiserRelaySigner" },
+      { type: "bytes",   name: "userSig" },
       { type: "bytes",   name: "publisherSig" },
+      { type: "bytes",   name: "advertiserSig" },
     ]}],
     name: "settleClaimsFor",
-    outputs: [],
+    outputs: [{ type: "tuple", name: "result", components: [
+      { type: "uint256", name: "settledCount" },
+      { type: "uint256", name: "rejectedCount" },
+      { type: "uint256", name: "totalPaid" },
+    ]}],
     stateMutability: "nonpayable",
     type: "function",
   },
 ];
 
 const SETTLEMENT_ABI = [
+  // SLIM (#2): ClaimSettled gained publisher/eventCount/rateWei/actionType.
   { type: "event", name: "ClaimSettled", inputs: [
     { type: "uint256", name: "campaignId", indexed: true },
     { type: "address", name: "user", indexed: true },
+    { type: "address", name: "publisher", indexed: true },
+    { type: "uint256", name: "eventCount" },
+    { type: "uint256", name: "rateWei" },
+    { type: "uint8",   name: "actionType" },
     { type: "uint256", name: "nonce" },
     { type: "uint256", name: "publisherPayment" },
     { type: "uint256", name: "userPayment" },
@@ -111,6 +141,28 @@ const SETTLEMENT_ABI = [
     { type: "uint256", name: "nonce" },
     { type: "uint8",   name: "reasonCode" },
   ]},
+  // SLIM (#2): a stale batch (expired deadline / firstNonce != lastNonce+1) is
+  // skipped, not reverted. reason: 0=deadline, 1=anchor. (Relay also reverts
+  // E87 if two batches in one call target the same user/campaign/actionType.)
+  { type: "event", name: "BatchSkippedStale", inputs: [
+    { type: "address", name: "user", indexed: true },
+    { type: "uint256", name: "campaignId", indexed: true },
+    { type: "uint256", name: "firstNonce" },
+    { type: "uint256", name: "claimCount" },
+    { type: "uint8",   name: "reason" },
+  ]},
+  // SLIM (#2): read the chain head to compute firstNonce (== lastNonce+1) for an envelope.
+  {
+    inputs: [
+      { type: "address", name: "user" },
+      { type: "uint256", name: "campaignId" },
+      { type: "uint8",   name: "actionType" },
+    ],
+    name: "lastNonce",
+    outputs: [{ type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ];
 
 const PAUSE_ABI = [
@@ -135,26 +187,70 @@ const CAMPAIGNS_ABI = [
 
 // ── EIP-712 types ────────────────────────────────────────────────────────────
 
+// SLIM (#2): this endpoint serves the EXTENSION, which submits via
+// DatumAttestationVerifier — so the publisher signs that contract's typehash:
+//   PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,
+//                        bytes32 claimsHash,uint256 deadlineBlock)
+// over the DatumAttestationVerifier domain. (The relay's own settleClaimsFor
+// path signs the same 5-field anchored type on the DatumRelay domain — see
+// signRelayAttestation below.)
 const PUBLISHER_ATTESTATION_TYPES = {
   PublisherAttestation: [
-    { name: "campaignId", type: "uint256" },
-    { name: "user",       type: "address" },
-    { name: "firstNonce", type: "uint256" },
-    { name: "lastNonce",  type: "uint256" },
-    { name: "claimCount", type: "uint256" },
+    { name: "campaignId",   type: "uint256" },
+    { name: "user",         type: "address" },
+    { name: "firstNonce",   type: "uint256" },
+    { name: "claimsHash",   type: "bytes32" },
+    { name: "deadlineBlock", type: "uint256" },
   ],
 };
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+// SLIM (#2): matches DatumRelay.BATCH_TYPEHASH — the user signs the nonce RANGE.
+// firstNonce must equal the on-chain lastNonce+1; lastNonce = firstNonce+count-1.
 const CLAIM_BATCH_TYPES = {
   ClaimBatch: [
-    { name: "user",       type: "address" },
-    { name: "campaignId", type: "uint256" },
-    { name: "firstNonce", type: "uint256" },
-    { name: "lastNonce",  type: "uint256" },
-    { name: "claimCount", type: "uint256" },
-    { name: "deadline",   type: "uint256" },
+    { name: "user",         type: "address" },
+    { name: "campaignId",   type: "uint256" },
+    { name: "firstNonce",   type: "uint256" },
+    { name: "lastNonce",    type: "uint256" },
+    { name: "claimCount",   type: "uint256" },
+    { name: "deadlineBlock", type: "uint256" },
   ],
 };
+
+// SLIM (#2): the on-chain slim Claim tuple, for the content claimsHash that the
+// publisher cosig binds: keccak256( concat_i keccak256(abi.encode(slimClaim_i)) ).
+const CLAIM_PROOF_TUPLE =
+  "tuple(bytes32 clickSessionHash,bytes32 stakeRootUsed,bytes32 nullifier,bytes32 powNonce,bytes32[8] zkProof,bytes32[3] actionSig)";
+const SLIM_CLAIM_TUPLE =
+  `tuple(address publisher,uint256 eventCount,uint256 rateWei,uint8 actionType,${CLAIM_PROOF_TUPLE}[] proof)`;
+
+function contentHashClaims(slimClaims) {
+  const coder = AbiCoder.defaultAbiCoder();
+  const hashes = slimClaims.map((c) => keccak256(coder.encode([SLIM_CLAIM_TUPLE], [c])));
+  return keccak256("0x" + hashes.map((h) => h.slice(2)).join(""));
+}
+
+// SLIM (#2): build the on-chain slim claim from an envelope claim. The envelope
+// carries publisher/eventCount/rateWei/actionType + an optional proof sidecar.
+function toSlimClaim(c) {
+  const proof = Array.isArray(c.proof) ? c.proof : [];
+  return {
+    publisher: c.publisher,
+    eventCount: BigInt(c.eventCount),
+    rateWei: BigInt(c.rateWei),
+    actionType: Number(c.actionType ?? 0),
+    proof: proof.map((p) => ({
+      clickSessionHash: p.clickSessionHash,
+      stakeRootUsed: p.stakeRootUsed,
+      nullifier: p.nullifier,
+      powNonce: p.powNonce,
+      zkProof: p.zkProof,
+      actionSig: p.actionSig,
+    })),
+  };
+}
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 
@@ -259,26 +355,30 @@ async function getEIP712Domain() {
   return eip712Domain;
 }
 
+// SLIM (#2): the publisher attestation (for the extension's AttestationVerifier
+// path) is signed over the DatumAttestationVerifier domain, NOT DatumRelay.
+let attestationDomain = null;
+async function getAttestationDomain() {
+  if (attestationDomain) return attestationDomain;
+  const network = await provider.getNetwork();
+  attestationDomain = {
+    name: "DatumAttestationVerifier",
+    version: "1",
+    chainId: network.chainId,
+    verifyingContract: ADDRESSES.attestationVerifier,
+  };
+  return attestationDomain;
+}
+
 // ── Queue Persistence ────────────────────────────────────────────────────────
 
+// SLIM (#2): the queue stores received envelopes (JSON-safe: addresses, decimal
+// strings, hex). No per-field BigInt round-trip is needed — submission and
+// signature verification BigInt() the fields they consume (campaignId,
+// firstNonce, deadlineBlock, eventCount, rateWei).
 function saveQueue() {
   try {
-    const serializable = pendingQueue.map((entry) => ({
-      ...entry,
-      batches: entry.batches.map((b) => ({
-        ...b,
-        campaignId: b.campaignId.toString(),
-        claims: b.claims.map((c) => ({
-          ...c,
-          campaignId: c.campaignId.toString(),
-          impressionCount: c.impressionCount.toString(),
-          clearingCpmPlanck: c.clearingCpmPlanck.toString(),
-          nonce: c.nonce.toString(),
-        })),
-        deadline: b.deadline.toString(),
-      })),
-    }));
-    fs.writeFileSync(QUEUE_FILE, JSON.stringify(serializable, null, 2));
+    fs.writeFileSync(QUEUE_FILE, JSON.stringify(pendingQueue, null, 2));
   } catch (err) {
     logError("QUEUE", `Failed to save queue: ${err.message}`);
   }
@@ -288,23 +388,7 @@ function loadQueue() {
   try {
     if (!fs.existsSync(QUEUE_FILE)) return;
     const data = JSON.parse(fs.readFileSync(QUEUE_FILE, "utf-8"));
-    for (const entry of data) {
-      pendingQueue.push({
-        ...entry,
-        batches: entry.batches.map((b) => ({
-          ...b,
-          campaignId: BigInt(b.campaignId),
-          claims: b.claims.map((c) => ({
-            ...c,
-            campaignId: BigInt(c.campaignId),
-            impressionCount: BigInt(c.impressionCount),
-            clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
-            nonce: BigInt(c.nonce),
-          })),
-          deadline: BigInt(b.deadline),
-        })),
-      });
-    }
+    for (const entry of data) pendingQueue.push(entry);
     if (pendingQueue.length > 0) {
       log("QUEUE", `Loaded ${pendingQueue.length} pending entries from disk`);
     }
@@ -315,16 +399,47 @@ function loadQueue() {
 
 // ── Publisher Attestation ────────────────────────────────────────────────────
 
-async function signAttestation(campaignId, user, firstNonce, lastNonce, claimCount) {
-  const domain = await getEIP712Domain();
+// SLIM (#2): the extension sends an already-computed content claimsHash; the
+// publisher signs over (campaignId, user, firstNonce, claimsHash, deadlineBlock)
+// on the DatumAttestationVerifier domain. (A production publisher SHOULD also
+// re-derive claimsHash from claims it actually served before signing.)
+async function signAttestation(campaignId, user, firstNonce, claimsHash, deadlineBlock) {
+  const domain = await getAttestationDomain();
   const value = {
     campaignId: BigInt(campaignId),
     user,
     firstNonce: BigInt(firstNonce),
-    lastNonce: BigInt(lastNonce),
-    claimCount: BigInt(claimCount),
+    claimsHash,
+    deadlineBlock: BigInt(deadlineBlock),
   };
   return publisher.signTypedData(domain, PUBLISHER_ATTESTATION_TYPES, value);
+}
+
+// SLIM (#2): the RELAY path (settleClaimsFor) publisher cosig — same 5-field
+// anchored typehash as the AttestationVerifier path, but on the DatumRelay
+// domain. Used to auto-attest batches arriving at /claim for on-chain relay
+// submission. SLIM-AUDIT-1 (2026-06-10): firstNonce added on-chain so a cosig
+// can't be replayed for a second identical-content batch at the next nonce.
+const RELAY_PUBLISHER_ATTESTATION_TYPES = {
+  PublisherAttestation: [
+    { name: "campaignId",   type: "uint256" },
+    { name: "user",         type: "address" },
+    { name: "firstNonce",   type: "uint256" },
+    { name: "claimsHash",   type: "bytes32" },
+    { name: "deadlineBlock", type: "uint256" },
+  ],
+};
+
+async function signRelayAttestation(campaignId, user, firstNonce, claimsHash, deadlineBlock) {
+  const domain = await getEIP712Domain(); // DatumRelay
+  const value = {
+    campaignId: BigInt(campaignId),
+    user,
+    firstNonce: BigInt(firstNonce),
+    claimsHash,
+    deadlineBlock: BigInt(deadlineBlock),
+  };
+  return publisher.signTypedData(domain, RELAY_PUBLISHER_ATTESTATION_TYPES, value);
 }
 
 // ── Signature Verification ──────────────────────────────────────────────────
@@ -334,17 +449,20 @@ async function verifyUserSignature(batch) {
   const claims = batch.claims;
   if (!claims || claims.length === 0) return false;
 
+  // SLIM (#2): the user signs the nonce RANGE. firstNonce is an explicit envelope
+  // field (must == on-chain lastNonce+1); lastNonce = firstNonce + count - 1.
+  const firstNonce = BigInt(batch.firstNonce);
   const value = {
     user: batch.user,
     campaignId: BigInt(batch.campaignId),
-    firstNonce: BigInt(claims[0].nonce),
-    lastNonce: BigInt(claims[claims.length - 1].nonce),
+    firstNonce,
+    lastNonce: firstNonce + BigInt(claims.length) - 1n,
     claimCount: BigInt(claims.length),
-    deadline: BigInt(batch.deadline),
+    deadlineBlock: BigInt(batch.deadlineBlock),
   };
 
   try {
-    const recovered = verifyTypedData(domain, CLAIM_BATCH_TYPES, value, batch.signature);
+    const recovered = verifyTypedData(domain, CLAIM_BATCH_TYPES, value, batch.userSig);
     return recovered.toLowerCase() === batch.user.toLowerCase();
   } catch {
     return false;
@@ -373,7 +491,7 @@ async function submitPendingBatches() {
   const valid = [];
   let expiredCount = 0;
   for (const entry of pendingQueue) {
-    const allExpired = entry.batches.every((b) => BigInt(b.deadline) <= BigInt(currentBlock));
+    const allExpired = entry.batches.every((b) => BigInt(b.deadlineBlock) <= BigInt(currentBlock));
     if (allExpired) expiredCount++;
     else valid.push(entry);
   }
@@ -389,7 +507,7 @@ async function submitPendingBatches() {
   const allBatches = [];
   for (const entry of pendingQueue) {
     for (const b of entry.batches) {
-      if (BigInt(b.deadline) > BigInt(currentBlock)) {
+      if (BigInt(b.deadlineBlock) > BigInt(currentBlock)) {
         allBatches.push(b);
       }
     }
@@ -400,22 +518,22 @@ async function submitPendingBatches() {
   log("SUBMIT", `Submitting ${allBatches.length} batch(es) via relay...`);
 
   try {
+    // SLIM (#2): build the on-chain SignedClaimBatch — firstNonce + slim claims
+    // (proof sidecar empty for plain views) + the relay/advertiser delegation
+    // fields. firstNonce must equal the on-chain lastNonce+1, else the batch is
+    // skipped (BatchSkippedStale, not a revert). Don't put two batches for the
+    // same (user, campaignId, actionType) in one call (relay reverts E87).
     const contractBatches = allBatches.map((b) => ({
       user: b.user,
       campaignId: BigInt(b.campaignId),
-      claims: b.claims.map((c) => ({
-        campaignId: BigInt(c.campaignId),
-        publisher: c.publisher,
-        impressionCount: BigInt(c.impressionCount),
-        clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
-        nonce: BigInt(c.nonce),
-        previousClaimHash: c.previousClaimHash,
-        claimHash: c.claimHash,
-        zkProof: c.zkProof || "0x",
-      })),
-      deadline: BigInt(b.deadline),
-      signature: b.signature,
+      firstNonce: BigInt(b.firstNonce),
+      claims: b.claims.map(toSlimClaim),
+      deadlineBlock: BigInt(b.deadlineBlock),
+      expectedRelaySigner: b.expectedRelaySigner || ZERO_ADDRESS,
+      expectedAdvertiserRelaySigner: b.expectedAdvertiserRelaySigner || ZERO_ADDRESS,
+      userSig: b.userSig,
       publisherSig: b.publisherSig || "0x",
+      advertiserSig: b.advertiserSig || "0x",
     }));
 
     const tx = await relay.settleClaimsFor(contractBatches);
@@ -480,21 +598,17 @@ app.post("/.well-known/datum-attest", async (req, res) => {
   }
 
   try {
-    const { campaignId, user, firstNonce, lastNonce, claimCount } = req.body;
+    // SLIM (#2): the extension's publisherAttestation.ts sends
+    //   { campaignId, user, firstNonce, claimsHash, deadlineBlock }
+    const { campaignId, user, firstNonce, claimsHash, deadlineBlock } = req.body;
 
     if (!isValidUint(campaignId)) return res.status(400).json({ error: "Invalid campaignId" });
     if (!isValidAddress(user)) return res.status(400).json({ error: "Invalid user address" });
     if (!isValidUint(firstNonce)) return res.status(400).json({ error: "Invalid firstNonce" });
-    if (!isValidUint(lastNonce)) return res.status(400).json({ error: "Invalid lastNonce" });
-    if (!isValidUint(claimCount) || Number(claimCount) === 0) return res.status(400).json({ error: "Invalid claimCount" });
-
-    const nonceRange = Number(BigInt(lastNonce) - BigInt(firstNonce)) + 1;
-    if (nonceRange !== Number(claimCount)) {
-      return res.status(400).json({ error: "claimCount does not match nonce range" });
+    if (typeof claimsHash !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(claimsHash)) {
+      return res.status(400).json({ error: "Invalid claimsHash" });
     }
-    if (Number(claimCount) > 100) {
-      return res.status(400).json({ error: "Batch too large (max 100 claims)" });
-    }
+    if (!isValidUint(deadlineBlock)) return res.status(400).json({ error: "Invalid deadlineBlock" });
 
     // Verify campaign is active and assigned to this publisher (or open)
     try {
@@ -502,8 +616,7 @@ app.post("/.well-known/datum-attest", async (req, res) => {
       if (Number(status) !== 1) {
         return res.status(403).json({ error: "Campaign is not Active" });
       }
-      const zero = "0x0000000000000000000000000000000000000000";
-      if (cPublisher.toLowerCase() !== publisher.address.toLowerCase() && cPublisher !== zero) {
+      if (cPublisher.toLowerCase() !== publisher.address.toLowerCase() && cPublisher !== ZERO_ADDRESS) {
         return res.status(403).json({ error: "Campaign publisher mismatch" });
       }
     } catch (err) {
@@ -511,9 +624,9 @@ app.post("/.well-known/datum-attest", async (req, res) => {
       // Proceed — on-chain contract will reject invalid claims
     }
 
-    const signature = await signAttestation(campaignId, user, firstNonce, lastNonce, claimCount);
+    const signature = await signAttestation(campaignId, user, firstNonce, claimsHash, deadlineBlock);
     stats.attestationsIssued++;
-    log("ATTEST", `Signed: campaign=${campaignId} user=${user.slice(0, 10)}... nonces=${firstNonce}-${lastNonce}`);
+    log("ATTEST", `Signed: campaign=${campaignId} user=${user.slice(0, 10)}... firstNonce=${firstNonce}`);
 
     res.json({ signature });
   } catch (err) {
@@ -547,63 +660,52 @@ app.post("/relay/submit", async (req, res) => {
         return res.status(400).json({ error: "Missing claims array" });
       }
       if (b.claims.length > 100) return res.status(400).json({ error: "Too many claims (max 100)" });
-      if (!isValidUint(b.deadline)) return res.status(400).json({ error: "Invalid deadline" });
-      if (!b.signature || typeof b.signature !== "string" || b.signature.length < 130) {
-        return res.status(400).json({ error: "Missing or invalid signature" });
+      if (!isValidUint(b.firstNonce)) return res.status(400).json({ error: "Invalid firstNonce" });
+      if (!isValidUint(b.deadlineBlock)) return res.status(400).json({ error: "Invalid deadlineBlock" });
+      if (!b.userSig || typeof b.userSig !== "string" || b.userSig.length < 130) {
+        return res.status(400).json({ error: "Missing or invalid userSig" });
       }
 
+      // SLIM (#2): validate slim claims {publisher, eventCount, rateWei, actionType}.
       for (const c of b.claims) {
-        if (!isValidUint(c.campaignId)) return res.status(400).json({ error: "Invalid campaignId in claim" });
         if (!isValidAddress(c.publisher)) return res.status(400).json({ error: "Invalid publisher in claim" });
-        if (!isValidUint(c.impressionCount)) return res.status(400).json({ error: "Invalid impressionCount" });
-        if (!isValidUint(c.clearingCpmPlanck)) return res.status(400).json({ error: "Invalid clearingCpmPlanck" });
-        if (!isValidUint(c.nonce)) return res.status(400).json({ error: "Invalid nonce" });
-        if (!isValidBytes32(c.previousClaimHash)) return res.status(400).json({ error: "Invalid previousClaimHash" });
-        if (!isValidBytes32(c.claimHash)) return res.status(400).json({ error: "Invalid claimHash" });
+        if (!isValidUint(c.eventCount)) return res.status(400).json({ error: "Invalid eventCount" });
+        if (!isValidUint(c.rateWei)) return res.status(400).json({ error: "Invalid rateWei" });
+        if (c.proof !== undefined && !Array.isArray(c.proof)) return res.status(400).json({ error: "Invalid proof sidecar" });
       }
 
-      // Verify user's EIP-712 signature
+      // Verify user's EIP-712 signature (over the firstNonce range)
       const sigValid = await verifyUserSignature(b);
       if (!sigValid) {
-        log("RELAY", `Rejected: invalid signature from ${b.user?.slice(0, 10)}... ip=${ip}`);
+        log("RELAY", `Rejected: invalid userSig from ${b.user?.slice(0, 10)}... ip=${ip}`);
         return res.status(403).json({ error: "Invalid user signature" });
       }
 
-      // Auto-sign publisher attestation if not already present
+      // Auto-sign the RELAY-path publisher attestation if not already present.
+      // SLIM (#2): binds the content claimsHash of the slim claims + deadlineBlock.
       let publisherSig = b.publisherSig || "0x";
       if (publisherSig === "0x" || publisherSig.length < 10) {
         try {
-          const claimsArr = b.claims;
-          if (claimsArr.length > 0) {
-            publisherSig = await signAttestation(
-              b.campaignId, b.user,
-              claimsArr[0].nonce,
-              claimsArr[claimsArr.length - 1].nonce,
-              claimsArr.length
-            );
-            stats.attestationsIssued++;
-          }
+          const claimsHash = contentHashClaims(b.claims.map(toSlimClaim));
+          publisherSig = await signRelayAttestation(b.campaignId, b.user, b.firstNonce, claimsHash, b.deadlineBlock);
+          stats.attestationsIssued++;
         } catch (err) {
           logError("RELAY", `Auto-attestation failed: ${(err.message || "").slice(0, 100)}`);
         }
       }
 
+      // Queue the slim envelope as-is (JSON-safe); the submitter BigInt()s fields.
       enrichedBatches.push({
         user: b.user,
-        campaignId: BigInt(b.campaignId),
-        claims: b.claims.map((c) => ({
-          campaignId: BigInt(c.campaignId),
-          publisher: c.publisher,
-          impressionCount: BigInt(c.impressionCount),
-          clearingCpmPlanck: BigInt(c.clearingCpmPlanck),
-          nonce: BigInt(c.nonce),
-          previousClaimHash: c.previousClaimHash,
-          claimHash: c.claimHash,
-          zkProof: c.zkProof || "0x",
-        })),
-        deadline: BigInt(b.deadline),
-        signature: b.signature,
+        campaignId: String(b.campaignId),
+        firstNonce: String(b.firstNonce),
+        claims: b.claims,
+        deadlineBlock: String(b.deadlineBlock),
+        expectedRelaySigner: b.expectedRelaySigner || ZERO_ADDRESS,
+        expectedAdvertiserRelaySigner: b.expectedAdvertiserRelaySigner || ZERO_ADDRESS,
+        userSig: b.userSig,
         publisherSig,
+        advertiserSig: b.advertiserSig || "0x",
       });
     }
 

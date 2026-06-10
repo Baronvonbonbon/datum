@@ -29,8 +29,14 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     // cosig cannot be replayed with altered claim contents (rates, eventCounts,
     // swapped open-campaign publisher field) or past its expiry. Mirrors the
     // dual-sig path's CLAIM_BATCH_TYPEHASH in DatumSettlement.
+    // SLIM-AUDIT-1 (2026-06-10): bind firstNonce too. Slim claims are pure
+    // content (publisher, eventCount, rateWei, actionType) — two consecutive
+    // batches can be byte-identical, so without the nonce anchor one publisher
+    // cosig could be replayed for a second identical-content batch at the next
+    // nonce window (the user holds the cosig and signs the fresh user envelope
+    // themselves). Matches DatumAttestationVerifier's anchored typehash.
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
-        "PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)"
+        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,bytes32 claimsHash,uint256 deadlineBlock)"
     );
 
     // -------------------------------------------------------------------------
@@ -90,6 +96,11 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     ///         pre-existing flow.
     IDatumRelayStake public relayStake;
     event RelayStakeSet(address indexed relayStake);
+    /// @notice A batch was skipped (not settled, not reverted) because it was
+    ///         stale. reason: 0 = expired deadline, 1 = firstNonce anchor
+    ///         mismatch (already settled / replayed). claimCount is folded into
+    ///         the call's rejectedCount.
+    event BatchSkippedStale(address indexed user, uint256 indexed campaignId, uint256 firstNonce, uint256 claimCount, uint8 reason);
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -241,23 +252,39 @@ contract DatumRelay is DatumUpgradable, EIP712 {
 
         require(batches.length <= maxBatchSize, "E28");
         IDatumSettlement.ClaimBatch[] memory forwardBatches = new IDatumSettlement.ClaimBatch[](batches.length);
+        // Graceful-skip accounting: stale/expired batches are skipped (not
+        // reverted) so one bad entry can't DoS a multi-user submission. Valid
+        // batches are compacted into forwardBatches[0..validCount); skipped
+        // claims are folded into result.rejectedCount after the single settle.
+        uint256 validCount = 0;
+        uint256 skippedRejected = 0;
 
         for (uint256 b = 0; b < batches.length; b++) {
             IDatumSettlement.SignedClaimBatch calldata sb = batches[b];
-            require(block.number <= sb.deadlineBlock, "E29");
             require(sb.claims.length > 0, "E28");
+
+            // Graceful skip (timing): an expired batch is no longer valid but
+            // must not revert the whole call. Skip before sig verification.
+            if (block.number > sb.deadlineBlock) {
+                skippedRejected += sb.claims.length;
+                emit BatchSkippedStale(sb.user, sb.campaignId, sb.firstNonce, sb.claims.length, 0);
+                continue;
+            }
 
             // EIP-712 user signature verification.
             // L-1: digest built via OZ EIP712 base (`_hashTypedDataV4`) so the
             // domain separator rebuilds on chainid mismatch (chain-fork safe).
             // Recovery uses manual ecrecover to preserve E30/E31 error codes
             // that off-chain clients depend on.
+            // SLIM (#2): firstNonce/lastNonce are explicit envelope fields now
+            // (the per-claim nonce was dropped). lastNonce is derived from
+            // firstNonce + count - 1; the user signs the range.
             bytes32 structHash = keccak256(abi.encode(
                 BATCH_TYPEHASH,
                 sb.user,
                 sb.campaignId,
-                sb.claims[0].nonce,
-                sb.claims[sb.claims.length - 1].nonce,
+                sb.firstNonce,
+                sb.firstNonce + sb.claims.length - 1,
                 sb.claims.length,
                 sb.deadlineBlock
             ));
@@ -298,17 +325,20 @@ contract DatumRelay is DatumUpgradable, EIP712 {
                     }
                 }
                 if (expectedPub != address(0)) {
-                    // A1-fix: hash all claim.claimHash values into a single
-                    // claimsHash. Matches Settlement._hashClaims for symmetry.
+                    // A1-fix: hash all claims into a single claimsHash.
+                    // SLIM (#2): claimHash was dropped from the wire, so bind to
+                    // a content hash of each slim claim — keccak(abi.encode(claim)).
+                    // Matches DatumDualSigSettlement._hashClaims for symmetry.
                     bytes32[] memory _hashes = new bytes32[](sb.claims.length);
                     for (uint256 i = 0; i < sb.claims.length; i++) {
-                        _hashes[i] = sb.claims[i].claimHash;
+                        _hashes[i] = keccak256(abi.encode(sb.claims[i]));
                     }
                     bytes32 claimsHash = keccak256(abi.encodePacked(_hashes));
                     bytes32 pubStructHash = keccak256(abi.encode(
                         PUBLISHER_ATTESTATION_TYPEHASH,
                         sb.campaignId,
                         sb.user,
+                        sb.firstNonce, // SLIM-AUDIT-1: replay anchor
                         claimsHash,
                         sb.deadlineBlock
                     ));
@@ -331,18 +361,58 @@ contract DatumRelay is DatumUpgradable, EIP712 {
                 }
             }
 
-            // Build ClaimBatch for forwarding
+            // Graceful skip (staleness): replay anchor. Checked AFTER sig
+            // verification so a malformed sig still reverts, but a valid sig
+            // over a stale firstNonce (already settled / replayed) is skipped.
+            // settleClaims (forwarded below) derives nonces from the same chain
+            // head, and lastNonce advances past firstNonce after settlement.
+            if (sb.firstNonce != settlement.lastNonce(sb.user, sb.campaignId, sb.claims[0].actionType) + 1) {
+                skippedRejected += sb.claims.length;
+                emit BatchSkippedStale(sb.user, sb.campaignId, sb.firstNonce, sb.claims.length, 1);
+                continue;
+            }
+
+            // One-chain-per-call guard (E87). Two batches that would BOTH settle
+            // for the same (user, campaignId, actionType) chain in one call would
+            // double-settle: this is a deferred-settle path (a single settleClaims
+            // at the end), so the anchor above reads the same pre-settlement
+            // lastNonce for both, and settleClaims then assigns them sequential
+            // nonces — re-playing one signed authorization. Reject the whole call.
+            // Checked only against already-accepted batches, so an expired/stale
+            // sibling for the same chain (already skipped) does not false-trigger.
+            uint8 at = sb.claims[0].actionType;
+            for (uint256 j = 0; j < validCount; j++) {
+                require(
+                    forwardBatches[j].user != sb.user ||
+                    forwardBatches[j].campaignId != sb.campaignId ||
+                    forwardBatches[j].claims[0].actionType != at,
+                    "E87"
+                );
+            }
+
+            // Build ClaimBatch for forwarding (compacted at validCount)
             IDatumSettlement.Claim[] memory memoryClaims = new IDatumSettlement.Claim[](sb.claims.length);
             for (uint256 i = 0; i < sb.claims.length; i++) {
                 memoryClaims[i] = sb.claims[i];
             }
-            forwardBatches[b] = IDatumSettlement.ClaimBatch({
+            forwardBatches[validCount] = IDatumSettlement.ClaimBatch({
                 user: sb.user,
                 campaignId: sb.campaignId,
                 claims: memoryClaims
             });
+            validCount++;
         }
 
-        result = settlement.settleClaims(forwardBatches);
+        // Forward only the valid (compacted) batches; fold skipped claims into
+        // the rejected count so callers see them without a struct change.
+        if (validCount > 0) {
+            IDatumSettlement.ClaimBatch[] memory toForward = forwardBatches;
+            if (validCount < batches.length) {
+                toForward = new IDatumSettlement.ClaimBatch[](validCount);
+                for (uint256 i = 0; i < validCount; i++) toForward[i] = forwardBatches[i];
+            }
+            result = settlement.settleClaims(toForward);
+        }
+        result.rejectedCount += skippedRejected;
     }
 }

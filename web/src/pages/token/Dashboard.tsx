@@ -1,7 +1,7 @@
 // /token dashboard — DATUM token-plane overview.
 //
-// Surfaces the four plane components (Wrapper, BootstrapPool,
-// Vesting, FeeShare) plus the new alpha-5 emission machinery
+// Surfaces the plane components (Wrapper, Vesting, FeeShare)
+// plus the new alpha-5 emission machinery
 // (EmissionEngine + MintCoordinator). Gracefully degrades when
 // any contract is absent from the network — most of the token
 // plane isn't deployed on Paseo as of 2026-05-22, so the page is
@@ -23,7 +23,7 @@
 //   - EmissionEngine: EpochRolled, DayRolled, RateAdjusted,
 //     MintComputed.
 //
-// Actions: Wrapper / Bootstrap / Vesting / FeeShare / Mint
+// Actions: Wrapper / Vesting / FeeShare / Mint
 // coordinator (per design doc §2.3).
 
 import { useMemo } from "react";
@@ -111,7 +111,7 @@ export function TokenDashboard() {
       <Dashboard
         role="token"
         title="Token"
-        subtitle="DATUM mint engine + wrapper / bootstrap / vesting / fee-share."
+        subtitle="DATUM mint engine + wrapper / vesting / fee-share."
         heroStats={heroStats}
         stream={stream}
         actions={actions}
@@ -121,7 +121,6 @@ export function TokenDashboard() {
         "emissionEngine",
         "wrapper",
         "mintAuthority",
-        "bootstrapPool",
         "vesting",
         "feeShare",
       ]} />
@@ -349,7 +348,6 @@ function buildActions(addrs: Addrs): ActionHook[] {
     { label: "Mint coordinator", route: "/token/mint-coordinator", description: "Per-batch emissions log" },
   ];
   if (addrs.wrapper) out.push({ label: "Wrapper", route: "/token/wrapper", description: "DOT ↔ DATUM wrapper" });
-  if (addrs.bootstrapPool) out.push({ label: "Bootstrap", route: "/token/bootstrap", description: "Bootstrap liquidity" });
   if (addrs.vesting) out.push({ label: "Vesting", route: "/token/vesting", description: "Vesting schedules" });
   if (addrs.feeShare) out.push({ label: "Fee share", route: "/token/fee-share", description: "Protocol fee distribution" });
   return out;
