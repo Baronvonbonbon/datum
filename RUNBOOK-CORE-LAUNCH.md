@@ -83,11 +83,22 @@ migration + re-runs prod suite against v2.
 
 ---
 
-## Phase 3 — Wire-format single source of truth + CI drift gate ☐ [TASK]
+## Phase 3 — Wire-format single source of truth + CI drift gate ◐ [TASK]
 
 Root-cause fix for this session's silent drift (relay-bot + reseed-demo went
 pre-SLIM while contracts moved to SLIM-#2; only surfaced on a rejected batch).
-**Steps:**
+
+**☑ DONE (2026-06-10, `.github/workflows/ci.yml`): the CI drift gate.** Every
+push/PR to main runs a **clean recompile** (`rm -rf artifacts cache
+typechain-types` → compile → full suite) so tests can never run against stale
+bytecode — the exact false-green that hid the denomination bugs. Plus an
+**ABI-drift check**: regenerate the committed extension/web ABIs from fresh
+artifacts and fail if any differ (caught + fixed a real drift — the router ABI
+was missing `UpgradeHooksFired`). First run green: contracts 4m43s, frontend 1m0s.
+*Recommended follow-up:* make the `CI` check a required status check in branch
+protection so it blocks merges.
+
+**Remaining:**
 1. Pin the claim wire + EIP-712 typehashes in one canonical module; generate /
    assert consumers (relay-bot, extension, web daemon, seed scripts) against it.
 2. **Port the live relay-bot to SLIM-#2** (or adopt the template + re-add its
