@@ -192,8 +192,8 @@ const CAMPAIGNS_ABI = [
 //   PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,
 //                        bytes32 claimsHash,uint256 deadlineBlock)
 // over the DatumAttestationVerifier domain. (The relay's own settleClaimsFor
-// path uses a 4-field PublisherAttestation without firstNonce — see
-// DatumRelay.sol — but that cosig arrives in the envelope; we don't mint it.)
+// path signs the same 5-field anchored type on the DatumRelay domain — see
+// signRelayAttestation below.)
 const PUBLISHER_ATTESTATION_TYPES = {
   PublisherAttestation: [
     { name: "campaignId",   type: "uint256" },
@@ -415,23 +415,27 @@ async function signAttestation(campaignId, user, firstNonce, claimsHash, deadlin
   return publisher.signTypedData(domain, PUBLISHER_ATTESTATION_TYPES, value);
 }
 
-// SLIM (#2): the RELAY path (settleClaimsFor) publisher cosig — a DIFFERENT
-// typehash (no firstNonce) on the DatumRelay domain. Used to auto-attest
-// batches arriving at /claim for on-chain relay submission.
+// SLIM (#2): the RELAY path (settleClaimsFor) publisher cosig — same 5-field
+// anchored typehash as the AttestationVerifier path, but on the DatumRelay
+// domain. Used to auto-attest batches arriving at /claim for on-chain relay
+// submission. SLIM-AUDIT-1 (2026-06-10): firstNonce added on-chain so a cosig
+// can't be replayed for a second identical-content batch at the next nonce.
 const RELAY_PUBLISHER_ATTESTATION_TYPES = {
   PublisherAttestation: [
     { name: "campaignId",   type: "uint256" },
     { name: "user",         type: "address" },
+    { name: "firstNonce",   type: "uint256" },
     { name: "claimsHash",   type: "bytes32" },
     { name: "deadlineBlock", type: "uint256" },
   ],
 };
 
-async function signRelayAttestation(campaignId, user, claimsHash, deadlineBlock) {
+async function signRelayAttestation(campaignId, user, firstNonce, claimsHash, deadlineBlock) {
   const domain = await getEIP712Domain(); // DatumRelay
   const value = {
     campaignId: BigInt(campaignId),
     user,
+    firstNonce: BigInt(firstNonce),
     claimsHash,
     deadlineBlock: BigInt(deadlineBlock),
   };
@@ -683,7 +687,7 @@ app.post("/relay/submit", async (req, res) => {
       if (publisherSig === "0x" || publisherSig.length < 10) {
         try {
           const claimsHash = contentHashClaims(b.claims.map(toSlimClaim));
-          publisherSig = await signRelayAttestation(b.campaignId, b.user, claimsHash, b.deadlineBlock);
+          publisherSig = await signRelayAttestation(b.campaignId, b.user, b.firstNonce, claimsHash, b.deadlineBlock);
           stats.attestationsIssued++;
         } catch (err) {
           logError("RELAY", `Auto-attestation failed: ${(err.message || "").slice(0, 100)}`);

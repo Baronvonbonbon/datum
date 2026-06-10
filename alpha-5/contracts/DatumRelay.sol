@@ -29,8 +29,14 @@ contract DatumRelay is DatumUpgradable, EIP712 {
     // cosig cannot be replayed with altered claim contents (rates, eventCounts,
     // swapped open-campaign publisher field) or past its expiry. Mirrors the
     // dual-sig path's CLAIM_BATCH_TYPEHASH in DatumSettlement.
+    // SLIM-AUDIT-1 (2026-06-10): bind firstNonce too. Slim claims are pure
+    // content (publisher, eventCount, rateWei, actionType) — two consecutive
+    // batches can be byte-identical, so without the nonce anchor one publisher
+    // cosig could be replayed for a second identical-content batch at the next
+    // nonce window (the user holds the cosig and signs the fresh user envelope
+    // themselves). Matches DatumAttestationVerifier's anchored typehash.
     bytes32 private constant PUBLISHER_ATTESTATION_TYPEHASH = keccak256(
-        "PublisherAttestation(uint256 campaignId,address user,bytes32 claimsHash,uint256 deadlineBlock)"
+        "PublisherAttestation(uint256 campaignId,address user,uint256 firstNonce,bytes32 claimsHash,uint256 deadlineBlock)"
     );
 
     // -------------------------------------------------------------------------
@@ -332,6 +338,7 @@ contract DatumRelay is DatumUpgradable, EIP712 {
                         PUBLISHER_ATTESTATION_TYPEHASH,
                         sb.campaignId,
                         sb.user,
+                        sb.firstNonce, // SLIM-AUDIT-1: replay anchor
                         claimsHash,
                         sb.deadlineBlock
                     ));

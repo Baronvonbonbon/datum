@@ -459,6 +459,9 @@ async function main() {
     "relay", "claimValidator", "tokenRewardVault",
     "nullifierRegistry", "governanceRouter", "dualSig",
     "campaignsMigrationLogic",
+    // PoW is the per-user Sybil/spam gate on the claim path (reason-27 fix);
+    // launch ships with it enforced rather than activating it post-abuse.
+    "powEngine",
   ]);
   // True when a contract should be skipped in this run (MVP + not core).
   const mvpDefer = (key: string) => MVP && !MVP_CORE_KEYS.has(key);

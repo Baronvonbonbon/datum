@@ -705,10 +705,13 @@ describe("DatumSettlement", function () {
 
     // Publisher co-signature tests
 
+    // SLIM-AUDIT-1: firstNonce is part of the relay-path attestation type so a
+    // cosig can't be replayed for an identical-content batch at the next nonce.
     const publisherAttestationTypes = {
       PublisherAttestation: [
         { name: "campaignId", type: "uint256" },
         { name: "user", type: "address" },
+        { name: "firstNonce", type: "uint256" },
         { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" },
       ],
@@ -719,13 +722,15 @@ describe("DatumSettlement", function () {
       campaignId: bigint,
       userAddr: string,
       claims: any[],
-      deadlineBlock: bigint | number
+      deadlineBlock: bigint | number,
+      firstNonceOverride?: bigint
     ) {
       const domain = await getEIP712Domain();
       const claimsHash = contentHashClaims(claims);
       const value = {
         campaignId,
         user: userAddr,
+        firstNonce: firstNonceOverride ?? BigInt(claims[0].nonce),
         claimsHash,
         deadlineBlock: BigInt(deadlineBlock),
       };
@@ -840,6 +845,57 @@ describe("DatumSettlement", function () {
       await expect(
         relay.connect(publisher).settleClaimsFor([signedBatch])
       ).to.be.revertedWith("E34");
+    });
+
+    it("R11 (SLIM-AUDIT-1): publisher cosig replayed at the next nonce window reverts E34", async function () {
+      const cid = await createTestCampaign();
+      const claims1 = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+
+      const deadline = (await ethers.provider.getBlockNumber()) + 1000;
+      const userSig1 = await signBatch(user, cid, claims1, deadline);
+      const pubSig1 = await signPublisherAttestation(publisher, cid, user.address, claims1, deadline);
+
+      await relay.connect(publisher).settleClaimsFor([{
+        user: user.address,
+        campaignId: cid,
+        claims: claims1,
+        deadlineBlock: deadline,
+        firstNonce: claims1[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: userSig1,
+        publisherSig: pubSig1,
+        advertiserSig: "0x",
+      }]);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(1n);
+
+      // Identical claim CONTENT at the next nonce window. Slim claims carry no
+      // nonce/hash on the wire, so claimsHash is byte-identical to batch 1 —
+      // the user holds pubSig1 and signs the fresh user envelope themselves.
+      const claims2 = claims1.map((c) => ({ ...c, nonce: c.nonce + 1n }));
+      const userSig2 = await signBatch(user, cid, claims2, deadline);
+
+      const replayBatch = {
+        user: user.address,
+        campaignId: cid,
+        claims: claims2,
+        deadlineBlock: deadline,
+        firstNonce: claims2[0].nonce,
+        expectedRelaySigner: ethers.ZeroAddress,
+        expectedAdvertiserRelaySigner: ethers.ZeroAddress,
+        userSig: userSig2,
+        publisherSig: pubSig1, // replayed attestation from batch 1
+        advertiserSig: "0x",
+      };
+      await expect(
+        relay.connect(publisher).settleClaimsFor([replayBatch])
+      ).to.be.revertedWith("E34");
+
+      // Control: a FRESH attestation over the new firstNonce settles — the
+      // nonce anchor (not some other check) is what blocked the replay.
+      const pubSig2 = await signPublisherAttestation(publisher, cid, user.address, claims2, deadline);
+      await relay.connect(publisher).settleClaimsFor([{ ...replayBatch, publisherSig: pubSig2 }]);
+      expect(await settlement.lastNonce(user.address, cid, 0)).to.equal(2n);
     });
   });
 

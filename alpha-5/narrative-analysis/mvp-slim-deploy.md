@@ -14,12 +14,13 @@ DATUM_MVP=1 npx hardhat run scripts/deploy.ts --network <net>
 Both settle paths ship: relay-signed (L1 / assurance tier 1) and dual-sig
 permissionless co-sign (L2). `DatumClaimValidator` selects per-campaign.
 
-## Core spine (18 contracts, always deployed in MVP)
+## Core spine (19 contracts, always deployed in MVP)
 
 `pauseRegistry`, `timelock`, `publishers`, `campaigns`, `campaignsMigrationLogic`,
 `budgetLedger`, `paymentVault`, `campaignLifecycle`, `settlement`,
 `settlementLogicA`, `settlementLogicB`, `claimValidator`, `attestationVerifier`,
-`relay`, `dualSig`, `tokenRewardVault`, `nullifierRegistry`, `governanceRouter`.
+`relay`, `dualSig`, `tokenRewardVault`, `nullifierRegistry`, `governanceRouter`,
+`powEngine`.
 
 - `nullifierRegistry` is inert for plaintext claims (a `bytes32(0)` nullifier
   skips the replay check) but is **required** by `validateConfiguration` with a
@@ -30,13 +31,18 @@ permissionless co-sign (L2). `DatumClaimValidator` selects per-campaign.
   transferred to `timelock` as *pendingOwner* only (2-step; `acceptOwnership`
   is never called), so the deployer EOA stays the effective owner and can fire
   the deferred-module setters below.
+- `powEngine` is in the core set (2026-06-09): PoW is the per-user Sybil/spam
+  gate on the claim path (the reason-27 fix) and the extension already solves
+  it, so launch ships with `enforcePow = true` rather than activating it after
+  abuse shows up. Deploy wires `PowEngine.settlement`, `Settlement.powEngine`,
+  `ClaimValidator.powEngine` and flips `setEnforcePow(true)`.
 
 ## Deferred (left at `address(0)`, activate later)
 
 ZK plane (`zkVerifier`, `stakeRoot`, `stakeRootV2`, `interestCommitments`,
 `identityVerifier`), DATUM token plane (`emissionEngine`, `mintCoordinator`,
 `relayStake`, `relayGovernance` + the `contracts/token/` stack), anti-abuse
-extras (`powEngine`, `settlementRateLimiter`, `publisherReputation`,
+extras (`settlementRateLimiter`, `publisherReputation`,
 `clickRegistry`), the governance ladder beyond the router (`governanceV2`,
 `council`, `parameterGovernance`, `publisherGovernance`/`publisherStake`,
 `advertiserGovernance`/`advertiserStake`, `challengeBonds`, `activationBonds`,
@@ -64,7 +70,6 @@ Admin phase, or via Timelock/governance once the ladder advances). Examples:
 
 | Module | Activation call |
 |---|---|
-| PoW | `claimValidator.setPowEngine(p)`, `settlement.setPowEngine(p)` |
 | Rate limiter | `settlement.setRateLimiter(r)` |
 | Reputation | `settlement.setReputationContract(rep)` |
 | Click registry (CPC) | `settlement.setClickRegistry(c)` |

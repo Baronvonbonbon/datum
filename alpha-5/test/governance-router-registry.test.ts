@@ -338,4 +338,85 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       expect(await router.versionOf(NAME_SELF)).to.equal(2n);
     });
   });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // U1 fix — upgradeContract's atomic freeze+migrate hooks actually fire.
+  // Targets accept the calls with msg.sender == router via
+  // onlyGovernanceOrRouter (PRE-MAINNET-CHECKLIST §U1, option 1).
+  // ─────────────────────────────────────────────────────────────────────
+  describe("upgradeContract — atomic freeze+migrate hooks (U1)", function () {
+    const NAME_MOCK = ethers.keccak256(ethers.toUtf8Bytes("mockUpgradable"));
+
+    async function deployPair() {
+      const V1F = await ethers.getContractFactory("MockUpgradable");
+      const oldC = await V1F.deploy(1n); // version() == 1
+      const V2F = await ethers.getContractFactory("MockUpgradableV2");
+      const newC = await V2F.deploy();   // version() == 2
+      const routerAddr = await router.getAddress();
+      await oldC.connect(owner).setRouter(routerAddr);
+      await newC.connect(owner).setRouter(routerAddr);
+      await oldC.connect(owner).setCounter(42n);
+      await router.connect(owner).register(NAME_MOCK, await oldC.getAddress());
+      return { oldC, newC };
+    }
+
+    it("one-tx upgrade freezes old, migrates state into new, emits hooks event", async () => {
+      const { oldC, newC } = await deployPair();
+      const oldAddr = await oldC.getAddress();
+      const newAddr = await newC.getAddress();
+
+      await expect(router.connect(governor).upgradeContract(NAME_MOCK, newAddr))
+        .to.emit(router, "UpgradeHooksFired").withArgs(NAME_MOCK, true, true);
+
+      expect(await oldC.frozen()).to.equal(true);            // freeze() fired
+      expect(await newC.migrated()).to.equal(true);          // migrate() fired
+      expect(await newC.migrationSource()).to.equal(oldAddr);
+      expect(await newC.counter()).to.equal(42n);            // _migrate copied state
+      expect(await router.currentAddrOf(NAME_MOCK)).to.equal(newAddr);
+
+      // old contract refuses writes post-freeze
+      await expect(oldC.connect(other).increment()).to.be.revertedWith("frozen");
+    });
+
+    it("two-tx flow (governor pre-runs freeze+migrate) stays valid; hooks report false benignly", async () => {
+      const { oldC, newC } = await deployPair();
+      const oldAddr = await oldC.getAddress();
+      const newAddr = await newC.getAddress();
+
+      // Governor runs the explicit flow first (scripts/bump-all-paseo.ts).
+      await oldC.connect(governor).freeze();
+      await newC.connect(governor).migrate(oldAddr);
+      expect(await newC.counter()).to.equal(42n);
+
+      // Rotation afterwards: hooks revert already-frozen / already-migrated,
+      // reported as (false, false) — state untouched.
+      await expect(router.connect(governor).upgradeContract(NAME_MOCK, newAddr))
+        .to.emit(router, "UpgradeHooksFired").withArgs(NAME_MOCK, false, false);
+      expect(await newC.counter()).to.equal(42n);
+      expect(await newC.migrationSource()).to.equal(oldAddr);
+    });
+
+    it("co-authority does not open freeze/migrate to non-governor EOAs", async () => {
+      const { oldC, newC } = await deployPair();
+      await expect(oldC.connect(other).freeze()).to.be.revertedWith("E19");
+      await expect(newC.connect(other).migrate(await oldC.getAddress()))
+        .to.be.revertedWith("E19");
+      // and the only router entry that reaches the hooks is governor-gated
+      await expect(router.connect(other).upgradeContract(NAME_MOCK, await newC.getAddress()))
+        .to.be.revertedWith("E19");
+    });
+
+    it("migrate hook refuses a version downgrade even via the router", async () => {
+      const { oldC } = await deployPair();
+      // second v1-version contract as the "new" target: freeze fires, migrate fails
+      const V1F = await ethers.getContractFactory("MockUpgradable");
+      const sameVer = await V1F.deploy(1n);
+      await sameVer.connect(owner).setRouter(await router.getAddress());
+
+      await expect(router.connect(governor).upgradeContract(NAME_MOCK, await sameVer.getAddress()))
+        .to.emit(router, "UpgradeHooksFired").withArgs(NAME_MOCK, true, false);
+      expect(await oldC.frozen()).to.equal(true);
+      expect(await sameVer.migrated()).to.equal(false);
+    });
+  });
 });

@@ -99,6 +99,25 @@ abstract contract DatumUpgradable is DatumOwnable {
         _;
     }
 
+    /// @notice Authorize the governor OR the router itself. Used only by
+    ///         `freeze()` and `migrate()` so the router's atomic
+    ///         freeze+migrate inside `upgradeContract` actually fires
+    ///         (U1 fix, 2026-06-10: those calls reach the target with
+    ///         msg.sender == router, which `onlyGovernance` rejected — the
+    ///         advertised atomic flow had been a silent no-op). The router
+    ///         only originates these calls from governor-gated surfaces
+    ///         (`upgradeContract` is onlyGovernor; high-tier proposals are
+    ///         governor-staged + Council-vetoable), so this grants no
+    ///         authority the governor doesn't already hold.
+    modifier onlyGovernanceOrRouter() {
+        require(address(router) != address(0), "router-unset");
+        require(
+            msg.sender == router.governor() || msg.sender == address(router),
+            "E19"
+        );
+        _;
+    }
+
     /// @notice Block state-mutating calls while the contract is paused for
     ///         migration. Reads bypass this so a successor can pull state.
     modifier whenNotFrozen() {
@@ -155,7 +174,7 @@ abstract contract DatumUpgradable is DatumOwnable {
     // Pause / unpause (governance)
     // ─────────────────────────────────────────────────────────────────────
 
-    function freeze() external onlyGovernance {
+    function freeze() external onlyGovernanceOrRouter {
         require(!frozen, "already frozen");
         frozen = true;
         emit Frozen();
@@ -174,10 +193,10 @@ abstract contract DatumUpgradable is DatumOwnable {
     /// @notice Pull state from a paused predecessor. Per-contract logic
     ///         lives in `_migrate`. Lock-once: a single contract instance
     ///         can be the migration target at most once.
-    /// @dev    Authorization: governance (router's current governor). This
-    ///         is the same authority that upgrades the registry pointer,
-    ///         so the upgrade + migrate flow is consistent.
-    function migrate(address oldContract) external onlyGovernance {
+    /// @dev    Authorization: governance (router's current governor) or the
+    ///         router itself (so `upgradeContract`'s atomic freeze+migrate
+    ///         fires; same authority — see onlyGovernanceOrRouter).
+    function migrate(address oldContract) external onlyGovernanceOrRouter {
         require(!migrated, "already migrated");
         require(oldContract != address(0), "E00");
         require(oldContract != address(this), "E18");

@@ -442,6 +442,12 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         address indexed newAddr,
         uint256 newVersion
     );
+    /// @notice Outcome of the best-effort freeze+migrate hooks inside
+    ///         upgradeContract. False values are expected for targets that
+    ///         pre-ran the two-tx flow (already-frozen / already-migrated)
+    ///         or don't implement DatumUpgradable; operators alert on this
+    ///         event instead of verifying out-of-band.
+    event UpgradeHooksFired(bytes32 indexed name, bool freezeOk, bool migrateOk);
 
     /// @notice Initial registration of a contract address. Owner-only so the
     ///         deploy script can populate the registry post-deploy. Cannot
@@ -480,14 +486,14 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         // function gracefully no-ops for non-Upgradable targets (EOAs,
         // mocks, future module types) instead of bubbling solc's
         // "address has no code" check. High-level try/catch wouldn't
-        // catch that solidity panic.
-        // selectors: freeze() = 0x45c8b1a6, migrate(address) = 0x8fd3ab80
+        // catch that solidity panic. Targets accept these calls via
+        // onlyGovernanceOrRouter (U1 fix — msg.sender here is the router).
+        // The two-tx flow (governor calls freeze/migrate directly before
+        // rotating) stays valid: the hooks then revert already-frozen /
+        // already-migrated and report false, which is benign.
         (bool freezeOk, ) = old.call(abi.encodeWithSignature("freeze()"));
         (bool migrateOk, ) = newAddr.call(abi.encodeWithSignature("migrate(address)", old));
-        // Silence unused-var warnings; the booleans are intentionally
-        // suppressed — operators observe via the ContractUpgraded event
-        // and verify migration succeeded out-of-band.
-        freezeOk; migrateOk;
+        emit UpgradeHooksFired(name, freezeOk, migrateOk);
     }
 
     function addressHistoryLength(bytes32 name) external view returns (uint256) {
