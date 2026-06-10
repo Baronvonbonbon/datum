@@ -494,9 +494,10 @@ describe("Audit M-4: maxAllowedMinStake can be lowered after campaign creation",
     await campaigns.setMaxAllowedMinStake(10_000n);
     const tx = await campaigns.connect(advertiser).createCampaign(
       publisher.address,
-      [{ actionType: 0, budgetWei: 1_000_000_000n, dailyCapWei: 1_000_000_000n, rateWei: 1n, actionVerifier: ethers.ZeroAddress }],
+      // budget must clear MINIMUM_BUDGET_WEI (10^17) post 18-dec-wei migration
+      [{ actionType: 0, budgetWei: 10n ** 18n, dailyCapWei: 10n ** 18n, rateWei: 1n, actionVerifier: ethers.ZeroAddress }],
       [], false, ethers.ZeroAddress, 0n, 0n,
-      { value: 1_000_000_000n }
+      { value: 10n ** 18n }
     );
     await tx.wait();
     const cid = (await campaigns.nextCampaignId()) - 1n;

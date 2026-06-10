@@ -24,7 +24,7 @@ const PENDING_TIMEOUT_INIT = 1000n;   // inside [100, 5_256_000]
 const INACTIVITY_TIMEOUT_INIT = 432_000n; // inside [14_400, 5_256_000]
 
 const CPM_FLOOR_MIN = 1n;
-const CPM_FLOOR_MAX = 10n * 10n ** 10n;
+const CPM_FLOOR_MAX = 10n * 10n ** 18n; // 10 PAS/1000 imps (18-dec wei; matches contract)
 const PENDING_MIN   = 100n;
 const PENDING_MAX   = 5_256_000n;
 const INACT_MIN     = 14_400n;

@@ -59,16 +59,17 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
     uint256 public unstakeDelayBlocks;
 
     /// @notice Cap on requiredStake to prevent bonding curve runaway. Default
-    ///         10^14 planck = 10,000 DOT, same as publisher stake.
-    uint256 public maxRequiredStake = 10**14;
+    ///         10^22 wei = 10,000 DOT (18-dec wei), same as publisher stake.
+    uint256 public maxRequiredStake = 10**22;
 
     /// @dev Phase B bounds for the new dual-permission setters. Wide enough
     ///      for any realistic operational range, narrow enough to block
-    ///      governance-attack abuse.
-    uint256 internal constant MAX_BASE_STAKE              = 10**16;     // ~1M DOT
-    uint256 internal constant MAX_PLANCK_PER_DOT_SPENT    = 10**12;     // ~100 DOT per DOT-spent (very aggressive curve ceiling)
+    ///      governance-attack abuse. All in 18-dec wei (2026-06 denomination
+    ///      migration: stakes are native PAS / msg.value, i.e. 18-dec wei).
+    uint256 internal constant MAX_BASE_STAKE              = 10**24;     // ~1M DOT (18-dec wei)
+    uint256 internal constant MAX_PLANCK_PER_DOT_SPENT    = 10**20;     // ~100 DOT-per-DOT-spent (wei; curve coeff ceiling)
     uint256 internal constant MAX_UNSTAKE_DELAY_BLOCKS    = 5_256_000;  // ~1 year
-    uint256 internal constant MAX_REQUIRED_STAKE_CEILING  = 10**17;     // ~10M DOT
+    uint256 internal constant MAX_REQUIRED_STAKE_CEILING  = 10**25;     // ~10M DOT (18-dec wei)
 
     // ── State ──────────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ contract DatumAdvertiserStake is IDatumAdvertiserStake, PaseoSafeSender, DatumFu
     ///         before the curve advances by one DOT — acceptable).
     function recordBudgetSpent(address advertiser, uint256 amountWei) external {
         require(msg.sender == settlementContract, "E18");
-        uint256 dotUnits = amountWei / 10**10; // 1 DOT = 10^10 planck
+        uint256 dotUnits = amountWei / 10**18; // 1 DOT = 10^18 wei (18-dec migration; was 10^10 planck)
         if (dotUnits == 0) return;
         _cumulativeBudgetSpentDOT[advertiser] += dotUnits;
         _track(advertiser);

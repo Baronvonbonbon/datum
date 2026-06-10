@@ -59,7 +59,7 @@ describe("Phase B — DatumAdvertiserStake parameter governance", () => {
     // delay > 5_256_000 → out-of-bounds
     await expect(c.connect(owner).setParams(parseDOT("1"), 0n, 5_256_001n)).to.be.revertedWith("out-of-bounds");
     // base > 10^16 → out-of-bounds
-    await expect(c.connect(owner).setParams(10n ** 17n, 0n, 14_400n)).to.be.revertedWith("out-of-bounds");
+    await expect(c.connect(owner).setParams(10n ** 25n, 0n, 14_400n)).to.be.revertedWith("out-of-bounds"); // base > MAX_BASE_STAKE (10^24 wei)
   });
 
   it("setMaxRequiredStake and setMaxSlashBpsPerCall both PG-routable", async () => {
@@ -112,7 +112,7 @@ describe("Phase B — DatumActivationBonds parameter governance", () => {
   it("setMinBond MAX_BOND_CEILING bound enforced", async () => {
     const c = await deploy();
     const [owner] = await ethers.getSigners();
-    await expect(c.connect(owner).setMinBond(10n ** 17n)).to.be.revertedWith("out-of-bounds");
+    await expect(c.connect(owner).setMinBond(10n ** 25n)).to.be.revertedWith("out-of-bounds"); // > MAX_BOND_CEILING (10^24 wei)
   });
 });
 
@@ -152,7 +152,7 @@ describe("Phase B — DatumGovernanceV2 parameter governance", () => {
   it("setQuorumWeighted MAX bound enforced", async () => {
     const c = await deploy();
     const [owner] = await ethers.getSigners();
-    await expect(c.connect(owner).setQuorumWeighted(10n ** 18n)).to.be.revertedWith("out-of-bounds");
+    await expect(c.connect(owner).setQuorumWeighted(10n ** 26n)).to.be.revertedWith("out-of-bounds"); // > MAX_QUORUM_CEILING (10^25 wei)
   });
 });
 
@@ -165,7 +165,7 @@ describe("Phase B — DatumMintCoordinator parameter governance", () => {
     const c = await deploy();
     const [owner, , pgSigner] = await ethers.getSigners();
     await c.connect(owner).setParameterGovernance(pgSigner.address);
-    await c.connect(pgSigner).setMintRate(parseDOT("0.001"));
+    await c.connect(pgSigner).setMintRate(19n * 10n ** 10n); // 19 DATUM/DOT — rate is 10-dec DATUM, not DOT-wei
     await c.connect(pgSigner).setDustMintThreshold(100n);
     await c.connect(pgSigner).setDatumRewardSplit(5500, 4000, 500); // sums to 10000
   });

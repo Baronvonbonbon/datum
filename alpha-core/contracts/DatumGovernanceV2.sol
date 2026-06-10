@@ -66,7 +66,7 @@ contract DatumGovernanceV2 is PaseoSafeSender, DatumPlumbingLockable, ParameterR
     /// @dev Phase B abuse-protection caps. Quorum values are stake-denominated
     ///      (planck); 10^17 = ~10M DOT — well above any realistic governance
     ///      voting volume on a single proposal.
-    uint256 internal constant MAX_QUORUM_CEILING = 10**17;
+    uint256 internal constant MAX_QUORUM_CEILING = 10**25; // ~10M DOT (18-dec wei; was 10^17 planck pre-denomination)
 
     uint8 public constant MAX_CONVICTION = 8;
 

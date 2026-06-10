@@ -52,7 +52,7 @@ contract DatumActivationBonds is IDatumActivationBonds, PaseoSafeSender, DatumFu
 
     /// @dev Phase B bound: cap on min-bond values to prevent governance from
     ///      pricing all campaign creation out of reach.
-    uint256 internal constant MAX_BOND_CEILING = 10**16; // ~1M DOT
+    uint256 internal constant MAX_BOND_CEILING = 10**24; // ~1M DOT (18-dec wei; was 10^16 planck)
 
     // ── Wiring ────────────────────────────────────────────────────────────────
 

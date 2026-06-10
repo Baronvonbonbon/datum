@@ -848,14 +848,15 @@ describe("Audit fixes", function () {
       // Create a Pending campaign
       const POT = {
         actionType: 0,
-        budgetWei: 1_000_000_000n,
-        dailyCapWei: 1_000_000_000n,
+        // budget must clear MINIMUM_BUDGET_WEI (10^17) post 18-dec-wei migration
+        budgetWei: 10n ** 18n,
+        dailyCapWei: 10n ** 18n,
         rateWei: 1n,
         actionVerifier: ethers.ZeroAddress,
       };
       await campaigns.connect(advertiser).createCampaign(
         publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
-        { value: 1_000_000_000n }
+        { value: 10n ** 18n }
       );
       const cid = (await campaigns.nextCampaignId()) - 1n;
 
@@ -902,12 +903,13 @@ describe("Audit fixes", function () {
       await pubs.connect(publisherSig).registerPublisher(5000);
 
       const POT = {
-        actionType: 0, budgetWei: 1_000_000_000n, dailyCapWei: 1_000_000_000n,
+        // budget must clear MINIMUM_BUDGET_WEI (10^17) post 18-dec-wei migration
+        actionType: 0, budgetWei: 10n ** 18n, dailyCapWei: 10n ** 18n,
         rateWei: 1n, actionVerifier: ethers.ZeroAddress,
       };
       await campaigns.connect(advertiser).createCampaign(
         publisherSig.address, [POT], [], false, ethers.ZeroAddress, 0n, 0n,
-        { value: 1_000_000_000n }
+        { value: 10n ** 18n }
       );
       const cid = (await campaigns.nextCampaignId()) - 1n;
 

@@ -39,8 +39,9 @@ contract DatumPublisherStake is IDatumPublisherStake, PaseoSafeSender, DatumFund
     uint256 public planckPerImpression;
     uint256 public unstakeDelayBlocks;
     /// @notice AUDIT-012: Cap on requiredStake to prevent bonding curve runaway.
-    ///         Default 10^14 planck = 10,000 DOT.
-    uint256 public maxRequiredStake = 10**14;
+    ///         Default 10^22 wei = 10,000 DOT (18-dec wei; was 10^14 planck
+    ///         pre-2026-06 denomination migration).
+    uint256 public maxRequiredStake = 10**22;
 
     // ── State ──────────────────────────────────────────────────────────────────
 
