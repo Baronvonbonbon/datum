@@ -240,8 +240,11 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
                 totalMint = 0;
             }
         } else {
-            // Legacy flat-rate fallback.
-            totalMint = (dotPaid * mintRatePerDot) / (10**10);
+            // Legacy flat-rate fallback. dotPaid is 18-dec wei (settlement
+            // denomination); mintRatePerDot is 10-dec DATUM/DOT, so divide by
+            // 10**18 to land in 10-dec DATUM base (matches the engine path's
+            // wei→10-dec normalization).
+            totalMint = (dotPaid * mintRatePerDot) / (10**18);
         }
         if (totalMint < dustMintThreshold) return;
 

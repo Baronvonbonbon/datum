@@ -134,7 +134,9 @@ describe("DatumEmissionEngine (Path H)", function () {
     it("accumulates cumulativeDotThisAdjustmentPeriod", async function () {
       await engine.connect(settlement).computeAndClipMint(parseDOT("1"));
       await engine.connect(settlement).computeAndClipMint(parseDOT("2"));
-      expect(await engine.cumulativeDotThisAdjustmentPeriod()).to.equal(parseDOT("3"));
+      // Accumulator is tracked in the engine's 10-dec DOT base; computeAndClipMint
+      // normalizes the 18-dec wei input (÷10^8) on entry.
+      expect(await engine.cumulativeDotThisAdjustmentPeriod()).to.equal(parseDOT("3") / 10n ** 8n);
     });
   });
 
@@ -149,7 +151,7 @@ describe("DatumEmissionEngine (Path H)", function () {
     it("after cap is filled, subsequent calls in same day mint 0", async function () {
       const cap = (await engine.dailyCap()) as bigint;
       // Fill cap: need dotPaid such that dotPaid × 19 / 1 >= cap → dotPaid ≥ cap/19
-      const dotToFill = cap / 19n + 1n;
+      const dotToFill = (cap / 19n + 1n) * 10n ** 8n; // wei input; engine ÷10^8 → 10-dec DOT
       await engine.connect(settlement).computeAndClipMint(dotToFill);
       expect(await engine.remainingDailyCap()).to.equal(0n);
       // Next call same day should return 0
@@ -158,7 +160,7 @@ describe("DatumEmissionEngine (Path H)", function () {
     });
     it("resets to dailyCap at UTC midnight", async function () {
       const cap = (await engine.dailyCap()) as bigint;
-      const dotToFill = cap / 19n + 1n;
+      const dotToFill = (cap / 19n + 1n) * 10n ** 8n; // wei input; engine ÷10^8 → 10-dec DOT
       await engine.connect(settlement).computeAndClipMint(dotToFill);
       expect(await engine.remainingDailyCap()).to.equal(0n);
       // Advance past UTC midnight
@@ -264,7 +266,7 @@ describe("DatumEmissionEngine (Path H)", function () {
       // To save test time, instead just verify the math invariant by
       // checking that each computeAndClipMint never overshoots.
       const cap = (await engine.dailyCap()) as bigint;
-      const dotToFill = cap / 19n + 1n;
+      const dotToFill = (cap / 19n + 1n) * 10n ** 8n; // wei input; engine ÷10^8 → 10-dec DOT
       // Fill 5 days
       for (let i = 0; i < 5; i++) {
         await engine.connect(settlement).computeAndClipMint(dotToFill);

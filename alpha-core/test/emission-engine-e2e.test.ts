@@ -102,8 +102,9 @@ describe("Path H end-to-end: Settlement → EmissionEngine → MintAuthority", f
 
     // Day 2: small batch — under new lower rate
     await engine.connect(owner).computeAndClipMint(parseDOT("1"));
-    // remainingDailyCap reset at midnight, then drained by today's mint
-    const expectedToday = parseDOT("1") * (ratePrev / 2n) / UNIT;
+    // remainingDailyCap reset at midnight, then drained by today's mint.
+    // Engine normalizes the 18-dec wei input ÷10^8 to its 10-dec DOT base.
+    const expectedToday = (parseDOT("1") / 10n ** 8n) * (ratePrev / 2n) / UNIT;
     expect(await engine.remainingDailyCap()).to.equal(cap - expectedToday);
   });
 

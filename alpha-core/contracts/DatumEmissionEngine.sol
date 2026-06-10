@@ -193,15 +193,22 @@ contract DatumEmissionEngine is DatumPlumbingLockable {
     ///         mint at current rate, clips it against remaining daily and
     ///         epoch budgets, updates accumulators, and returns the effective
     ///         amount Settlement should actually mint.
-    /// @param  dotPaid Total DOT settled in this batch (10-decimal base).
+    /// @param  dotPaidWei Total DOT/PAS settled in this batch, in 18-decimal
+    ///         wei (the settlement denomination). Normalized to the engine's
+    ///         10-decimal DOT base internally — rate/budget/cap and the DATUM
+    ///         token are all 10-decimal (DatumWrapper.decimals() == 10).
     /// @return effective Effective DATUM to mint (10-decimal base).
-    function computeAndClipMint(uint256 dotPaid) external whenNotFrozen returns (uint256 effective) {
+    function computeAndClipMint(uint256 dotPaidWei) external whenNotFrozen returns (uint256 effective) {
         require(msg.sender == settlement, "not settlement");
+        // 18-dec wei → 10-dec DOT base (the 2026-06 denomination migration moved
+        // settlement to 18-dec wei; this engine's math stays 10-dec). Sub-1e8-wei
+        // dust normalizes to 0 and mints nothing.
+        uint256 dotPaid = dotPaidWei / 10**8;
         if (dotPaid == 0) return 0;
 
         _maybeRollDay();
 
-        // Track for next rate adjustment.
+        // Track for next rate adjustment (10-decimal DOT base).
         cumulativeDotThisAdjustmentPeriod += dotPaid;
 
         uint256 raw = (dotPaid * currentRate) / 10**10;
