@@ -80,10 +80,11 @@ jobs:
       # NOT run here — the web app has pre-existing strict-tsc findings (catalog
       # completeness, import.meta typing) that the vite/webpack builds tolerate;
       # tightening tsc is tracked separately, not part of the clean-recompile gate.
-      - name: Build web (vite)
+      - name: Test + build web (vitest + vite)
         working-directory: web
         run: |
           npm ci
+          npm test          # vitest — includes the wire-format SSOT + migration-guard drift gates
           npm run build
 
       - name: Build extension (webpack)

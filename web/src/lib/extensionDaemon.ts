@@ -51,6 +51,7 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
 }
 
 import { pineRpc, getPineProvider, getPineStatus } from "./provider";
+import { PUBLISHER_ATTESTATION_TYPES } from "@shared/wireFormat";
 import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract, getBudgetLedgerContract, getPublisherReputationContract } from "@shared/contracts";
 
 // Probe the settlement-level gates the daemon can read, used when a settleClaims
@@ -379,15 +380,9 @@ const demoEnv: EnvContext = {
         chainId: PASEO_CHAIN_ID,
         verifyingContract: attestationVerifierAddr as `0x${string}`,
       };
-      const types = {
-        PublisherAttestation: [
-          { name: "campaignId",    type: "uint256" },
-          { name: "user",          type: "address" },
-          { name: "firstNonce",    type: "uint256" },
-          { name: "claimsHash",    type: "bytes32" },
-          { name: "deadlineBlock", type: "uint256" },
-        ],
-      };
+      // SSOT: derive the EIP-712 type from the canonical wire-format module
+      // (web/src/shared/wireFormat.ts), pinned to the contracts by wireFormat.test.ts.
+      const types = PUBLISHER_ATTESTATION_TYPES;
       const value = {
         campaignId: BigInt(args.campaignId),
         user: args.userAddress,

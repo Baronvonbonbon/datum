@@ -253,8 +253,11 @@ async function main() {
     if (!relayUp) console.log(`    [SKIP] relay not reachable at ${RELAY}`);
     else {
       const dualSigDomain = { name: "DatumSettlement", version: "1", chainId: 420420417, verifyingContract: A.dualSig };
+      // SLIM-#2: dual-sig ClaimBatch carries firstNonce (matches the canonical
+      // DatumDualSigSettlement.CLAIM_BATCH_TYPEHASH — see web/src/shared/wireFormat.ts).
       const CB = { ClaimBatch: [
-        { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "claimsHash", type: "bytes32" },
+        { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "firstNonce", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" },
         { name: "deadlineBlock", type: "uint256" }, { name: "expectedRelaySigner", type: "address" }, { name: "expectedAdvertiserRelaySigner", type: "address" },
       ] };
       const enc = AbiCoder.defaultAbiCoder();
@@ -271,7 +274,7 @@ async function main() {
           const claimsHash = keccak256(claimHash);
           const dl = BigInt(head + 1000);
           const advertiserSig = await bob.signTypedData(dualSigDomain, CB,
-            { user: user.address, campaignId: BigInt(d.cid), claimsHash, deadlineBlock: dl, expectedRelaySigner: DIANA, expectedAdvertiserRelaySigner: ZeroAddress });
+            { user: user.address, campaignId: BigInt(d.cid), firstNonce: 1n, claimsHash, deadlineBlock: dl, expectedRelaySigner: DIANA, expectedAdvertiserRelaySigner: ZeroAddress });
           const envelope = {
             user: user.address, campaignId: String(d.cid), deadlineBlock: dl.toString(), userSig: "0x00", advertiserSig,
             expectedRelaySigner: DIANA, expectedAdvertiserRelaySigner: ZeroAddress,
