@@ -170,7 +170,6 @@ const NAV_SECTIONS: NavSection[] = [
       { path: "/token", label: "Dashboard", exact: true },
       { path: "/token/mint-coordinator", label: "Mint Coordinator" },
       { path: "/token/wrapper", label: "Wrapper" },
-      { path: "/token/bootstrap", label: "Bootstrap" },
       { path: "/token/vesting", label: "Vesting" },
       { path: "/token/fee-share", label: "Fee Share" },
     ],

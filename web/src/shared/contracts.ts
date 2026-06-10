@@ -30,7 +30,6 @@ import DatumCouncilAbi from "./abis/DatumCouncil.json";
 import DatumZKVerifierAbi from "./abis/DatumZKVerifier.json";
 import DatumWrapperAbi from "./abis/DatumWrapper.json";
 import DatumMintAuthorityAbi from "./abis/DatumMintAuthority.json";
-import DatumBootstrapPoolAbi from "./abis/DatumBootstrapPool.json";
 import DatumVestingAbi from "./abis/DatumVesting.json";
 import DatumFeeShareAbi from "./abis/DatumFeeShare.json";
 import DatumCouncilBlocklistCuratorAbi from "./abis/DatumCouncilBlocklistCurator.json";
@@ -350,11 +349,6 @@ export function getWrapperContract(addresses: ContractAddresses, provider: Provi
 export function getMintAuthorityContract(addresses: ContractAddresses, provider: Provider | Signer) {
   if (!addresses.mintAuthority) return null;
   return make(addresses.mintAuthority, abi(DatumMintAuthorityAbi), provider);
-}
-
-export function getBootstrapPoolContract(addresses: ContractAddresses, provider: Provider | Signer) {
-  if (!addresses.bootstrapPool) return null;
-  return make(addresses.bootstrapPool, abi(DatumBootstrapPoolAbi), provider);
 }
 
 export function getVestingContract(addresses: ContractAddresses, provider: Provider | Signer) {

@@ -439,7 +439,7 @@ export function HowItWorks() {
             what="Installs the Datum browser extension. The extension records impressions locally, builds a sequential hash-linked claim chain per (user, campaign), and submits in batches. No browsing data leaves the browser. Self-sovereignty controls live on-chain — you can pause settlement, block counterparties, or demand a ZK-only floor."
             earns={[
               "DOT settlement credit proportional to impressions in each accepted batch (75% of advertiser-net after publisher take).",
-              "DATUM token emission via MintCoordinator + one-time WDATUM bootstrap grant from BootstrapPool on first claim.",
+              "DATUM token emission via MintCoordinator.",
               "ERC-20 side-rewards in full if the advertiser seeded a token budget; pull-payment, withdrawable on your schedule.",
               "Stake WDATUM in FeeShare to earn DOT yield from protocol-fee sweeps.",
             ]}
@@ -590,19 +590,18 @@ export function HowItWorks() {
       {/* ── DATUM token plane ────────────────────────────────────────────── */}
       <Section
         title="DATUM Token Plane"
-        kicker="Mint authority, WDATUM wrapper, bootstrap grants, fee share, vesting"
+        kicker="Mint authority, WDATUM wrapper, fee share, vesting"
       >
         <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.7, margin: 0 }}>
-          Beyond the per-impression DOT split, Datum mints its own ERC-20 reward token. The token plane is five
-          single-purpose contracts that together form the protocol's economic flywheel — issuance, wrapping, onboarding,
+          Beyond the per-impression DOT split, Datum mints its own ERC-20 reward token. The token plane is four
+          single-purpose contracts that together form the protocol's economic flywheel — issuance, wrapping,
           yield, and team vesting are all separately upgradable until OpenGov fires their lock-once functions.
         </p>
         <TileGrid
           minWidth={220}
           items={[
-            { title: "MintAuthority", body: "Sole bridge contract for DATUM mints. Hard cap 95M (95% of supply). Per-claim emission, bootstrap grants, and vesting releases all route through here." },
+            { title: "MintAuthority", body: "Sole bridge contract for DATUM mints. Hard cap 95M (95% of supply). Per-claim emission and vesting releases all route through here." },
             { title: "Wrapper (WDATUM)", body: "EVM-side ERC-20 wrapper over canonical Asset Hub DATUM. wrap / unwrap against the precompile. WDATUM is the stakeable form." },
-            { title: "BootstrapPool", body: "One-time onboarding grant of WDATUM the first time the protocol settles a claim for your address. Lowers the cold-start cost of joining." },
             { title: "FeeShare", body: "Stake WDATUM to earn DOT yield from protocol-fee sweeps. Single-token MasterChef pattern — your share scales with stake × duration." },
             { title: "Vesting", body: "Single-beneficiary linear vesting with cliff. Used for team / contributor allocations. Publicly readable on-chain." },
             { title: "MintCoordinator + EmissionEngine", body: "Per-claim orchestration: dust gate, split bps, schedule. Decoupled from Settlement so emission policy can evolve without touching the settlement hot path." },

@@ -1,11 +1,11 @@
 // DatumMintAuthority admin status page.
 //
 // The MintAuthority bridges EVM-side contracts to the canonical DATUM asset
-// on Polkadot Asset Hub. Every settlement, bootstrap, and vesting mint flows
-// through here. Caps total emissions at MINTABLE_CAP (95M DATUM).
+// on Polkadot Asset Hub. Every settlement and vesting mint flows through
+// here. Caps total emissions at MINTABLE_CAP (95M DATUM).
 //
 // Owner-only function: transferIssuerTo (the §5.5 sunset path). The wiring
-// setters (setWrapper / setSettlement / setBootstrapPool / setVesting) are
+// setters (setWrapper / setSettlement / setVesting) are
 // lock-once-on-first-set — once wired they're frozen.
 
 import { useEffect, useState } from "react";
@@ -37,7 +37,6 @@ export function MintAuthorityAdmin() {
   const [minted, setMinted] = useState<bigint>(0n);
   const [wrapperAddr, setWrapperAddr] = useState<string>("");
   const [settlementAddr, setSettlementAddr] = useState<string>("");
-  const [bootstrapAddr, setBootstrapAddr] = useState<string>("");
   const [vestingAddr, setVestingAddr] = useState<string>("");
   const [canonicalAssetId, setCanonicalAssetId] = useState<bigint>(0n);
 
@@ -49,13 +48,12 @@ export function MintAuthorityAdmin() {
     try {
       const m = getMintAuthorityContract(settings.contractAddresses, contracts.readProvider);
       if (!m) return;
-      const [own, c, mint, w, s, b, v, aid] = await Promise.all([
+      const [own, c, mint, w, s, v, aid] = await Promise.all([
         m.owner(),
         m.MINTABLE_CAP(),
         m.totalMinted(),
         m.wrapper(),
         m.settlement(),
-        m.bootstrapPool(),
         m.vesting(),
         m.canonicalAssetId(),
       ]);
@@ -64,7 +62,6 @@ export function MintAuthorityAdmin() {
       setMinted(BigInt(mint));
       setWrapperAddr(String(w));
       setSettlementAddr(String(s));
-      setBootstrapAddr(String(b));
       setVestingAddr(String(v));
       setCanonicalAssetId(BigInt(aid));
     } catch (err) {
@@ -117,7 +114,6 @@ export function MintAuthorityAdmin() {
       <Section title="Wiring (lock-once)">
         <Row label="Wrapper" value={<code style={{ fontSize: 11 }}>{wrapperAddr}</code>} />
         <Row label="Settlement" value={<code style={{ fontSize: 11 }}>{settlementAddr}</code>} />
-        <Row label="Bootstrap Pool" value={<code style={{ fontSize: 11 }}>{bootstrapAddr}</code>} />
         <Row label="Vesting" value={<code style={{ fontSize: 11 }}>{vestingAddr}</code>} />
         <Row label="Canonical asset id" value={String(canonicalAssetId)} />
         {(wrapperAddr === ZERO || settlementAddr === ZERO) && (

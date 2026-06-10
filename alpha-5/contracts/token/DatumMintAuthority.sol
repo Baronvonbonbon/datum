@@ -43,7 +43,7 @@ contract DatumMintAuthority is DatumUpgradable {
 
     /// @notice Hard cap on total mints (matches HARD_CAP - FOUNDER_PREMINT
     ///         in the spec; this contract is responsible for the 95M emission
-    ///         pool, of which 1M is reserved for the bootstrap pool).
+    ///         pool).
     uint256 public constant MINTABLE_CAP = 95_000_000 * 10**10;
 
     IAssetHubPrecompile_Auth public immutable precompile;
@@ -59,9 +59,6 @@ contract DatumMintAuthority is DatumUpgradable {
     /// @notice Settlement contract — only address that may invoke mintForSettlement.
     address public settlement;
 
-    /// @notice Bootstrap pool — only address that may invoke mintForBootstrap.
-    address public bootstrapPool;
-
     /// @notice Vesting contract — only address that may invoke mintForVesting.
     address public vesting;
 
@@ -75,11 +72,9 @@ contract DatumMintAuthority is DatumUpgradable {
 
     event WrapperSet(address indexed wrapper);
     event SettlementSet(address indexed settlement);
-    event BootstrapPoolSet(address indexed pool);
     event VestingSet(address indexed vesting);
     event PauseRegistrySet(address indexed pauseRegistry);
     event MintedForSettlement(address indexed user, address indexed publisher, address indexed advertiser, uint256 total);
-    event MintedForBootstrap(address indexed user, uint256 amount);
     event MintedForVesting(address indexed recipient, uint256 amount);
     event IssuerTransferred(address indexed newIssuer);
     event IssuerTransferStaged(address indexed newIssuer);
@@ -121,13 +116,6 @@ contract DatumMintAuthority is DatumUpgradable {
         require(settlement == address(0), "already set");
         settlement = _settlement;
         emit SettlementSet(_settlement);
-    }
-
-    function setBootstrapPool(address _pool) external onlyOwner {
-        require(_pool != address(0), "E00");
-        require(bootstrapPool == address(0), "already set");
-        bootstrapPool = _pool;
-        emit BootstrapPoolSet(_pool);
     }
 
     function setVesting(address _vesting) external onlyOwner {
@@ -184,19 +172,6 @@ contract DatumMintAuthority is DatumUpgradable {
         if (advertiserAmt > 0) IDatumWrapper(wrapper).mintTo(advertiser, advertiserAmt);
 
         emit MintedForSettlement(user, publisher, advertiser, total);
-    }
-
-    /// @notice Called by DatumBootstrapPool when dispensing the house-ad bonus.
-    /// @dev    Identical bridging shape — canonical to wrapper, WDATUM to user.
-    function mintForBootstrap(address user, uint256 amount) external whenNotFrozen {
-        require(msg.sender == bootstrapPool, "E18");
-        _requireNotPaused();
-        require(totalMinted + amount <= MINTABLE_CAP, "cap");
-        if (amount == 0) return;
-        totalMinted += amount;
-        precompile.mint(canonicalAssetId, wrapper, amount);
-        IDatumWrapper(wrapper).mintTo(user, amount);
-        emit MintedForBootstrap(user, amount);
     }
 
     /// @notice Called by DatumVesting on each release().

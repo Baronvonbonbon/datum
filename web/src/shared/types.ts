@@ -321,7 +321,6 @@ export interface ContractAddresses {
   /// disables with a "feature unavailable on this deployment" note.
   wrapper?: string;
   mintAuthority?: string;
-  bootstrapPool?: string;
   vesting?: string;
   feeShare?: string;
   // ── Alpha-5 additions (2026-05-21 deploy) ─────────────────────
