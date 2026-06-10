@@ -67,7 +67,12 @@ re-audit deltas. **Gate:** no open High/Critical; Mediums dispositioned.
 
 ---
 
-## Phase 2 — Prove the migration machinery (U3 / U5 / U6) ◐ [TASK]  *(the true upgrade gate)*
+## Phase 2 — Prove the migration machinery (U3 / U5 / U6) ☑ [TASK]  *(the true upgrade gate)*
+
+**Core gates all green: U1 ✓ (router wedge) · U2 ✓ (`_migrate` overrides) · U5 ✓
+(coordinated full-cluster rotation) · U3 ✓ (gas-paginated migration) · U6 ✓
+(off-chain partial-migration guard + webapp banner).** Remaining items below are
+breadth/optional, not gates.
 
 U1 (router freeze/migrate wedge) is **fixed**; U2 `_migrate` overrides **landed**.
 
@@ -104,9 +109,13 @@ paginates per-campaign via `migrateDelegate`.)
 - **U3 breadth:** apply the same paginated pattern to other unbounded sets if/when
   they outgrow one block (NullifierRegistry, the enumerable fund-holders). Pattern
   is now a proven template.
-- **U6 — indexer/consumer guards** for the partial-migration window: webapp +
-  relay + indexer must read `migrated` (and `migrationCursor`) and refuse
-  "current" reads while `migrated == false`. (On-chain signal now exists.)
+- **☑ U6 (2026-06-10, `db4ff85`):** shared `web/src/lib/migrationGuard.ts`
+  primitive (`classifyMigration`/`isMidMigration`/`readMigrationState`/
+  `midMigrationContracts`) + 8 vitest cases + `useMidMigration` hook + a
+  "protocol upgrade in progress" banner in `Layout`. Correct signal:
+  `migrationSource != 0 && !migrated` (genesis contracts are `migrated == false`
+  forever). **U6 breadth:** the relay-bot + indexer should import the same
+  primitive to pause writes through a mid-migration contract.
 - **U5 optional:** re-run the production suite against the migrated set.
 **Gate:** coordinated harness green across the full funds/state cluster ☑; U3
 pagination green ☑. **Verify:** CI runs both; the clean-recompile gate (Phase 3)
