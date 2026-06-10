@@ -1,0 +1,93 @@
+name: CI
+
+# Phase-3 gate (RUNBOOK-CORE-LAUNCH.md): a CLEAN recompile on every push/PR so
+# tests can never run against stale artifacts. A stale-artifact false-green is
+# exactly what hid the 18-dec-wei denomination bugs (and the pre-SLIM relay-bot)
+# until the alpha-core bump forced a clean build. Plus an ABI-drift check so the
+# committed extension/web ABIs can never lag the contracts again.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Contracts — clean recompile + tests + ABI drift
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: alpha-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install (clean, from lockfile)
+        run: npm ci
+
+      # ── THE GATE ──────────────────────────────────────────────────────────
+      # Wipe every build output so the suite is forced to run against freshly
+      # compiled bytecode. Without this, hardhat's incremental cache can serve
+      # stale artifacts and a denomination/logic change silently false-greens.
+      - name: Clean all build outputs (no stale artifacts)
+        run: rm -rf artifacts cache typechain-types
+
+      - name: Compile (fresh)
+        run: npm run compile
+
+      - name: Test (full suite, against fresh bytecode)
+        run: npm test
+
+      # ── ABI drift check ───────────────────────────────────────────────────
+      # Regenerate the committed extension + web ABIs from the freshly-compiled
+      # artifacts via the canonical sync scripts; fail if anything differs. This
+      # stops the off-chain consumers' ABIs from lagging the contracts (the
+      # drift class that left the relay-bot/extension pre-SLIM and the router ABI
+      # missing UpgradeHooksFired).
+      - name: Regenerate ABIs from fresh artifacts
+        working-directory: .
+        run: |
+          node web/scripts/sync-abis.mjs
+          node alpha-core/extension/scripts/copy-abis.js
+
+      - name: Fail on ABI drift
+        working-directory: .
+        run: |
+          if ! git diff --exit-code -- web/src/shared/abis alpha-core/extension/src/shared/abis; then
+            echo "::error::Committed ABIs are out of sync with the contracts. Run 'node web/scripts/sync-abis.mjs' and '(cd alpha-core/extension && node scripts/copy-abis.js)', then commit."
+            exit 1
+          fi
+
+  frontend:
+    name: Frontend — web + extension builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Builds are the compile/bundle gate. `npm run type-check` is intentionally
+      # NOT run here — the web app has pre-existing strict-tsc findings (catalog
+      # completeness, import.meta typing) that the vite/webpack builds tolerate;
+      # tightening tsc is tracked separately, not part of the clean-recompile gate.
+      - name: Build web (vite)
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build extension (webpack)
+        working-directory: alpha-core/extension
+        run: |
+          npm ci
+          npm run build
