@@ -198,3 +198,125 @@ describe("U5 — coordinated funds-cluster rotation (6 fund holders)", function 
     }
   });
 });
+
+// ── Registry tier ───────────────────────────────────────────────────────────
+// Campaigns + Lifecycle rotated together. Different mechanism from the fund
+// holders: the campaign REGISTRY state lives in DatumCampaigns and migrates via
+// the governance-gated DELEGATECALL passthrough (migrateDelegate →
+// DatumCampaignsMigrationLogic.importCampaignFull), replaying each campaign's
+// FULL state (struct + pots + every gate) read from the frozen predecessor.
+// Lifecycle is a coordinator (campaign status lives ON Campaigns, no own state),
+// so its rotation is freeze → migrate → rewire to the new Campaigns.
+describe("U5 — coordinated registry-tier rotation (Campaigns + Lifecycle)", function () {
+  let owner: HardhatEthersSigner, governor: HardhatEthersSigner;
+  let advertiser: HardhatEthersSigner, publisher: HardhatEthersSigner;
+  let router: any, pause: any, publishers: any, ledger: any;
+  let campaignsV1: any, campaignsV2: any, logic: any;
+  let lifecycleV1: any, lifecycleV2: any;
+  let cid: bigint;
+
+  beforeEach(async function () {
+    await fundSigners();
+    [owner, governor, advertiser, publisher] = await ethers.getSigners();
+
+    router = await (await ethers.getContractFactory("MockOpenGovRouter")).deploy();
+    await router.setGovernor(governor.address);
+    const r = await router.getAddress();
+
+    pause = await (await ethers.getContractFactory("DatumPauseRegistry"))
+      .deploy(owner.address, advertiser.address, publisher.address);
+    publishers = await (await ethers.getContractFactory("DatumPublishers"))
+      .deploy(50n, await pause.getAddress());
+
+    // ── Campaigns v1 + a REAL campaign (genuine registry state to migrate) ────
+    campaignsV1 = await (await ethers.getContractFactory("DatumCampaigns"))
+      .deploy(0n, 100n, await publishers.getAddress(), await pause.getAddress());
+    ledger = await (await ethers.getContractFactory("DatumBudgetLedger")).deploy();
+    await ledger.setCampaigns(await campaignsV1.getAddress());
+    await campaignsV1.setBudgetLedger(await ledger.getAddress());
+    await campaignsV1.setGovernanceContract(owner.address);
+    await campaignsV1.setRouter(r);
+
+    // Lifecycle v1 wired to Campaigns v1.
+    lifecycleV1 = await (await ethers.getContractFactory("DatumCampaignLifecycle"))
+      .deploy(await pause.getAddress(), 1000n);
+    await lifecycleV1.setCampaigns(await campaignsV1.getAddress());
+    await lifecycleV1.setRouter(r);
+    await campaignsV1.setLifecycleContract(await lifecycleV1.getAddress());
+
+    await publishers.connect(publisher).registerPublisher(5000);
+    await campaignsV1.connect(advertiser).createCampaign(
+      publisher.address,
+      [{ actionType: 0, budgetWei: 10n ** 18n, dailyCapWei: 10n ** 18n, rateWei: 1n, actionVerifier: ethers.ZeroAddress }],
+      [], false, ethers.ZeroAddress, 0n, 0n,
+      { value: 10n ** 18n },
+    );
+    cid = (await campaignsV1.nextCampaignId()) - 1n;
+
+    // ── v2 registry tier (deployed, router-wired, not migrated) ───────────────
+    campaignsV2 = await (await ethers.getContractFactory("MockCampaignsV2"))
+      .deploy(0n, 100n, await publishers.getAddress(), await pause.getAddress());
+    await campaignsV2.setRouter(r);
+    logic = await (await ethers.getContractFactory("DatumCampaignsMigrationLogic")).deploy();
+
+    lifecycleV2 = await (await ethers.getContractFactory("DatumCampaignLifecycle"))
+      .deploy(await pause.getAddress(), 1000n);
+    await lifecycleV2.setRouter(r);
+  });
+
+  it("rotates Campaigns + Lifecycle together; replays full campaign state into v2; rewires Lifecycle", async function () {
+    // Snapshot v1's full registry state (what the off-chain migrator reads).
+    const core = await campaignsV1.getCampaignStruct(cid);
+    const pots = await campaignsV1.getCampaignPots(cid);
+    const fullImport = {
+      core,
+      pots,
+      allowlistEnabled: await campaignsV1.campaignAllowlistEnabled(cid),
+      assuranceLevel: await campaignsV1.campaignAssuranceLevel(cid),
+      minStake: await campaignsV1.campaignMinStake(cid),
+      requiredCategory: await campaignsV1.campaignRequiredCategory(cid),
+      userEventCap: await campaignsV1.userEventCapPerWindow(cid),
+      userCapWindow: await campaignsV1.userCapWindowBlocks(cid),
+      minHistory: await campaignsV1.minUserSettledHistory(cid),
+      minIdentityLevel: await campaignsV1.campaignMinIdentityLevel(cid),
+    };
+
+    // ── COORDINATED ROTATION: freeze the registry tier together ───────────────
+    await campaignsV1.connect(governor).freeze();
+    await lifecycleV1.connect(governor).freeze();
+
+    // Campaigns: replay v1's FULL state into v2 via the delegatecall logic.
+    await campaignsV2.connect(governor).setMigrationLogic(await logic.getAddress());
+    await campaignsV2.connect(governor).migrateDelegate(
+      logic.interface.encodeFunctionData("importCampaignFull", [cid, fullImport]),
+    );
+    await campaignsV2.connect(governor).migrateBumpNextId(await campaignsV1.nextCampaignId());
+    // Lifecycle holds no own state (campaign status lives ON Campaigns) and has
+    // no higher-version successor, so its rotation is freeze → replace → rewire
+    // to the new registry — not a state-copy migrate.
+    await lifecycleV2.setCampaigns(await campaignsV2.getAddress());
+
+    // ── No orphaned state: the campaign is fully present on Campaigns v2 ───────
+    const c2 = await campaignsV2.getCampaignStruct(cid);
+    expect(c2.advertiser).to.equal(advertiser.address);
+    expect(c2.publisher).to.equal(publisher.address);
+    expect(c2.snapshotTakeRateBps).to.equal(core.snapshotTakeRateBps);
+    expect(c2.status).to.equal(core.status);
+    expect((await campaignsV2.getCampaignPots(cid)).length).to.equal(pots.length);
+    expect(await campaignsV2.getCampaignAdvertiser(cid)).to.equal(advertiser.address);
+    expect(await campaignsV2.nextCampaignId()).to.equal(await campaignsV1.nextCampaignId());
+
+    // ── Lifecycle rotated (frozen) + rewired to the new registry ──────────────
+    expect(await lifecycleV2.campaigns()).to.equal(await campaignsV2.getAddress());
+    expect(await campaignsV1.frozen()).to.equal(true);
+    expect(await lifecycleV1.frozen()).to.equal(true);
+  });
+
+  it("the registry-tier rotation is governance-gated", async function () {
+    await expect(campaignsV1.connect(owner).freeze()).to.be.revertedWith("E19");
+    await expect(lifecycleV1.connect(owner).freeze()).to.be.revertedWith("E19");
+    await campaignsV1.connect(governor).freeze();
+    await expect(campaignsV2.connect(owner).setMigrationLogic(await logic.getAddress())).to.be.revertedWith("E19");
+    await expect(lifecycleV2.connect(owner).migrate(await lifecycleV1.getAddress())).to.be.revertedWith("E19");
+  });
+});
