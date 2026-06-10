@@ -883,7 +883,7 @@
   },
   {
     "inputs": [],
-    "name": "MINIMUM_BUDGET_PLANCK",
+    "name": "MINIMUM_BUDGET_WEI",
     "outputs": [
       {
         "internalType": "uint256",

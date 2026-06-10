@@ -439,6 +439,31 @@
     "type": "event"
   },
   {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "name",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "freezeOk",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "migrateOk",
+        "type": "bool"
+      }
+    ],
+    "name": "UpgradeHooksFired",
+    "type": "event"
+  },
+  {
     "inputs": [],
     "name": "MAX_COUNCIL_VETO_WINDOW",
     "outputs": [
