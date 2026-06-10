@@ -196,7 +196,11 @@ abstract contract DatumUpgradable is DatumOwnable {
     /// @dev    Authorization: governance (router's current governor) or the
     ///         router itself (so `upgradeContract`'s atomic freeze+migrate
     ///         fires; same authority — see onlyGovernanceOrRouter).
-    function migrate(address oldContract) external onlyGovernanceOrRouter {
+    /// @dev    `virtual` so contracts with unbounded state (U3) can override
+    ///         with a gas-paginated, cursor-driven `migrate()` that only sets
+    ///         `migrated = true` on the final batch. Single-shot copiers keep
+    ///         this default + a `_migrate` override.
+    function migrate(address oldContract) external virtual onlyGovernanceOrRouter {
         require(!migrated, "already migrated");
         require(oldContract != address(0), "E00");
         require(oldContract != address(this), "E18");

@@ -485,19 +485,58 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     function allowedAdvertiserCount(address pub) external view returns (uint256) { return _advertiserList[pub].length; }
     function allowedAdvertiserAt(address pub, uint256 i) external view returns (address) { return _advertiserList[pub][i]; }
 
-    /// @dev Copy registry config + every registered publisher's record
-    ///      (struct + relaySigner/profileHash/assurance/tagMode/sdkHash/approved/
-    ///      allowlistEnabled + their allowed-advertiser set) from a frozen
-    ///      predecessor. Structural refs (pauseRegistry / blocklistCurator /
-    ///      publisherStake) are re-wired on the fresh contract, not copied.
-    ///      Paginate (override migrate()) if the registry ever outgrows one tx.
-    function _migrate(address oldContract) internal override {
+    // ─────────────────────────────────────────────────────────────────────
+    // U3 — gas-paginated migration (unbounded publisher set)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// @notice Index of the next publisher (in the predecessor's `_registered`
+    ///         array) still to copy. While a migration is in progress `migrated`
+    ///         stays false and this trails the predecessor's `registeredCount()`.
+    ///         OFF-CHAIN CONSUMERS MUST gate on `migrated == true` before
+    ///         trusting reads during the partial-migration window (U6).
+    uint256 public migrationCursor;
+
+    /// @notice Publishers copied per `migrate()` batch. Each costs a struct +
+    ///         8 mappings + its allowed-advertiser sub-loop, so the batch is
+    ///         sized to stay well under a block. Governance calls `migrate()`
+    ///         repeatedly until `migrated()` flips true.
+    uint256 public constant MIGRATION_BATCH_SIZE = 50;
+
+    /// @notice U3: gas-paginated override of `DatumUpgradable.migrate()`. Copies
+    ///         registry config (first batch) + up to `MIGRATION_BATCH_SIZE`
+    ///         publishers per call (struct + relaySigner/profileHash/assurance/
+    ///         tagMode/sdkHash/approved/allowlistEnabled + allowed-advertiser
+    ///         set) from a frozen predecessor, advancing `migrationCursor`, and
+    ///         sets `migrated` only on the batch that reaches the end. Structural
+    ///         refs (pauseRegistry / blocklistCurator / publisherStake) are
+    ///         re-wired on the fresh contract, not copied. Mainnet-scale registries
+    ///         (100k+) would not fit the old single-call bulk copy.
+    /// @dev    Reentrancy-safe without an early `migrated`: reads come from the
+    ///         frozen `old`, `migrationCursor` prevents reprocessing, and the
+    ///         call is governance-gated. The partial window is the documented
+    ///         U3 tradeoff — consumers gate on `migrated`.
+    function migrate(address oldContract) external override onlyGovernanceOrRouter {
+        require(!migrated, "already migrated");
+        require(oldContract != address(0), "E00");
+        require(oldContract != address(this), "E18");
+
         DatumPublishers old = DatumPublishers(oldContract);
-        takeRateUpdateDelayBlocks = old.takeRateUpdateDelayBlocks();
-        whitelistMode = old.whitelistMode();
-        stakeGate = old.stakeGate();
-        uint256 n = old.registeredCount();
-        for (uint256 i = 0; i < n; i++) {
+        if (migrationSource == address(0)) {
+            // First batch: validate the predecessor + copy the scalar config.
+            require(old.version() < version(), "downgrade");
+            require(old.frozen(), "old-not-frozen");
+            migrationSource = oldContract;
+            takeRateUpdateDelayBlocks = old.takeRateUpdateDelayBlocks();
+            whitelistMode = old.whitelistMode();
+            stakeGate = old.stakeGate();
+        } else {
+            require(oldContract == migrationSource, "source-mismatch");
+        }
+
+        uint256 total = old.registeredCount();
+        uint256 end = migrationCursor + MIGRATION_BATCH_SIZE;
+        if (end > total) end = total;
+        for (uint256 i = migrationCursor; i < end; i++) {
             address p = old.registeredAt(i);
             _publishers[p] = old.getPublisher(p);
             allowlistEnabled[p] = old.allowlistEnabled(p);
@@ -516,6 +555,12 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
                 _allowedAdvertisers[p][adv] = al;
                 if (al) _trackAdv(p, adv);
             }
+        }
+        migrationCursor = end;
+
+        if (end >= total) {
+            migrated = true;
+            emit Migrated(oldContract, old.version(), version());
         }
     }
 }
