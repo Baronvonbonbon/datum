@@ -89,17 +89,28 @@ registry: Campaigns full-state replay via the `migrateDelegate` →
 campaign, freezes it, replays struct+pots+gates into v2) + Lifecycle freeze →
 replace → rewire (stateless coordinator — status lives on Campaigns). 1663 passing.
 
+**☑ U3 gas-paginated migration (2026-06-10, `832b8b8`):** the unbounded-state
+pattern, implemented on `DatumPublishers` as the template. `DatumUpgradable.migrate()`
+is now `virtual`; `DatumPublishers` overrides it to copy ≤ `MIGRATION_BATCH_SIZE`
+(50) publishers per call from the frozen predecessor, advance a public
+`migrationCursor`, and set `migrated = true` only on the final batch. Test
+(`test/upgrade-u3-pagination.test.ts`): 110 publishers → 3 batches; asserts cursor
+advances, the **partial window is observable** (`migrated == false` + only the
+copied prefix present mid-flight — the U6 gate signal), full-fidelity completion,
+re-migrate reverts, source-mismatch + non-governor rejected. (Campaigns already
+paginates per-campaign via `migrateDelegate`.)
+
 **Remaining:**
-- **U5 optional:** re-run the production suite against the migrated set (the
-  aspirational "full suite vs v2" form). The coordinated harness already proves
-  state/balance preservation + post-migration function across the whole cluster.
-- **U3 — gas-paginated migration** for unbounded state (Campaigns, Publishers,
-  NullifierRegistry won't fit one mainnet block) + `migrationCursor` view.
-- **U6 — indexer/consumer guards** for the partial-migration window (webapp +
-  relay refuse "current" reads while `migrated == false`).
-**Gate:** coordinated harness green across the full funds/state cluster ☑.
-**Verify:** CI runs the v1→v2 coordinated rotation; the clean-recompile gate
-(Phase 3) keeps it honest.
+- **U3 breadth:** apply the same paginated pattern to other unbounded sets if/when
+  they outgrow one block (NullifierRegistry, the enumerable fund-holders). Pattern
+  is now a proven template.
+- **U6 — indexer/consumer guards** for the partial-migration window: webapp +
+  relay + indexer must read `migrated` (and `migrationCursor`) and refuse
+  "current" reads while `migrated == false`. (On-chain signal now exists.)
+- **U5 optional:** re-run the production suite against the migrated set.
+**Gate:** coordinated harness green across the full funds/state cluster ☑; U3
+pagination green ☑. **Verify:** CI runs both; the clean-recompile gate (Phase 3)
+keeps them honest.
 
 ---
 
