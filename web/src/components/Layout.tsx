@@ -17,6 +17,7 @@ import { PineStatusChip } from "./PineStatusChip";
 import { RpcToggleChip } from "./RpcToggleChip";
 import { PineWarmUpBanner } from "./PineWarmUpBanner";
 import { useContracts } from "../hooks/useContracts";
+import { isPathEnabled } from "../lib/features";
 import type { JsonRpcApiProvider } from "ethers";
 
 /** Animates the block number ticking up when it changes. */
@@ -305,7 +306,17 @@ export function Layout() {
   const location = useLocation();
   const sym = getCurrencySymbol(settings.network);
 
-  const sections = NAV_SECTIONS.filter((s) => !s.adminOnly || isAdmin);
+  // Feature-gate the nav: omit any section/child whose feature is not deployed
+  // (its contract address is unset) or not in the required governance phase.
+  // livePhase is Phase 0 (Admin) today — when the governance ladder advances,
+  // swap this for a usePhase() read of router.phase(). Phase-gated surfaces
+  // (e.g. Council at phase >= 1) stay hidden until then even though deployed.
+  const featAddrs = settings.contractAddresses;
+  const livePhase = 0 as const;
+  const sections = NAV_SECTIONS
+    .filter((s) => !s.adminOnly || isAdmin)
+    .map((s) => ({ ...s, children: s.children.filter((c) => isPathEnabled(c.path, featAddrs, livePhase)) }))
+    .filter((s) => isPathEnabled(s.headerPath ?? "/", featAddrs, livePhase) && s.children.length > 0);
 
   // Close mobile menu on navigation
   useEffect(() => { setMobileMenuOpen(false); }, [location.pathname]);
@@ -441,7 +452,20 @@ export function Layout() {
         {/* ── Main content ─────────────────────────────────────────────── */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
           <main ref={mainRef} style={{ flex: 1, padding: "28px 32px", maxWidth: "none" }}>
-            <Outlet />
+            {/* Route-level feature gate: direct navigation to a feature that is
+                not deployed / not in the required phase shows an unavailable
+                notice instead of the page (covers all routes via the Outlet). */}
+            {isPathEnabled(location.pathname, featAddrs, livePhase) ? (
+              <Outlet />
+            ) : (
+              <div className="nano-card" style={{ padding: 32, textAlign: "center", maxWidth: 540, margin: "40px auto" }}>
+                <h2 style={{ marginTop: 0 }}>Feature not available</h2>
+                <p style={{ color: "var(--text-muted)" }}>
+                  This feature is not deployed on the current network, or is not active in
+                  the current governance phase. It will appear here once enabled.
+                </p>
+              </div>
+            )}
           </main>
           <Footer />
         </div>
