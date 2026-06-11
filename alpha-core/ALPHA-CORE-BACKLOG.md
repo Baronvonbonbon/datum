@@ -62,11 +62,19 @@ green; what remains is a short operational punch list. Most of the large backlog
 - ✅ **Admin-control remediation designed + landed** — Option-2 router split;
   Timelock→Council handoff is an operational step (§3).
 
-### 1.2 Operational punch list — ☐ OPEN (the actual remaining Paseo-launch work)
+### 1.2 Operational punch list — ◐ IN PROGRESS (the actual remaining Paseo-launch work)
 
-- ☐ **Seed the testnet.** No campaigns currently seeded on the slim deploy. Run
-  `scripts/setup-testnet.ts` (and/or `reseed-demo.mjs` with `SIMULATE=0`) against
-  the live addresses; verify activation via the Phase-0 admin path.
+- ✅ **Fresh slim redeploy** (2026-06-11, `deployedAt 15:56Z`) — `DATUM_MVP=1`
+  deploy of the 19-contract spine; `validateConfiguration() == true`; carries the
+  session's contract changes (verified on-chain). Prior addresses backed up at
+  `deployed-addresses.20260611-pre-core-redeploy.json`.
+- ✅ **Seed the testnet.** 6 open campaigns created + activated via the Phase-0
+  admin path (`scripts/seed-slim.mjs` — `setup-testnet.ts`/`reseed-demo.mjs` both
+  require deferred contracts not in the slim spine; this is the slim-native seed).
+  Verified 6/6 Active on-chain.
+- ☐ **Register publisher(s)** — optional for open campaigns, but a registered
+  publisher (relaySigner) is needed before a relay-path settle. Slim-compatible
+  via `DatumPublishers.registerPublisher` + `setRelaySigner`.
 - ☐ **Port the live relay-bot to SLIM-#2 + restart.** The gitignored
   `relay-bot/relay-bot.mjs` is still pre-SLIM (fat claims). The template
   (`docs/relay-bot-template/`) and the SSOT typehash gate are current; this is the
