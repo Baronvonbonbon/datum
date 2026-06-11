@@ -175,7 +175,18 @@ per path; out-of-scope paths explicitly marked deferred.
 
 ---
 
-## Phase 5 — Custody & governance ☐ [TASK]
+## Phase 5 — Custody & governance ◐ [TASK]
+
+**☑ Phase-ladder plan drafted (2026-06-10, `1f160df`,
+`alpha-core/narrative-analysis/phase-ladder-plan.md`):** custody model (owner =
+Timelock 48h; `router.governor` follows the phase Admin=Safe → Council → OpenGov),
+exact transition calls (`setGovernor`→`acceptGovernor`→`raisePhaseFloor`, hard-floored
+regression), and the lock-firing schedule — all ~30 `lock*()` are `whenOpenGovPhase`
+(Tier A plumbing → B curator/policy → C parameter floors → D relay/token/oracle
+sunset), so they're OpenGov commitments, not launch steps. Lock locations verified
+against source. **Remaining = operational execution:** deploy the Safe (N-of-M),
+execute Timelock `acceptOwnership` on every upgradable (today owner is pendingOwner
+only / deployer EOA effective), confirm no EOA holds owner/governor.
 
 Today the deployer EOA is the hot Phase-0 owner.
 **Steps:**
