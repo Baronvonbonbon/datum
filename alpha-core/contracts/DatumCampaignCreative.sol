@@ -52,7 +52,7 @@ contract DatumCampaignCreative is
     uint64 public constant BULLETIN_RENEWAL_LEAD_BLOCKS = 14_400; // ~1d @ 6s
 
     /// @notice Owner-tunable renewer-reward cap.
-    uint256 public constant MAX_BULLETIN_RENEWER_REWARD = 10 * 10**10; // 10 DOT
+    uint256 public constant MAX_BULLETIN_RENEWER_REWARD = 10 * 10**18; // 10 DOT (18-dec wei; was 10*10^10 planck pre-2026-06 denomination migration)
 
     /// @notice Inter-update cooldown for non-Pending campaigns. Mirrors the
     ///         METADATA_COOLDOWN_BLOCKS on DatumCampaigns.setMetadata so
@@ -63,8 +63,9 @@ contract DatumCampaignCreative is
     // Parameters
     // ─────────────────────────────────────────────────────────────────────
 
-    /// @notice DOT reward paid per confirmed non-advertiser renewal.
-    uint256 public bulletinRenewerReward = 10**8; // 0.01 DOT default
+    /// @notice DOT reward paid per confirmed non-advertiser renewal. Paid from
+    ///         bulletinRenewalEscrow, which is funded by msg.value (18-dec wei).
+    uint256 public bulletinRenewerReward = 10**16; // 0.01 DOT default (18-dec wei; was 10^8 planck pre-2026-06 denomination migration)
 
     // ─────────────────────────────────────────────────────────────────────
     // State

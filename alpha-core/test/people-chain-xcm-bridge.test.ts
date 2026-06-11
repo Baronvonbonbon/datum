@@ -21,7 +21,7 @@ import {
 } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
-const REFRESH_FEE = 1_000_000_000n;   // matches contract default
+const REFRESH_FEE = 10n ** 17n;   // matches contract default (0.1 DOT, 18-dec wei)
 const COOLDOWN    = 600n;              // matches contract default
 
 async function mineBlocks(n: bigint) {

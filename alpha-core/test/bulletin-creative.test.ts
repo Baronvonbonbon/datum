@@ -262,7 +262,7 @@ describe("DatumCampaignCreative — Bulletin Chain + IPFS metadata", function ()
     await creative.connect(advertiser).setApprovedBulletinRenewer(id, renewer1.address, true);
     await creative.connect(advertiser).fundBulletinRenewalEscrow(id, { value: parseDOT("1") });
 
-    const reward = await creative.bulletinRenewerReward(); // default 0.01 DOT = 10^8
+    const reward = await creative.bulletinRenewerReward(); // default 0.01 DOT = 10^16 wei
     const balBefore = await ethers.provider.getBalance(renewer1.address);
     const tx = await creative.connect(renewer1).confirmBulletinRenewal(id, 200, 0);
     const receipt = await tx.wait();

@@ -398,7 +398,7 @@ contract DatumSettlement is IDatumSettlement, DatumSettlementStorage {
         _clickRegistry = IDatumClickRegistry(addr);
     }
 
-    /// @notice L-7: Set global per-block settlement cap in planck. 0 = disabled.
+    /// @notice L-7: Set global per-block settlement cap in 18-dec wei. 0 = disabled.
     function setMaxSettlementPerBlock(uint256 cap) external onlyOwner {
         _maxSettlementPerBlock = cap;
     }

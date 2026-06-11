@@ -192,9 +192,10 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     /// @notice A9-fix (2026-05-12): hard ceiling at the moment of locking. Without
     ///         this, owner could call `setStakeGate(x, MAX_UINT)` then
     ///         `lockStakeGate()` to permanently block the stake-bypass route.
-    ///         10000 DOT (10^14 planck) is roughly the deployer's expected
-    ///         affordability floor; calibrate per network.
-    uint256 public constant MAX_STAKE_GATE_AT_LOCK = 10**14;
+    ///         10000 DOT (10^22 wei) is roughly the deployer's expected
+    ///         affordability floor; calibrate per network. stakeGate is compared
+    ///         against publisherStake.staked(), which is native PAS in 18-dec wei.
+    uint256 public constant MAX_STAKE_GATE_AT_LOCK = 10**22; // 10,000 DOT (18-dec wei; was 10^14 planck pre-2026-06 denomination migration)
 
     /// @notice R-L1: Freeze the stake-gate configuration permanently. After this
     ///         call, setStakeGate reverts. Owner should invoke once governance
@@ -492,8 +493,13 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     /// @notice Index of the next publisher (in the predecessor's `_registered`
     ///         array) still to copy. While a migration is in progress `migrated`
     ///         stays false and this trails the predecessor's `registeredCount()`.
-    ///         OFF-CHAIN CONSUMERS MUST gate on `migrated == true` before
-    ///         trusting reads during the partial-migration window (U6).
+    ///         MH-1 fix: the contract holds itself `frozen` for the entire
+    ///         multi-batch window, so all `whenNotFrozen` writes (registration,
+    ///         take-rate changes, allowlist edits) revert until the final batch
+    ///         unfreezes — a not-yet-copied publisher can no longer write state
+    ///         that a later batch would blindly clobber. Reads still return
+    ///         partial state during the window, so OFF-CHAIN CONSUMERS MUST
+    ///         still gate on `migrated == true` before trusting reads (U6).
     uint256 public migrationCursor;
 
     /// @notice Publishers copied per `migrate()` batch. Each costs a struct +
@@ -513,9 +519,11 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
     ///         (100k+) would not fit the old single-call bulk copy.
     /// @dev    Reentrancy-safe without an early `migrated`: reads come from the
     ///         frozen `old`, `migrationCursor` prevents reprocessing, and the
-    ///         call is governance-gated. The partial window is the documented
-    ///         U3 tradeoff — consumers gate on `migrated`.
-    function migrate(address oldContract) external override onlyGovernanceOrRouter {
+    ///         call is governance-gated. MH-1 fix: any batch that does NOT
+    ///         complete the migration self-`frozen`s this contract; the final
+    ///         batch unfreezes it together with setting `migrated`. A migration
+    ///         that fits in one batch never freezes (no window to protect).
+    function migrate(address oldContract) external override onlyGovernanceOrRouter nonReentrant {
         require(!migrated, "already migrated");
         require(oldContract != address(0), "E00");
         require(oldContract != address(this), "E18");
@@ -559,8 +567,19 @@ contract DatumPublishers is IDatumPublishers, ReentrancyGuard, DatumUpgradable {
         migrationCursor = end;
 
         if (end >= total) {
+            // Final batch: migration complete. Unfreeze (if we froze during the
+            // multi-batch window) so the contract goes live, and lock `migrated`.
             migrated = true;
+            if (frozen) {
+                frozen = false;
+                emit Unfrozen();
+            }
             emit Migrated(oldContract, old.version(), version());
+        } else if (!frozen) {
+            // MH-1: more batches remain — hold the contract frozen so no
+            // not-yet-copied publisher can write state a later batch clobbers.
+            frozen = true;
+            emit Frozen();
         }
     }
 }

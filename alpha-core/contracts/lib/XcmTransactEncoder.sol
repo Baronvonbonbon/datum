@@ -213,7 +213,7 @@ library XcmTransactEncoder {
     /// @notice Encode the full VersionedXcm::V4(Xcm(vec![...])) message used by
     ///         the bridge.
     /// @param  user        AccountId32 of the user whose identity to query.
-    /// @param  feeWei   Fee amount in relay-native planck.
+    /// @param  feeWei   Fee amount in Hub-native 18-dec wei (the WithdrawAsset/PayFees amount).
     /// @param  refTime     Weight::refTime for the Transact instruction.
     /// @param  proofSize   Weight::proofSize for the Transact instruction.
     /// @param  palletIndex Index of the datum_identity_relay pallet on People Chain.

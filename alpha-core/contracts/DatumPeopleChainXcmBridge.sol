@@ -99,9 +99,12 @@ contract DatumPeopleChainXcmBridge is DatumFundMigratable, PaseoSafeSender {
     ///         by the cache's MIN_VALIDITY_BLOCKS / MAX_VALIDITY_BLOCKS.
     uint64 public defaultValidityBlocks = 432_000;
 
-    /// @notice Hardcoded refresh fee upper bound (planck). Tunable post-Paseo
-    ///         once measured weight cost is known.
-    uint256 public refreshFee = 1_000_000_000; // 0.1 DOT / PAS at 10^10 planck
+    /// @notice Refresh fee, in Hub-native 18-dec wei. Used as both the local
+    ///         msg.value floor in requestRefresh and the WithdrawAsset/PayFees
+    ///         amount forwarded into the outbound XCM (same local-native asset,
+    ///         same denomination). Tunable post-Paseo once measured weight cost
+    ///         is known.
+    uint256 public refreshFee = 10**17; // 0.1 DOT / PAS (18-dec wei; was 10^9 planck pre-2026-06 denomination migration)
 
     /// @notice Transact ref_time + proof_size baked into outbound XCM.
     uint64 public transactRefTime = 5_000_000_000;

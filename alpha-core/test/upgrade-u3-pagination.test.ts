@@ -63,6 +63,11 @@ describe("U3 — gas-paginated migration (DatumPublishers, unbounded registry)",
     expect((await v2.getPublisher(pubs[0].address)).registered).to.equal(true);
     expect((await v2.getPublisher(pubs[60].address)).registered).to.equal(false); // not yet
 
+    // ── MH-1: contract self-freezes during the multi-batch window ────────────
+    expect(await v2.frozen()).to.equal(true);
+    // A not-yet-copied publisher cannot write state a later batch would clobber.
+    await expect(v2.connect(owner).registerPublisher(5000)).to.be.revertedWith("frozen");
+
     // ── Batch 2 ────────────────────────────────────────────────────────────
     await v2.connect(governor).migrate(v1Addr);
     expect(await v2.migrationCursor()).to.equal(BATCH * 2n);     // 100
@@ -75,6 +80,8 @@ describe("U3 — gas-paginated migration (DatumPublishers, unbounded registry)",
     expect(await v2.migrationCursor()).to.equal(BigInt(N));      // 110
     expect(await v2.migrated()).to.equal(true);                  // window closed
     expect(await v2.registeredCount()).to.equal(BigInt(N));
+    // MH-1: final batch unfreezes — the contract is now live for writes.
+    expect(await v2.frozen()).to.equal(false);
 
     // ── Full fidelity: every publisher present, take rates preserved ─────────
     for (let i = 0; i < N; i++) {

@@ -427,8 +427,8 @@ contract DatumPaymentVault is IDatumPaymentVault, PaseoSafeSender, DatumUpgradab
 
     /// @notice Hard cap on the sweep `threshold` parameter. Prevents the owner
     ///         from disguising a balance-drain as a "dust sweep" by passing a
-    ///         large threshold. 1e16 planck = 0.001 DOT, comfortably below any
-    ///         reasonable existential deposit on Polkadot Hub. (M-2)
+    ///         large threshold. 1e16 wei = 0.01 DOT (18-dec wei), comfortably
+    ///         below any reasonable existential deposit on Polkadot Hub. (M-2)
     uint256 public constant MAX_DUST_THRESHOLD = 1e16;
 
     /// @notice Sweep sub-threshold publisher balances to treasury. Clears dust that is
