@@ -152,10 +152,15 @@ publisher with a relaySigner. Slim-compatible (`whitelistMode=false`,
 - ☐ **Port the live relay-bot to SLIM-#2** and point `ADDRESSES` at the new deploy;
   restart `datum-relay@*` / `datum-cosigner@*` (gitignored infra;
   `OFFCHAIN-SLIM-PORTING.md` §1–§5).
-- ☐ **End-to-end smoke** — a gasless-relay settle round-trips: build a slim claim
-  batch → publisher (+advertiser for dual-sig) cosign → `settleClaims` →
-  `PaymentVault` credited → `withdrawUser`. This is the gate that proves the spine
-  is live, not just deployed.
+- ✅ **End-to-end smoke** — `scripts/smoke-settle.mjs` builds a slim view claim,
+  signs the relay-path `ClaimBatch` (user, off-chain), solves the enforced PoW,
+  and submits via `DatumRelay.settleClaimsFor` (publisher pays gas), then asserts
+  `PaymentVault` credited both sides. `staticCall`-guarded so a bad batch costs no
+  gas. **This is the gate that proves the spine is live, not just deployed.**
+  (Rehearsal 2026-06-11: settled 1, user +0.000375 PAS, publisher +0.0005 PAS.)
+  Note PoW is enforced at launch (`PowEngine.enforcePow == true`) — the claim
+  needs a solved `powNonce`; difficulty is baseline-low for a fresh user
+  (~hundreds of iters).
 
 ---
 

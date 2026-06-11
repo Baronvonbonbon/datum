@@ -78,18 +78,22 @@ green; what remains is a short operational punch list. Most of the large backlog
 
 _Step-by-step spin-up procedure: `CORE-DEPLOY-DRESS-REHEARSAL.md` (safety-focused,
 back-up→act→verify)._
-- ☐ **Port the live relay-bot to SLIM-#2 + restart.** The gitignored
-  `relay-bot/relay-bot.mjs` is still pre-SLIM (fat claims). The template
-  (`docs/relay-bot-template/`) and the SSOT typehash gate are current; this is the
-  operational port + `ADDRESSES` update to the 2026-06-10 deploy + systemd restart
-  (`datum-relay@* / datum-cosigner@*`). (`OFFCHAIN-SLIM-PORTING.md` §1–§5.)
-- ☐ **Rotate the Pinata credential.** The leaked JWT/API key was removed from
-  tracking but remains in git history (`SECRETS-SCRUB-2026-06-10.md`). Operator
-  action — rotate before any public-facing demo.
-- ☐ **Move ~10 scripts' hardcoded Paseo keys to `.env`** (valueless testnet keys,
-  but do it before open-sourcing; never reuse on mainnet).
-- ☐ **End-to-end smoke** — a gasless-relay settle round-trips on Paseo against the
-  live slim contracts (depends on the relay port + seed above).
+- ✅ **End-to-end settle smoke** (2026-06-11) — `scripts/smoke-settle.mjs`: a
+  gasless relay-path settle (user signs off-chain, publisher submits), incl.
+  solving the enforced PoW, settles on the live spine and credits PaymentVault
+  (user +0.000375 PAS, publisher +0.0005 PAS — correct 50% take + 75% user-share
+  split). `staticCall`-guarded. **Proves the deployed+seeded spine actually
+  settles.**
+- ◐ **Relay-bot ADDRESSES updated.** `relay-bot/relay-bot.mjs` ADDRESSES block
+  repointed to the fresh deploy (gitignored infra). Remaining: the pre-SLIM→SLIM
+  *code* port (the live daemon is still fat-claim; the template
+  `docs/relay-bot-template/` is current) + `PUBLISHER_KEY=<Diana>` + systemd
+  restart (`datum-relay@* / datum-cosigner@*`). The on-chain settle path itself is
+  proven (smoke above); this is for continuous daemon operation.
+- ☐ **Rotate the Pinata credential.** Leaked JWT/API key removed from tracking but
+  in git history (`SECRETS-SCRUB-2026-06-10.md`). Operator action.
+- ☐ **Move ~10 scripts' hardcoded Paseo keys to `.env`** (valueless testnet keys;
+  do before open-sourcing; never reuse on mainnet).
 
 ### 1.3 Deferred-on-Paseo decisions — ⊘ (explicitly out of slim-launch scope)
 
