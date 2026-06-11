@@ -199,7 +199,24 @@ Today the deployer EOA is the hot Phase-0 owner.
 
 ---
 
-## Phase 6 — Operational readiness ☐ [TASK]
+## Phase 6 — Operational readiness ◐ [TASK]
+
+**☑ Secrets scrub (2026-06-10, `049f4d7`, `SECRETS-SCRUB-2026-06-10.md`):**
+- 🔴 **CRITICAL found + removed:** `archive/alpha-2/TESTNET-KEYS.md` (a "NEVER
+  COMMIT" file that *was* committed) held the **live Pinata JWT + API key/secret**.
+  Removed from tracking + gitignored. **OPERATOR MUST ROTATE** the Pinata
+  credential (still in git history).
+- 🟠 testnet deployer/benchmark keys hardcoded in ~10 scripts (`0x6eda…` is the
+  live deployment owner) — valueless on Paseo, flagged never-reuse-on-mainnet +
+  move-to-`.env`.
+- **Durable gate:** `.gitleaks.toml` + a `secrets` CI job (gitleaks, working-tree
+  scan; 15 testnet keys allowlisted by value so new/real secrets still fail). Ran
+  clean; **now a required status check** (3 required: Contracts, Frontend, Secret
+  scan). **Remaining operator action: rotate Pinata.**
+
+**Remaining (ops readiness):** monitoring/alerting on `validateConfiguration` +
+invariants; pause drills (prove settlement halt via PauseRegistry); incident
+runbook (rollback posture under lock-once); move script keys to `.env`.
 
 - Monitoring/alerting on `validateConfiguration()` + key invariants.
 - **Pause drills:** prove settlement can be halted via PauseRegistry under attack.
