@@ -51,6 +51,25 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "oldAdminGovernor",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newAdminGovernor",
+        "type": "address"
+      }
+    ],
+    "name": "AdminGovernorSet",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "string",
         "name": "name",
@@ -612,6 +631,19 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "adminGovernor",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -1146,6 +1178,19 @@
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newAdminGovernor",
+        "type": "address"
+      }
+    ],
+    "name": "setAdminGovernor",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
