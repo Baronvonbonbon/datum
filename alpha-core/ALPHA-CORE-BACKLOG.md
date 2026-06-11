@@ -20,10 +20,20 @@ scope) · ⊗ obsolete/superseded.
 
 ## Current state (verified 2026-06-11)
 
-- **Slim spine LIVE on Paseo** — `deployed-addresses.json`, `deployedAt
-  2026-06-10T11:53Z`, network `polkadotTestnet`, 21 contracts (the `DATUM_MVP=1`
-  core settlement spine; optional/token/ZK refs are `address(0)`, activatable via
-  lock-once setters).
+- **FULL feature-complete Phase-0 LIVE on Paseo (2026-06-11T20:12Z)** — the slim
+  spine (re-deployed 15:56Z) + **all feature modules layered on top** (49 contracts,
+  `validateConfiguration() == true`) + **token plane** (5, via the Paseo-ported
+  `deploy-token-paseo.ts`). End-to-end settle proven (PoW-enforced). 8 campaigns
+  seeded (open + publisher-pinned + token-reward). **UI feature-gating live** —
+  webapp + extension omit any feature not deployed or not in the required phase
+  (`web/src/lib/features.ts`, `scripts/feature-modules.mjs`). Web + extension
+  builds green. Rollout records: `DEPLOYMENT-FINDINGS-LOG.md`,
+  `MODULAR-DEPLOY-RUNBOOK.md`, `MAINNET-LAUNCH-PLAN.md`,
+  `CORE-DEPLOY-DRESS-REHEARSAL.md`. Pending operator: hosting deploy (wrangler
+  auth), relay restart, Pinata rotation.
+- _(Prior milestone) Slim spine_ — `DATUM_MVP=1` core settlement spine; the full
+  deploy reuses it and adds the optional/governance/token/ZK modules via their
+  lock-once wire setters.
 - **Tests: 1674 passing, 1 pending** (was 1671; +3 from the Option-2 router split
   this session). `STATUS.md` is stale at 1579 / "v5" — refresh it (§1.4).
 - **Contracts:** 52 `Datum*.sol` + 5 token-plane; no deploy-coverage gaps
