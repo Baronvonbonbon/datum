@@ -72,9 +72,12 @@ green; what remains is a short operational punch list. Most of the large backlog
   admin path (`scripts/seed-slim.mjs` — `setup-testnet.ts`/`reseed-demo.mjs` both
   require deferred contracts not in the slim spine; this is the slim-native seed).
   Verified 6/6 Active on-chain.
-- ☐ **Register publisher(s)** — optional for open campaigns, but a registered
-  publisher (relaySigner) is needed before a relay-path settle. Slim-compatible
-  via `DatumPublishers.registerPublisher` + `setRelaySigner`.
+- ✅ **Register publisher.** Diana registered (`DatumPublishers.registerPublisher`,
+  take-rate 5000 bps) + relaySigner → self; verified on-chain. Relay path is now
+  settle-ready.
+
+_Step-by-step spin-up procedure: `CORE-DEPLOY-DRESS-REHEARSAL.md` (safety-focused,
+back-up→act→verify)._
 - ☐ **Port the live relay-bot to SLIM-#2 + restart.** The gitignored
   `relay-bot/relay-bot.mjs` is still pre-SLIM (fat claims). The template
   (`docs/relay-bot-template/`) and the SSOT typehash gate are current; this is the

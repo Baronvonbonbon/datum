@@ -236,11 +236,18 @@ Pinata credential** (from the secrets scrub).
 
 ---
 
-## Phase 7 — Mainnet rehearsal (fresh Paseo dress run) ☐ [TASK]
+## Phase 7 — Mainnet rehearsal (fresh Paseo dress run) ◐ [TASK]
 
 Full dress rehearsal on a clean Paseo instance: `DATUM_MVP=1` deploy → register
 publishers → seed → run the **U5 migration** against it → exercise the phase
 ladder. Proves the end-to-end sequence before real funds.
+
+**Step-by-step procedure: `alpha-core/CORE-DEPLOY-DRESS-REHEARSAL.md`** (safety-focused
+back-up→act→verify, with per-step pre-checks + on-chain verification). First run
+2026-06-11: fresh slim deploy (`15:56Z`, validateConfiguration ✓) → 6 campaigns
+seeded + Active → Diana registered as publisher + relaySigner. Remaining: relay-bot
+port + end-to-end settle smoke; the U5-migration-against-live + phase-ladder
+exercises stay as the heavier pre-mainnet reps.
 **Gate:** rehearsal completes with zero manual fixups. **Verify:** rehearsal log.
 
 ---
