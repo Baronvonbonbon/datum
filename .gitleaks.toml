@@ -1,0 +1,44 @@
+# gitleaks config — secret-scan gate (RUNBOOK Phase 6).
+# Catches real credentials (API keys, JWTs, AWS, generic high-entropy) before they
+# reach the tree. The known Paseo TESTNET benchmark keys (public, valueless, never
+# used on mainnet) are allowlisted BY VALUE so a *new* or *real* secret anywhere
+# still fails — including any non-listed private key.
+#
+# Context: this gate was added after `archive/alpha-2/TESTNET-KEYS.md` (live Pinata
+# JWT + API key/secret) was found committed. That file is removed + gitignored; the
+# Pinata credential MUST be rotated (it remains in git history).
+
+title = "DATUM secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Noise paths (ABIs / artifacts / tx-hash docs / history) + documented Paseo testnet keys"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)(artifacts|artifacts-mainnet|cache|cache-mainnet|typechain-types|dist|build)/''',
+  '''/abis?/''',
+  '''\.json$''',                       # ABIs + deployed-address JSON: hex hashes, not secrets
+  '''^archive/''',                     # frozen historical snapshots
+  '''gas-by-role\.(md|csv)$''',        # blockscout tx hashes, not keys
+  '''\.env\.example$''',
+]
+regexes = [
+  # ── Paseo TESTNET benchmark account keys — public, valueless, never mainnet ──
+  '''0x0000000000000000000000000000000000000000000000000000000000000000''',
+  '''0x0000000000000000111111111111111122222222222222223333333333330001''',
+  '''0x0000000000000000111111111111111122222222222222223333333333330002''',
+  '''0x1560b7b8d38c812b182b08e8ef739bb88c806d7ba36bd7b01c9177b3536654c1''',
+  '''0x2222222222222222222222222222222222222222222222222222222222222222''',
+  '''0x22adcf911646ca05279aa42b03dcabae2610417af459be43c2ba37f869c15914''',
+  '''0x40d6fab8165a332c4319f25682c480748a01bb1e06808ffe8fd34e8cd56230d0''',
+  '''0x4c95c114d75f5e06fd4236088bdd9576e14c0307c79766171f1e90ab60231a74''',
+  '''0x5a59217ca71dad891d80d1d59454741b0601cf1d46698ef50ba0d2d0315f1018''',
+  '''0x6eda5379102df818a7b24bc99f005d3bcb7c12eaa6303c01bb8a40ba4ec64ac8''',
+  '''0x8a4dee9fc3885e92f76305592570259afa4a1f91999c891734e7427f9e41fd52''',
+  '''0x94bef29d524e42df60227ca9b8a39aafe53da3e25c8d79b1dbe6cc44b2e3a7f2''',
+  '''0xd5c2b5c1f5d3e1a7b9e0c8a6f4d2c0a8e6b4928071e9d7b5c3a1f0d8b6e4c2a0''',
+  '''0xd8947fdc847ae7e902cf126b449cb8d9e7a9becdd0816397eaeb3b046d77986c''',
+  '''0xdfafb7d12292bad165e40ba13bd2254f91123b656f991e3f308e5ccbcfc6a235''',
+]

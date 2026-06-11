@@ -49,3 +49,7 @@ alpha-core/token-addresses-*.json
 
 # Claude Code local state (worktrees, locks, task db)
 .claude/
+
+# Secrets — never track (rotate any that were ever committed)
+TESTNET-KEYS.md
+**/TESTNET-KEYS.md

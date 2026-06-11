@@ -66,6 +66,21 @@ jobs:
             exit 1
           fi
 
+  secrets:
+    # Secret scan (RUNBOOK Phase 6). Scans the working tree (not history — history
+    # is a one-time audit + rotation, not a gate). Not yet a required status check;
+    # promote it in branch protection once it's confirmed clean.
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz \
+            | tar -xz gitleaks
+      - name: Scan working tree
+        run: ./gitleaks detect --no-git --config .gitleaks.toml --redact --verbose --exit-code 1
+
   frontend:
     name: Frontend — web + extension builds
     runs-on: ubuntu-latest
