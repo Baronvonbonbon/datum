@@ -214,9 +214,17 @@ Today the deployer EOA is the hot Phase-0 owner.
   clean; **now a required status check** (3 required: Contracts, Frontend, Secret
   scan). **Remaining operator action: rotate Pinata.**
 
+**☑ Incident runbook + pause drill (2026-06-10, `44ae3b3`):** `INCIDENT-RUNBOOK.md`
+(detect → contain via guardian fast-pause → triage S1–S4 → remediate via the
+Phase-2 redeploy-migrate-rewire machinery → 2-of-3 re-engage; roles by phase; S1
+fund-loss bridge). `alpha-core/test/pause-drill.test.ts` (5 cases) proves the halt
+primitive: 1-of-N guardian halts settlement in one tx (`pausedSettlement()` — the
+exact view `DatumSettlement` reads), guardian-gated, category-granular, 2-of-3
+unpause, solo auto-expiry. 1671 passing.
+
 **Remaining (ops readiness):** monitoring/alerting on `validateConfiguration` +
-invariants; pause drills (prove settlement halt via PauseRegistry); incident
-runbook (rollback posture under lock-once); move script keys to `.env`.
+invariants (operational); move ~10 scripts' testnet keys to `.env`; **rotate the
+Pinata credential** (from the secrets scrub).
 
 - Monitoring/alerting on `validateConfiguration()` + key invariants.
 - **Pause drills:** prove settlement can be halted via PauseRegistry under attack.
