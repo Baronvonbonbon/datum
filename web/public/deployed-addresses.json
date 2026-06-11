@@ -49,5 +49,11 @@
   "mintCoordinator": "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
   "peopleChainIdentity": "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
   "peopleChainXcmBridge": "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
-  "peopleChainBondedReporter": "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7"
+  "peopleChainBondedReporter": "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7",
+  "assetHubPrecompile": "0x11BcC49705A50Cd9cDfC501C2293f8D048920Fdf",
+  "mintAuthority": "0xE278117D8ec09159D2736266d3b308D2A24c5B02",
+  "wrapper": "0xb867f7b0Ee4b528e447b17ad57a72a1aa6fB07a5",
+  "vesting": "0x347644840bd6517b60EAb79d2AbF3b974fC0f7FE",
+  "feeShare": "0xfeee95ab852fB26C6Fe7235F9A986b0576E15887",
+  "tokenAssetId": "31337"
 }
