@@ -121,12 +121,24 @@ enforces the publisher-attestation/assurance gate. Feature working as designed.
 
 ---
 
-## 4. Open / handoff items
+## 4. Frontend + relay (resolved 2026-06-11)
 
-- **Hosting:** `wrangler` not authenticated — webapp `dist/` built + staged;
-  needs `wrangler login` (or `CLOUDFLARE_API_TOKEN`) then
-  `wrangler pages deploy web/dist --project-name=datum-web`.
-- **Relay restart:** operator sets `PUBLISHER_KEY` + restarts the systemd service.
+- **Webapp — deploys via push to `main`.** `web/dist` is **gitignored**, so the
+  GitHub deploy **builds from source** on push (not `wrangler`/committed-dist). The
+  pushed `features.ts` + `Layout.tsx` gating + `web/public/deployed-addresses.json`
+  (55 keys) go live on push. No wrangler auth needed.
+- **Relay — LIVE.** The live relay is the **datum-labs bench**
+  (`~/Documents/datum-labs/relay/src/index.mjs`, already slim), NOT the stale
+  `datum/relay-bot/` copy. **Finding:** its address source defaulted to the dead
+  `../../datum/alpha-5/deployed-addresses.json` (alpha-5 was renamed to
+  alpha-core). Fix: set `DATUM_ADDRESSES=…/alpha-core/deployed-addresses.json` in
+  `~/.config/datum-relay/{diana,frank,bob,charlie}.env` + restarted
+  `datum-relay@*` / `datum-cosigner@*`. `/health` → ok, signer = Diana, chainId
+  420420417. (The `relay-bot/` edits were to an unused gitignored copy — harmless.)
+
+## 4b. Remaining handoff
+
+- **Pinata credential rotation** (still in git history — `SECRETS-SCRUB-2026-06-10.md`).
 - **Pinata credential rotation** (still in git history — `SECRETS-SCRUB-2026-06-10.md`).
 - **deploy.ts ZK-predicate** skip-vs-validate inconsistency — fix-forward.
 - **Token follow-ups:** TagRegistry/ZKStake (need WDATUM wired), token-reward vault
