@@ -47,6 +47,18 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     GovernancePhase public phase;
     address public governor;
 
+    /// @notice Admin/upgrade authority, separate from the campaign `governor`.
+    ///         `upgradeContract` and the phase-regression functions are gated on
+    ///         this — NOT on `governor` — so the campaign governor can advance to
+    ///         OpenGov (`DatumGovernanceV2`, which has no upgrade/regression call
+    ///         path) while a standing admin executor (the Council) retains the
+    ///         ability to upgrade contracts and drive emergency phase regression.
+    ///         Defaults to the constructor `_governor` (Phase-0 deployer) so
+    ///         existing single-key behavior holds until `setAdminGovernor` points
+    ///         it at the Council. Set by the owner (Timelock). See
+    ///         CONTROL-MATRIX-MEMO.md §8.
+    address public adminGovernor;
+
     // A10: pending governor must call acceptGovernor() from its own address
     // to complete the handoff. Prevents owner from accidentally locking the
     // router behind an EOA or a contract that doesn't actually exist.
@@ -70,6 +82,7 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     event GovernorProposed(GovernancePhase indexed newPhase, address indexed newGovernor);
     event ContractReferenceChanged(string name, address oldAddr, address newAddr);
     event PhaseFloorRaised(GovernancePhase indexed newFloor);
+    event AdminGovernorSet(address indexed oldAdminGovernor, address indexed newAdminGovernor);
 
     /// @notice M4-fix: monotonic phase floor. setGovernor refuses any proposal
     ///         that would move `phase` below `phaseFloor`. Permanently writes
@@ -107,6 +120,15 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         _;
     }
 
+    /// @notice Admin/upgrade authority gate. Mirror of `onlyGovernor` but keyed
+    ///         on `adminGovernor`. Used by `upgradeContract` + the regression
+    ///         functions so admin/upgrade control is independent of the campaign
+    ///         governor (which advances to OpenGov).
+    modifier onlyAdminGovernor() {
+        require(msg.sender == adminGovernor, "E19");
+        _;
+    }
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -122,6 +144,10 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         campaigns = IDatumCampaignsMinimal(_campaigns);
         lifecycle = IDatumCampaignLifecycle(_lifecycle);
         governor = _governor;
+        // Admin/upgrade authority defaults to the campaign governor so Phase-0
+        // single-key behavior is unchanged until setAdminGovernor points it at
+        // the Council (Option 2 — see CONTROL-MATRIX-MEMO.md §8).
+        adminGovernor = _governor;
         phase = GovernancePhase.Admin;
     }
 
@@ -150,6 +176,19 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         pendingGovernor = newGovernor;
         pendingPhase = newPhase;
         emit GovernorProposed(newPhase, newGovernor);
+    }
+
+    /// @notice Point the admin/upgrade authority at a new address (the Council,
+    ///         under Option 2). Owner-gated (Timelock), so the hand-off is
+    ///         itself a timelocked governance action. Independent of the campaign
+    ///         `governor` ladder. Direct set (no two-step): the campaign-governor
+    ///         two-step exists to avoid bricking campaign routing on a dead
+    ///         address; `adminGovernor` only gates upgrade/regression and a
+    ///         mis-set value is correctable by a follow-up owner call.
+    function setAdminGovernor(address newAdminGovernor) external onlyOwner {
+        require(newAdminGovernor != address(0), "E00");
+        emit AdminGovernorSet(adminGovernor, newAdminGovernor);
+        adminGovernor = newAdminGovernor;
     }
 
     /// @notice M4-fix: permanently raise the phase floor to the current phase.
@@ -423,12 +462,14 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     // contract; setters across the codebase get re-wired by governance
     // batches at upgrade time.
     //
-    // Authorization: `onlyGovernor` — in Admin phase that's the deployer
-    // (so iteration is one-tx fast). In Council phase, Council; in OpenGov,
-    // GovernanceV2. Each phase's natural delays apply (Council vote,
-    // OpenGov + Timelock).
+    // Authorization: `onlyAdminGovernor` — NOT the campaign `governor`.
+    // Defaults to the deployer in Admin phase (one-tx iteration). Under
+    // Option 2 the owner (Timelock) points `adminGovernor` at the Council, so
+    // upgrades stay Council-driven even after the campaign governor advances to
+    // OpenGov (GovernanceV2 has no upgrade call path). Each body's natural
+    // delays apply (Council vote / veto window).
     //
-    // See narrative-analysis/upgrade-ladder-design.md.
+    // See narrative-analysis/upgrade-ladder-design.md + CONTROL-MATRIX-MEMO.md §8.
     // -------------------------------------------------------------------------
 
     mapping(bytes32 => address)   public currentAddrOf;
@@ -473,7 +514,7 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
     ///         because some registered contracts (e.g., mocks, future
     ///         module types) may not implement the Upgradable interface;
     ///         operators see the try-failure events and can react.
-    function upgradeContract(bytes32 name, address newAddr) external onlyGovernor {
+    function upgradeContract(bytes32 name, address newAddr) external onlyAdminGovernor {
         require(newAddr != address(0), "E00");
         address old = currentAddrOf[name];
         require(old != address(0), "not registered");
@@ -548,13 +589,15 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         emit RegressionTimelockSet(blocks_);
     }
 
-    /// @notice Stage a phase regression. Only the current governor can call.
+    /// @notice Stage a phase regression. Only the `adminGovernor` (Council under
+    ///         Option 2) can call — the standing emergency body, not the campaign
+    ///         governor (which at OpenGov has no call path here).
     ///         `newPhase` must be strictly below current phase.
     ///         `newGovernor` is the address that will take over at the new
     ///         phase (e.g., Council contract address when regressing
     ///         OpenGov → Council).
     function proposeRegression(GovernancePhase newPhase, address newGovernor)
-        external onlyGovernor
+        external onlyAdminGovernor
     {
         require(newGovernor != address(0), "E00");
         require(uint8(newPhase) < uint8(phase), "not a regression");
@@ -565,10 +608,10 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         emit RegressionProposed(newPhase, newGovernor, pendingRegressionExecutableAfterBlock);
     }
 
-    /// @notice Cancel a pending regression. Only the current governor —
+    /// @notice Cancel a pending regression. Only the `adminGovernor` —
     ///         the same authority that proposed it. Prevents a malicious
     ///         executor from waiting out the timelock on an aborted proposal.
-    function cancelRegression() external onlyGovernor {
+    function cancelRegression() external onlyAdminGovernor {
         require(pendingRegressionGovernor != address(0), "no pending");
         pendingRegressionPhase = GovernancePhase.Admin;  // reset
         pendingRegressionGovernor = address(0);

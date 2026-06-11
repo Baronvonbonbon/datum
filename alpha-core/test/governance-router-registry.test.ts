@@ -146,8 +146,13 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       // contract — the auth check is just msg.sender == governor.
       await router.connect(owner).setGovernor(1, council.address);
       await router.connect(council).acceptGovernor();
+      // Option 2: moving to Council governance also points the admin/upgrade
+      // authority at the Council (owner/Timelock-gated). upgradeContract is
+      // gated on adminGovernor, NOT the campaign governor.
+      await router.connect(owner).setAdminGovernor(council.address);
       expect(await router.phase()).to.equal(1n); // Council
       expect(await router.governor()).to.equal(council.address);
+      expect(await router.adminGovernor()).to.equal(council.address);
     });
 
     it("Admin-phase deployer can no longer upgrade", async () => {
@@ -161,24 +166,63 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
     });
   });
 
-  describe("upgradeContract (OpenGov phase)", function () {
+  describe("upgradeContract (OpenGov phase — admin/campaign split)", function () {
+    // The point of Option 2: at OpenGov the CAMPAIGN governor is GovernanceV2
+    // (openGov here), which has no upgrade call path, while the standing admin
+    // executor (Council) retains upgrade authority. The split makes this
+    // expressible: adminGovernor stays Council while governor advances to OpenGov.
     beforeEach(async () => {
       await router.connect(owner).register(NAME_BRIDGE, v1.address);
       await router.connect(owner).setGovernor(1, council.address);
       await router.connect(council).acceptGovernor();
+      // Admin authority parks at the Council (standing executor)...
+      await router.connect(owner).setAdminGovernor(council.address);
+      // ...then the campaign governor advances to OpenGov.
       await router.connect(owner).setGovernor(2, openGov.address);
       await router.connect(openGov).acceptGovernor();
       expect(await router.phase()).to.equal(2n); // OpenGov
+      expect(await router.governor()).to.equal(openGov.address);
+      expect(await router.adminGovernor()).to.equal(council.address);
     });
 
-    it("OpenGov can upgrade", async () => {
-      await router.connect(openGov).upgradeContract(NAME_BRIDGE, v2.address);
+    it("campaign governor (OpenGov) cannot upgrade — admin authority is decoupled", async () => {
+      await expect(router.connect(openGov).upgradeContract(NAME_BRIDGE, v2.address))
+        .to.be.revertedWith("E19");
+    });
+
+    it("adminGovernor (Council) still upgrades at OpenGov phase", async () => {
+      await router.connect(council).upgradeContract(NAME_BRIDGE, v2.address);
       expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v2.address);
     });
+  });
 
-    it("Council can no longer upgrade", async () => {
+  // ─────────────────────────────────────────────────────────────────────
+  // Admin/campaign governor split (Option 2 — Stage 2)
+  // ─────────────────────────────────────────────────────────────────────
+  describe("adminGovernor split", function () {
+    it("defaults to the constructor governor (Phase-0 single-key preserved)", async () => {
+      expect(await router.adminGovernor()).to.equal(await router.governor());
+    });
+
+    it("setAdminGovernor is owner-only", async () => {
+      await expect(router.connect(other).setAdminGovernor(council.address))
+        .to.be.revertedWith("E18");
+      await expect(router.connect(owner).setAdminGovernor(ethers.ZeroAddress))
+        .to.be.revertedWith("E00");
+    });
+
+    it("setAdminGovernor moves upgrade authority independently of the campaign governor", async () => {
+      await router.connect(owner).register(NAME_BRIDGE, v1.address);
+      // Advancing the campaign governor alone does NOT move upgrade authority.
+      await router.connect(owner).setGovernor(1, council.address);
+      await router.connect(council).acceptGovernor();
       await expect(router.connect(council).upgradeContract(NAME_BRIDGE, v2.address))
-        .to.be.revertedWith("E19");
+        .to.be.revertedWith("E19"); // adminGovernor still the deployer
+      expect(await router.adminGovernor()).to.equal(governor.address);
+      // Explicitly handing admin authority over is what grants it.
+      await router.connect(owner).setAdminGovernor(council.address);
+      await router.connect(council).upgradeContract(NAME_BRIDGE, v2.address);
+      expect(await router.currentAddrOf(NAME_BRIDGE)).to.equal(v2.address);
     });
   });
 
@@ -190,16 +234,20 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       // Move all the way to OpenGov so regression has somewhere to go back to.
       await router.connect(owner).setGovernor(1, council.address);
       await router.connect(council).acceptGovernor();
+      // Option 2: Council is the standing admin/emergency executor — regression
+      // is gated on adminGovernor, not the campaign governor.
+      await router.connect(owner).setAdminGovernor(council.address);
       await router.connect(owner).setGovernor(2, openGov.address);
       await router.connect(openGov).acceptGovernor();
       // Ratchet the floor up so we can verify regression breaks it.
       await router.connect(other).raisePhaseFloor();
       expect(await router.phase()).to.equal(2n);
       expect(await router.phaseFloor()).to.equal(2n);
+      expect(await router.adminGovernor()).to.equal(council.address);
     });
 
-    it("OpenGov proposes regression to Council", async () => {
-      const tx = await router.connect(openGov).proposeRegression(1, council.address);
+    it("adminGovernor (Council) proposes regression to Council", async () => {
+      const tx = await router.connect(council).proposeRegression(1, council.address);
       const receipt = await tx.wait();
       const head = BigInt(receipt!.blockNumber);
       const executable = head + TIMELOCK_BLOCKS;
@@ -210,31 +258,35 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       expect(await router.pendingRegressionGovernor()).to.equal(council.address);
     });
 
-    it("non-governor cannot propose regression", async () => {
+    it("only adminGovernor can propose regression (campaign governor + randoms rejected)", async () => {
       await expect(router.connect(other).proposeRegression(1, council.address))
+        .to.be.revertedWith("E19");
+      // The campaign governor (OpenGov) can no longer drive regression — it is
+      // an adminGovernor (Council) power now.
+      await expect(router.connect(openGov).proposeRegression(1, council.address))
         .to.be.revertedWith("E19");
     });
 
     it("must be strictly downward", async () => {
       // OpenGov can't propose OpenGov (no regression)
-      await expect(router.connect(openGov).proposeRegression(2, openGov.address))
+      await expect(router.connect(council).proposeRegression(2, openGov.address))
         .to.be.revertedWith("not a regression");
     });
 
     it("cannot stack two pending regressions", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
-      await expect(router.connect(openGov).proposeRegression(0, governor.address))
+      await router.connect(council).proposeRegression(1, council.address);
+      await expect(router.connect(council).proposeRegression(0, governor.address))
         .to.be.revertedWith("regression pending");
     });
 
     it("execute fails before timelock", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
+      await router.connect(council).proposeRegression(1, council.address);
       await expect(router.executeRegression())
         .to.be.revertedWith("still in timelock");
     });
 
     it("execute succeeds after timelock; phase + governor + floor follow down", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
+      await router.connect(council).proposeRegression(1, council.address);
       await mineBlocks(TIMELOCK_BLOCKS);
 
       await expect(router.executeRegression())
@@ -257,9 +309,9 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       expect(await router.governor()).to.equal(council.address);
     });
 
-    it("cancel by governor clears the pending state", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
-      await expect(router.connect(openGov).cancelRegression())
+    it("cancel by adminGovernor clears the pending state", async () => {
+      await router.connect(council).proposeRegression(1, council.address);
+      await expect(router.connect(council).cancelRegression())
         .to.emit(router, "RegressionCancelled");
       expect(await router.pendingRegressionGovernor()).to.equal(ethers.ZeroAddress);
       // Execute now reverts no-pending.
@@ -267,14 +319,14 @@ describe("DatumGovernanceRouter — Stage 1 upgrade ladder", function () {
       await expect(router.executeRegression()).to.be.revertedWith("no pending");
     });
 
-    it("non-governor cannot cancel", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
+    it("non-adminGovernor cannot cancel", async () => {
+      await router.connect(council).proposeRegression(1, council.address);
       await expect(router.connect(other).cancelRegression())
         .to.be.revertedWith("E19");
     });
 
     it("after regression, can re-promote via setGovernor + raisePhaseFloor", async () => {
-      await router.connect(openGov).proposeRegression(1, council.address);
+      await router.connect(council).proposeRegression(1, council.address);
       await mineBlocks(TIMELOCK_BLOCKS);
       await router.executeRegression();
       // F-008: complete the regression handoff with acceptGovernor.

@@ -11,6 +11,13 @@
 - **Baseline:** `npx hardhat test` → **1671 passing, 1 pending** (clean recompile).
 - **Severity bar:** pre-mainnet hardening, same scale as the 2026-05-20 pass.
 
+> **Post-audit follow-up (2026-06-11):** a `DatumGovernanceRouter` authority
+> change landed after this pass — `upgradeContract` + the phase-regression
+> functions were split onto a new `adminGovernor` role (separate from the
+> campaign `governor`), per Option 2 of the fund-control remediation
+> (`CONTROL-MATRIX-MEMO.md` §8). This touches the upgrade master key and should
+> be covered in the next security pass. Suite now 1674 passing.
+
 ## Executive summary
 
 The codebase remains mature and the prior audit's fixes hold up: the settlement

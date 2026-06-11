@@ -95,6 +95,9 @@ describe("Stage 4: whenOpenGovPhase on lock functions", function () {
     // Regress to Council. Router timelock = MIN by default (28800), tests
     // tighten to MIN (14400).
     await router.connect(owner).setRegressionTimelock(14400);
+    // Regression is adminGovernor-gated (Option 2 split); grant the proposer
+    // admin authority. In production this is the Council.
+    await router.connect(owner).setAdminGovernor(openGov.address);
     await router.connect(openGov).proposeRegression(1, council.address);
     await ethers.provider.send("hardhat_mine", ["0x3840"]); // 14400
     await router.executeRegression();

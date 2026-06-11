@@ -73,8 +73,11 @@ describe("Audit F-006: hardFloor preserves monotonic decentralization across reg
     expect(await router.phaseFloor()).to.equal(2n);
     expect(await router.hardFloor()).to.equal(2n);
 
-    // Compromised openGov proposes regression to Admin.
+    // Compromised admin authority proposes regression to Admin. Regression is
+    // adminGovernor-gated (Option 2 split); model openGov as the compromised
+    // admin executor so the hardFloor assertion below stays meaningful.
     await router.connect(owner).setRegressionTimelock(14400);
+    await router.connect(owner).setAdminGovernor(openGov.address);
     await router.connect(openGov).proposeRegression(0, attacker.address);
     await ethers.provider.send("hardhat_mine", ["0x3840"]); // 14400
     await router.executeRegression();
