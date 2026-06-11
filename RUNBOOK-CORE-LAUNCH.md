@@ -230,7 +230,7 @@ Pinata credential** (from the secrets scrub).
 - **Pause drills:** prove settlement can be halted via PauseRegistry under attack.
 - Incident runbook (who, what, rollback posture given the lock-once model).
 - **Secrets scrub:** rotate anything that touched a repo/CI; confirm no real key
-  ships in a public artifact (`PRE-MAINNET-CHECKLIST.md` secrets section). The
+  ships in a public artifact (`archive/alpha-core-docs/PRE-MAINNET-CHECKLIST.md` secrets section). The
   `alpha-core/.env` holds plaintext keys today.
 **Gate:** pause drill passes; secrets audit clean. **Verify:** drill log + scrub checklist.
 

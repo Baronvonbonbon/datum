@@ -1,3 +1,7 @@
+> ⊗ **HISTORICAL (v5, 2026-05-23).** The live Paseo deployment is now the slim spine
+> (`deployed-addresses.json`, 2026-06-10). This remains the immutable v5 diff-base; it
+> is no longer "what is current." See [`ALPHA-CORE-BACKLOG.md`](../../alpha-core/ALPHA-CORE-BACKLOG.md) §1.
+
 # Alpha-5 v5 Verification Snapshot
 
 Captured 2026-05-23, post v5 redeploy (deployedAt

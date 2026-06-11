@@ -1,11 +1,11 @@
 # DATUM Project Status
 
-**Last Updated:** 2026-05-28
-**Current Phase:** Alpha-5 v5 — full advertiser fraud track + interest commitments + tag curator deployed on Paseo (2026-05-23T12:23Z). Twenty governable parameters across seven contracts retunable via the Timelock route (48h delay) AND the `DatumParameterGovernance` bicameral veto-window route. 10/10 governable parameters round-tripped end-to-end on Paseo via `scripts/exercise-governable-params.ts`. Pre-mainnet upgrade-machinery work tracked in `PRE-MAINNET-CHECKLIST.md` §U1-U7.
-**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-5 v5 (EVM, solc) live; alpha-3 PVM reference frozen in `archive/`
+**Last Updated:** 2026-06-11
+**Current Phase:** alpha-core — **slim spine LIVE on Paseo (2026-06-10T11:53Z, `DATUM_MVP=1`, 21 contracts)**; optional/token/ZK refs `address(0)`, activatable via lock-once setters. Migration machinery (U1/U2/U3/U5/U6), wire-format SSOT + CI drift gate, secrets/gitleaks gate, incident runbook + pause drill all ✅. Admin-control remediation (Option 2: router `adminGovernor` split + Timelock→Council handoff) landed. **Consolidated backlog + Paseo-launch staging: `alpha-core/ALPHA-CORE-BACKLOG.md`.** Mainnet phase program: `RUNBOOK-CORE-LAUNCH.md`.
+**Testnet:** Paseo Hub (Chain ID 420420417) — alpha-core slim spine (EVM, solc) live; alpha-3 PVM reference frozen in `archive/`
 **Web App:** https://datum.javcon.io
-**Contract count:** 53 deployable production contracts + 2 Logic delegates (LogicA + LogicB) for Settlement. Token plane (5 contracts in `contracts/token/`) deployed separately via `deploy-token.ts`.
-**Tests:** 1579 passing, 0 failing, 1 pending
+**Contract count:** 52 `Datum*.sol` production contracts (+ 5 token-plane via `deploy-token.ts`); Settlement is a thin shell + LogicA/LogicB delegates. Full set deployed by `deploy.ts`; the live Paseo launch is the 21-contract slim subset.
+**Tests:** 1674 passing, 0 failing, 1 pending
 
 ---
 
@@ -464,8 +464,9 @@ datum/
 │   ├── deployed-addresses.v{1..4}-*.json  # Archived prior snapshots
 │   ├── SYSTEM-OVERVIEW.md           # Single-document tour
 │   ├── ECONOMICS.md
-│   ├── SECURITY-AUDIT-2026-05-20.md
-│   └── PRE-ALPHA-5-BACKLOG.md
+│   ├── SECURITY-AUDIT-2026-05-20.md · SECURITY-AUDIT-2026-06-11.md
+│   ├── ALPHA-CORE-BACKLOG.md        # Consolidated backlog + Paseo-launch staging
+│   └── CONTROL-MATRIX-MEMO.md (root) # Per-phase fund-control matrix
 ├── web/                             # React + Vite, 82 page TSX files, alpha-5 addressing
 ├── sdk/                             # Publisher SDK (datum-sdk.js v3.4, ~3 KB)
 ├── wordpress-plugin/datum-publisher/  # WP plugin wrapping the SDK
@@ -474,9 +475,10 @@ datum/
 ├── docs/                            # Demo page + relay template
 ├── relay-bot/                       # Publisher relay (gitignored) — userSig/publisherSig EIP-712
 ├── relay-bot.example/               # Public reference template
-├── archive/                         # PoC, alpha, alpha-2, alpha-3, alpha-4, old extensions, scripts, docs
+├── archive/                         # PoC, alpha-*, old docs; alpha-core-docs/ = superseded backlogs/checklists
 ├── PRIVACY-POLICY.md
-├── PRE-MAINNET-CHECKLIST.md
+├── RUNBOOK-CORE-LAUNCH.md           # Mainnet launch phase program
+├── CONTROL-MATRIX-MEMO.md           # Per-phase fund-control matrix
 ├── PROCESS-FLOW-AUDIT.md
 ├── STATUS.md                        # This file
 ├── TOKENOMICS.md

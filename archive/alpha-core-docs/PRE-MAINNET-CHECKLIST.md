@@ -1,3 +1,8 @@
+> ⊗ **SUPERSEDED (2026-06-11):** item-level content absorbed into
+> [`alpha-core/ALPHA-CORE-BACKLOG.md`](../../alpha-core/ALPHA-CORE-BACKLOG.md) §2 (mainnet-deferred)
+> and §3 (post-launch locks). U1–U7 migration machinery is now ✅ done. Kept for the
+> detailed U-series + token-sunset prose; the consolidated backlog is the live tracker.
+
 # DATUM — Pre-Mainnet Checklist
 
 Active across all alpha lines. Moved to repo root 2026-05-23 (per

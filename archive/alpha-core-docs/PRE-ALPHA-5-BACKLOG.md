@@ -1,3 +1,7 @@
+> ⊗ **SUPERSEDED (2026-06-11) by [`ALPHA-CORE-BACKLOG.md`](../../alpha-core/ALPHA-CORE-BACKLOG.md).**
+> Item-level content consolidated there with done/obsolete/open marks and Paseo-launch
+> staging. Kept for detail/history; the consolidated doc is the live source of truth.
+
 # DATUM Alpha-5 — Carryover Backlog
 
 Compiled 2026-05-19 by walking every alpha-4-era doc that was inherited
