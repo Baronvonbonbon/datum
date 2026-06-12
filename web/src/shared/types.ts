@@ -69,6 +69,50 @@ export interface CreativeAsset {
   alt?: string;
 }
 
+/**
+ * Identify which IAB ad format a raw pixel size belongs to. Returns an exact
+ * match when the dimensions land on a standard size, otherwise the closest
+ * format by aspect ratio within `tolerance` (default 4%). Returns null when no
+ * standard format is a reasonable fit. Used by the creative dropzone to
+ * auto-slot a dropped image and to flag mismatched uploads.
+ */
+export function matchAdFormat(
+  w: number,
+  h: number,
+  tolerance = 0.04,
+): { format: AdFormat; exact: boolean } | null {
+  const entries = Object.entries(AD_FORMAT_SIZES) as [AdFormat, { w: number; h: number }][];
+  for (const [fmt, s] of entries) {
+    if (s.w === w && s.h === h) return { format: fmt, exact: true };
+  }
+  if (h === 0) return null;
+  const ar = w / h;
+  let best: { format: AdFormat; diff: number } | null = null;
+  for (const [fmt, s] of entries) {
+    const diff = Math.abs(s.w / s.h - ar) / (s.w / s.h);
+    if (diff <= tolerance && (!best || diff < best.diff)) best = { format: fmt, diff };
+  }
+  return best ? { format: best.format, exact: false } : null;
+}
+
+/**
+ * Grade how well a `w×h` image fits a specific target slot size:
+ *  - "exact"    — pixel-perfect match
+ *  - "scales"   — same aspect ratio (within 4%); will render cleanly when scaled
+ *  - "mismatch" — wrong aspect ratio; would letterbox or distort
+ */
+export function fitForTarget(
+  w: number,
+  h: number,
+  targetW: number,
+  targetH: number,
+): "exact" | "scales" | "mismatch" {
+  if (w === targetW && h === targetH) return "exact";
+  if (h === 0 || targetH === 0) return "mismatch";
+  const diff = Math.abs(w / h - targetW / targetH) / (targetW / targetH);
+  return diff <= 0.04 ? "scales" : "mismatch";
+}
+
 // Campaign metadata fetched from IPFS
 export interface CampaignMetadata {
   title: string;
