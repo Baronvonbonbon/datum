@@ -86,6 +86,7 @@ describe("Feature switches: DATUM emission + ERC sidecar", function () {
       mock = await (await ethers.getContractFactory("MockCampaigns")).deploy();
       vault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await mock.getAddress());
       await vault.setSettlement(settlementSigner.address);
+      await vault.setAssetAllowlistEnabled(false); // these tests exercise the switches, not the allowlist — use open mode
       token = await (await ethers.getContractFactory("MockERC20")).deploy("Test Token", "TST");
       token2 = await (await ethers.getContractFactory("MockERC20")).deploy("Token Two", "TT2");
       await mock.setCampaign(CID, advertiser.address, owner.address, 1000n, 5000, 1); // Active
@@ -180,6 +181,88 @@ describe("Feature switches: DATUM emission + ERC sidecar", function () {
       const minted = await engine.connect(settlementSigner).computeAndClipMint.staticCall(DOT);
       expect(minted).to.equal(0n);
       await expect(engine.connect(settlementSigner).computeAndClipMint(DOT)).to.not.emit(engine, "MintComputed");
+    });
+  });
+
+  // ── ERC sidecar asset gating: compliant allowlist → fully open ────────────
+  describe("DatumTokenRewardVault asset gating", function () {
+    let vault: any, mock: any, token: any, token2: any;
+    const CID = 1n;
+    const AMT = ethers.parseEther("1000");
+    const TEN = ethers.parseEther("10");
+
+    beforeEach(async function () {
+      mock = await (await ethers.getContractFactory("MockCampaigns")).deploy();
+      vault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await mock.getAddress());
+      await vault.setSettlement(settlementSigner.address);
+      token = await (await ethers.getContractFactory("MockERC20")).deploy("Test Token", "TST");
+      token2 = await (await ethers.getContractFactory("MockERC20")).deploy("Token Two", "TT2");
+      await mock.setCampaign(CID, advertiser.address, owner.address, 1000n, 5000, 1);
+      for (const t of [token, token2]) {
+        await t.mint(advertiser.address, AMT * 10n);
+        await t.connect(advertiser).approve(await vault.getAddress(), AMT * 10n);
+      }
+    });
+
+    const deposit = (t: any) => vault.connect(advertiser).depositCampaignBudget(CID, t.getAddress(), AMT);
+    const credit = (t: any) => vault.connect(settlementSigner).creditReward(CID, t.getAddress(), user.address, TEN);
+    const bal = async (t: any) => vault.userTokenBalance(await t.getAddress(), user.address);
+
+    it("defaults to allowlist mode (compliant start); nothing permitted yet", async function () {
+      expect(await vault.assetAllowlistEnabled()).to.equal(true);
+      expect(await vault.isAssetPermitted(await token.getAddress())).to.equal(false);
+    });
+
+    it("allowlist mode: non-allowlisted deposit reverts", async function () {
+      await expect(deposit(token)).to.be.revertedWith("asset-not-allowed");
+    });
+
+    it("allowlisted ERC-20: deposit + credit work", async function () {
+      await expect(vault.setAssetAllowed(await token.getAddress(), true)).to.emit(vault, "AssetAllowedSet").withArgs(await token.getAddress(), true);
+      expect(await vault.isAssetPermitted(await token.getAddress())).to.equal(true);
+      await deposit(token);
+      await credit(token);
+      expect(await bal(token)).to.equal(TEN);
+    });
+
+    it("rejects non-ERC-20 addresses on allowlist-add (sanity check)", async function () {
+      await expect(vault.setAssetAllowed(await mock.getAddress(), true)).to.be.revertedWith("not-erc20"); // contract w/o decimals/totalSupply
+      await expect(vault.setAssetAllowed(stranger.address, true)).to.be.revertedWith("not-erc20");        // EOA
+    });
+
+    it("credit skips when a funded token is later de-listed (defense-in-depth)", async function () {
+      await vault.setAssetAllowed(await token.getAddress(), true);
+      await deposit(token);
+      await vault.setAssetAllowed(await token.getAddress(), false);
+      await expect(credit(token)).to.emit(vault, "RewardCreditSkipped");
+      expect(await bal(token)).to.equal(0n);
+    });
+
+    it("open mode: any token works; denylist still blocks", async function () {
+      await vault.setAssetAllowlistEnabled(false);
+      expect(await vault.isAssetPermitted(await token.getAddress())).to.equal(true);
+      await deposit(token);
+      await credit(token);
+      expect(await bal(token)).to.equal(TEN);
+      // denylist wins even in open mode
+      await vault.setTokenRewardBlocked(await token2.getAddress(), true);
+      await expect(vault.connect(advertiser).depositCampaignBudget(CID, await token2.getAddress(), AMT)).to.be.revertedWith("asset-not-allowed");
+    });
+
+    it("denylist wins even when allowlisted", async function () {
+      await vault.setAssetAllowed(await token.getAddress(), true);
+      await vault.setTokenRewardBlocked(await token.getAddress(), true);
+      expect(await vault.isAssetPermitted(await token.getAddress())).to.equal(false);
+      await expect(deposit(token)).to.be.revertedWith("asset-not-allowed");
+    });
+
+    it("mode + allowlist are governance-only (owner/PG/Council); strangers rejected", async function () {
+      await vault.setParameterGovernance(pg.address);
+      await vault.setCouncil(council.address);
+      await expect(vault.connect(pg).setAssetAllowlistEnabled(false)).to.emit(vault, "AssetAllowlistModeSet");
+      await expect(vault.connect(council).setAssetAllowed(await token.getAddress(), true)).to.emit(vault, "AssetAllowedSet");
+      await expect(vault.connect(stranger).setAssetAllowlistEnabled(true)).to.be.revertedWith("E18");
+      await expect(vault.connect(stranger).setAssetAllowed(await token.getAddress(), true)).to.be.revertedWith("E18");
     });
   });
 });

@@ -39,6 +39,7 @@ describe("DatumTokenRewardVault", function () {
     vault = await VaultFactory.deploy(await mock.getAddress());
 
     await vault.setSettlement(settlementMock.address);
+    await vault.setAssetAllowlistEnabled(false); // open mode — these tests predate the asset allowlist
 
     const ERC20Factory = await ethers.getContractFactory("MockERC20");
     token = await ERC20Factory.deploy("Test Token", "TST");

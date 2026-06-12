@@ -34,6 +34,7 @@ describe("DatumTokenRewardVault G-8 mirror (recovery address)", function () {
     const VaultFactory = await ethers.getContractFactory("DatumTokenRewardVault");
     vault = await VaultFactory.deploy(await mock.getAddress());
     await vault.setSettlement(settlement.address);
+    await vault.setAssetAllowlistEnabled(false); // open mode — these tests predate the asset allowlist
 
     const ERC20Factory = await ethers.getContractFactory("MockERC20");
     token = await ERC20Factory.deploy("Test", "TST");

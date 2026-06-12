@@ -282,6 +282,7 @@ describe("Datum Alpha-3 Benchmark Suite", function () {
     await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
     await settlement.setCampaigns(await campaigns.getAddress());
     await tokenRewardVault.setSettlement(await settlement.getAddress());
+    await tokenRewardVault.setAssetAllowlistEnabled(false); // open mode — benchmark predates the asset allowlist
 
     // Register publishers
     await publishers.connect(publisher).registerPublisher(TAKE_RATE_BPS);

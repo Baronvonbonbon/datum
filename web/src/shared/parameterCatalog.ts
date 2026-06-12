@@ -147,6 +147,19 @@ export const PARAM_CATALOG: ParamSetter[] = [
     ],
     currentGetters: ["tokenRewardsEnabled"],
   },
+  {
+    contractKey: "tokenRewardVault",
+    contractLabel: "TokenRewardVault",
+    fnName: "setAssetAllowlistEnabled",
+    signature: "setAssetAllowlistEnabled(bool)",
+    abi: "function setAssetAllowlistEnabled(bool enabled)",
+    description:
+      "Reward-asset gating mode. ON (allowlist) = only governance-approved tokens may be used as rewards — the compliant start. OFF (open) = any ERC-20 / native-asset precompile is allowed, except those on the per-token denylist. Reversible either way. Curate the allowlist itself with setAssetAllowed(address,bool).",
+    args: [
+      { name: "enabled", kind: "bool", description: "on = allowlist-only (compliant); off = open to all tokens (denylist still applies)." },
+    ],
+    currentGetters: ["assetAllowlistEnabled"],
+  },
 ];
 
 /**
