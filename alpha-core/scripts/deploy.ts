@@ -2773,6 +2773,11 @@ async function main() {
     { contractKey: "mintCoordinator",      sig: "setMintRate(uint256)",                              viaParamGovernanceField: true },
     { contractKey: "mintCoordinator",      sig: "setDustMintThreshold(uint256)",                     viaParamGovernanceField: true },
     { contractKey: "mintCoordinator",      sig: "setDatumRewardSplit(uint16,uint16,uint16)",         viaParamGovernanceField: true },
+    // DATUM emission master switch (governance on/off)
+    { contractKey: "mintCoordinator",      sig: "setEmissionEnabled(bool)",                          viaParamGovernanceField: true },
+    // DatumTokenRewardVault — ERC sidecar master switch + per-token block
+    { contractKey: "tokenRewardVault",     sig: "setTokenRewardsEnabled(bool)",                      viaParamGovernanceField: true },
+    { contractKey: "tokenRewardVault",     sig: "setTokenRewardBlocked(address,bool)",               viaParamGovernanceField: true },
     // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST among ownership-transfer entries.
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];
@@ -2882,6 +2887,33 @@ async function main() {
     console.log(`  ACCEPTED: ParameterGovernance now owns ${targetKey}`);
   }
   } // end if (addresses.parameterGovernance)
+
+  // ── Feature-switch Council authority ───────────────────────────────────────
+  // Wire DatumCouncil as the emergency toggle authority on the emission +
+  // sidecar switches (alongside owner + ParameterGovernance). Owner-only,
+  // rotatable, idempotent. Runs outside the PG block so the Council kill-switch
+  // works even on slim deploys without ParameterGovernance. Must precede the
+  // PHASE 3 ownership transfer (deployer still owns these contracts here).
+  logStep("Wiring Council as feature-switch authority (emission + sidecar)");
+  if (!addresses.council) {
+    console.log("  SKIP: DatumCouncil not deployed — emission/sidecar switches owner+PG only.");
+  } else {
+    for (const key of ["mintCoordinator", "tokenRewardVault"] as (keyof typeof addresses)[]) {
+      const targetAddr = addresses[key];
+      if (!targetAddr || targetAddr === ZERO_ADDRESS) {
+        console.log(`  SKIP: ${key} not deployed`);
+        continue;
+      }
+      let current = "";
+      try { current = await readAddr(targetAddr, "council"); } catch { /* getter absent */ }
+      if (current === addresses.council.toLowerCase()) {
+        console.log(`  OK (already): ${key}.council = Council`);
+        continue;
+      }
+      await sendCall(targetAddr, ["function setCouncil(address)"], "setCouncil", [addresses.council]);
+      console.log(`  SET: ${key}.setCouncil(${addresses.council})`);
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PHASE 4: Post-deploy validation

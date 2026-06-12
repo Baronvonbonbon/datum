@@ -98,6 +98,68 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     }
 
     // -------------------------------------------------------------------------
+    // ERC sidecar on/off switches (governance-settable; not lock-once)
+    // -------------------------------------------------------------------------
+
+    /// @notice Master switch for ERC-20 sidecar rewards. When false,
+    ///         `creditReward` no-ops (settlement still succeeds) so no new token
+    ///         rewards accrue. Already-credited balances stay withdrawable and
+    ///         advertiser budgets stay reclaimable. Default on.
+    bool public tokenRewardsEnabled = true;
+
+    /// @notice Per-reward-token block. Default false (allowed). Lets governance
+    ///         disable a specific token without flipping the master switch.
+    mapping(address => bool) public tokenRewardBlocked;
+
+    /// @notice ParameterGovernance — normal-ops toggle authority via proposal.
+    address public parameterGovernance;
+    /// @notice DatumCouncil — emergency toggle authority (instant N-of-M).
+    address public council;
+
+    event TokenRewardsEnabledSet(bool enabled);
+    event TokenRewardBlockedSet(address indexed token, bool blocked);
+    event ParameterGovernanceSet(address indexed pg);
+    event CouncilSet(address indexed council);
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    function setCouncil(address c) external onlyOwner {
+        require(c != address(0), "E00");
+        council = c;
+        emit CouncilSet(c);
+    }
+
+    /// @dev Owner (Timelock/Council later), ParameterGovernance (proposal flow),
+    ///      or Council (emergency override) may flip the sidecar switches.
+    modifier onlyToggleAuth() {
+        require(
+            msg.sender == owner() ||
+            msg.sender == parameterGovernance ||
+            (council != address(0) && msg.sender == council),
+            "E18"
+        );
+        _;
+    }
+
+    /// @notice Master on/off for ERC sidecar crediting. Toggleable repeatedly.
+    function setTokenRewardsEnabled(bool enabled) external onlyToggleAuth whenNotFrozen {
+        tokenRewardsEnabled = enabled;
+        emit TokenRewardsEnabledSet(enabled);
+    }
+
+    /// @notice Block/unblock a specific reward token. Blocked tokens stop
+    ///         accruing new rewards; existing balances remain withdrawable.
+    function setTokenRewardBlocked(address token, bool blocked) external onlyToggleAuth whenNotFrozen {
+        require(token != address(0), "E00");
+        tokenRewardBlocked[token] = blocked;
+        emit TokenRewardBlockedSet(token, blocked);
+    }
+
+    // -------------------------------------------------------------------------
     // Deposit (advertiser)
     // -------------------------------------------------------------------------
 
@@ -128,6 +190,13 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     function creditReward(uint256 campaignId, address token, address user, uint256 amount) external {
         require(msg.sender == settlement, "E25");
         require(user != address(0), "E00");
+
+        // Sidecar master switch / per-token block — when off, no new rewards
+        // accrue but settlement still succeeds (mirrors the budget==0 skip).
+        if (!tokenRewardsEnabled || tokenRewardBlocked[token]) {
+            emit RewardCreditSkipped(campaignId, token, user); // AUDIT-019
+            return;
+        }
 
         uint256 budget = campaignTokenBudget[token][campaignId];
         if (budget == 0) {
@@ -295,10 +364,16 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     function _migrate(address oldContract) internal override {
         DatumTokenRewardVault old = DatumTokenRewardVault(payable(oldContract));
         recoveryDelayBlocks = old.recoveryDelayBlocks();
+        // Preserve sidecar switch state + toggle authorities across the upgrade.
+        tokenRewardsEnabled = old.tokenRewardsEnabled();
+        parameterGovernance = old.parameterGovernance();
+        council = old.council();
         uint256 nt = old.tokenCount();
         for (uint256 i = 0; i < nt; i++) {
             address token = old.tokenAt(i);
             _trackToken(token);
+            // Carry forward any per-token block (token set is enumerable).
+            if (old.tokenRewardBlocked(token)) tokenRewardBlocked[token] = true;
             uint256 nu = old.tokenUserCount(token);
             for (uint256 j = 0; j < nu; j++) {
                 address u = old.tokenUserAt(token, j);
