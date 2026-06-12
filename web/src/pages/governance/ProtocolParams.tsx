@@ -508,15 +508,28 @@ export function ProtocolParams() {
                     <label style={{ color: "var(--text)", fontSize: 13, display: "block", marginBottom: 4 }}>
                       {arg.name} <span style={{ color: "var(--text-muted)", fontWeight: 400, fontSize: 11 }}>({arg.kind.replace("uint256-", "")})</span>
                     </label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={argInputs[i] ?? ""}
-                      onChange={(e) => setArgInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
-                      placeholder={currentValues[i] !== null ? `current: ${currentValues[i]}` : "integer value"}
-                      className="nano-input"
-                      required
-                    />
+                    {arg.kind === "bool" ? (
+                      <select
+                        value={argInputs[i] ?? ""}
+                        onChange={(e) => setArgInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
+                        className="nano-input"
+                        required
+                      >
+                        <option value="" disabled>select…</option>
+                        <option value="on">on (enable)</option>
+                        <option value="off">off (disable)</option>
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={argInputs[i] ?? ""}
+                        onChange={(e) => setArgInputs((prev) => prev.map((v, j) => j === i ? e.target.value : v))}
+                        placeholder={currentValues[i] !== null ? `current: ${currentValues[i]}` : "integer value"}
+                        className="nano-input"
+                        required
+                      />
+                    )}
                     <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
                       {arg.description}
                       {currentValues[i] !== null && (

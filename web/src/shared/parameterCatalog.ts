@@ -13,9 +13,11 @@ import { Interface } from "ethers";
 export type ContractKey =
   | "publisherStake"
   | "publisherGovernance"
-  | "parameterGovernance";
+  | "parameterGovernance"
+  | "mintCoordinator"
+  | "tokenRewardVault";
 
-export type ArgKind = "uint256-blocks" | "uint256-bps" | "uint256-planck" | "uint256-count";
+export type ArgKind = "uint256-blocks" | "uint256-bps" | "uint256-planck" | "uint256-count" | "bool";
 
 export interface ParamArg {
   name: string;
@@ -116,13 +118,41 @@ export const PARAM_CATALOG: ParamSetter[] = [
     ],
     currentGetters: ["votingPeriodBlocks", "timelockBlocks", "quorum", "proposeBond"],
   },
+
+  // ── Feature switches (governance on/off) ───────────────────────────────────
+  {
+    contractKey: "mintCoordinator",
+    contractLabel: "MintCoordinator",
+    fnName: "setEmissionEnabled",
+    signature: "setEmissionEnabled(bool)",
+    abi: "function setEmissionEnabled(bool enabled)",
+    description:
+      "Master switch for DATUM emission. Off = settled batches mint no DATUM (settlement still succeeds; already-minted balances unaffected). Also flippable instantly by the Council in an emergency.",
+    args: [
+      { name: "enabled", kind: "bool", description: "on = DATUM minted per settled batch; off = no new emission." },
+    ],
+    currentGetters: ["emissionEnabled"],
+  },
+  {
+    contractKey: "tokenRewardVault",
+    contractLabel: "TokenRewardVault",
+    fnName: "setTokenRewardsEnabled",
+    signature: "setTokenRewardsEnabled(bool)",
+    abi: "function setTokenRewardsEnabled(bool enabled)",
+    description:
+      "Master switch for the ERC-20 sidecar. Off = no new token rewards accrue (credited balances stay withdrawable, advertiser budgets stay reclaimable). Per-token blocking is available via setTokenRewardBlocked(address,bool). Also flippable instantly by the Council.",
+    args: [
+      { name: "enabled", kind: "bool", description: "on = settled claims credit ERC-20 rewards; off = crediting paused." },
+    ],
+    currentGetters: ["tokenRewardsEnabled"],
+  },
 ];
 
 /**
  * Encode a parameter-change proposal payload for ParameterGovernance.execute.
  * Returns the calldata bytes that PG will replay against the target contract.
  */
-export function encodeParamCall(setter: ParamSetter, args: (string | bigint)[]): string {
+export function encodeParamCall(setter: ParamSetter, args: (string | bigint | boolean)[]): string {
   const iface = new Interface([setter.abi]);
   return iface.encodeFunctionData(setter.fnName, args);
 }
@@ -139,20 +169,28 @@ export function selectorOf(setter: ParamSetter): string {
 }
 
 /** Render an arg value for display next to its proposed value. */
-export function formatArg(kind: ArgKind, raw: bigint): string {
+export function formatArg(kind: ArgKind, raw: bigint | boolean): string {
+  if (kind === "bool") return raw ? "on" : "off";
+  const n = raw as bigint;
   switch (kind) {
-    case "uint256-bps":     return `${raw.toString()} (${(Number(raw) / 100).toFixed(2)}%)`;
-    case "uint256-blocks":  return `${raw.toString()} blocks`;
-    case "uint256-planck":  return `${raw.toString()} planck`;
-    case "uint256-count":   return raw.toString();
+    case "uint256-bps":     return `${n.toString()} (${(Number(n) / 100).toFixed(2)}%)`;
+    case "uint256-blocks":  return `${n.toString()} blocks`;
+    case "uint256-planck":  return `${n.toString()} planck`;
+    case "uint256-count":   return n.toString();
+    default:                return n.toString();
   }
 }
 
-/** Parse a free-form input string into a bigint of the appropriate kind. */
-export function parseArg(_kind: ArgKind, input: string): bigint {
-  const t = input.trim();
+/** Parse a free-form input string into the appropriate arg type. */
+export function parseArg(kind: ArgKind, input: string): bigint | boolean {
+  const t = input.trim().toLowerCase();
+  if (kind === "bool") {
+    if (t === "true" || t === "on" || t === "1" || t === "enabled") return true;
+    if (t === "false" || t === "off" || t === "0" || t === "disabled" || t === "") return false;
+    throw new Error(`expected on/off, got "${input}"`);
+  }
   if (!t) return 0n;
-  // Accept plain integers in all kinds for now — UI shows the unit hint.
+  // Accept plain integers in all numeric kinds — UI shows the unit hint.
   if (!/^\d+$/.test(t)) throw new Error(`expected integer, got "${t}"`);
   return BigInt(t);
 }

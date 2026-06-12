@@ -50,6 +50,12 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
         datumRewardUserBps = o.datumRewardUserBps();
         datumRewardPublisherBps = o.datumRewardPublisherBps();
         datumRewardAdvertiserBps = o.datumRewardAdvertiserBps();
+        // Preserve the governance-set emission switch + toggle authorities so an
+        // upgrade can't silently re-enable a disabled feature or drop the
+        // Council/PG override wiring.
+        emissionEnabled = o.emissionEnabled();
+        council = o.council();
+        parameterGovernance = o.parameterGovernance();
     }
 
     /// @notice F-031 fix (2026-05-20): per-key retune cooldown setter.
@@ -73,6 +79,50 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
         if (plumbingLocked) revert LockedAlready();
         parameterGovernance = pg;
         emit ParameterGovernanceSet(pg);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Emission on/off switch (governance-settable; not lock-once)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /// @notice Master switch for DATUM emission. When false, `coordinate`
+    ///         returns early and no DATUM is minted for settled batches.
+    ///         Already-minted balances are unaffected. Default on.
+    bool public emissionEnabled = true;
+
+    /// @notice DatumCouncil — emergency authority that can flip the emission
+    ///         switch instantly (alongside the owner and ParameterGovernance).
+    address public council;
+
+    event EmissionEnabledSet(bool enabled);
+    event CouncilSet(address indexed council);
+
+    /// @dev Owner-set; rotatable (not lock-once) so governance can re-point the
+    ///      Council reference. Wiring only — confers emergency toggle rights.
+    function setCouncil(address c) external onlyOwner {
+        require(c != address(0), "E00");
+        council = c;
+        emit CouncilSet(c);
+    }
+
+    /// @dev Authorities permitted to flip the emission switch: the owner
+    ///      (Timelock/Council in later phases), ParameterGovernance (normal-ops
+    ///      proposal flow), or the Council (emergency override).
+    modifier onlyToggleAuth() {
+        require(
+            msg.sender == owner() ||
+            msg.sender == parameterGovernance ||
+            (council != address(0) && msg.sender == council),
+            "E18"
+        );
+        _;
+    }
+
+    /// @notice Turn DATUM emission on/off. Toggleable repeatedly — not subject
+    ///         to the plumbing lock (this is a permanent governance control).
+    function setEmissionEnabled(bool enabled) external onlyToggleAuth whenNotFrozen {
+        emissionEnabled = enabled;
+        emit EmissionEnabledSet(enabled);
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -224,6 +274,8 @@ contract DatumMintCoordinator is IDatumMintCoordinator, DatumUpgradable, Paramet
         uint256 dotPaid
     ) external {
         if (msg.sender != settlement) revert OnlySettlement();
+        // Emission master switch — when off, settle proceeds but mints nothing.
+        if (!emissionEnabled) return;
         if (mintAuthority == address(0) || dotPaid == 0) return;
 
         // ── Compute total mint ────────────────────────────────────────────
