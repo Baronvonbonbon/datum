@@ -19,7 +19,7 @@ const ALPHA_5_KEY_ADDRESSES = {
   governanceRouter:    "0xAb22653cDcA7214636708721AeDAc289E8635e80",
   council:             "0x239e8c0bEbb5Fb5BC38da72dD51eac3f6e3b1b59",
   identityVerifier:    "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
-  mintCoordinator:     "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
+  mintCoordinator:     "0xC7Fe963e5E67F188ab358b87960B68A479699f6B",
   peopleChainIdentity: "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
 };
 

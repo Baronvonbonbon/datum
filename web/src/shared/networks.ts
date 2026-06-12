@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-11T20:12:00.635Z";
+export const DEPLOY_VERSION = "2026-06-12T-emission-sidecar-switches";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -81,7 +81,7 @@ const ALPHA_5_PASEO: ContractAddresses = {
   lifecycle:            "0x54197f23C63A774391Fa27CD25470e63dF3FE2c0",  // JSON: campaignLifecycle
   attestationVerifier:  "0xCCA37672489D0b023B3aaDb338E3474E3E4D4fd4",
   claimValidator:       "0x2988fA3E3c9D42d7FB641e287419Dc2974511FD4",
-  tokenRewardVault:     "0xc8AF35a6d82Ce6759365320D455e90bFf6DDd3c1",
+  tokenRewardVault:     "0xcf7ca6Dcf5573eE05095624b4D45af6019D2E3BB",  // switch-enabled (2026-06-12 upgrade)
   // Fraud prevention
   publisherStake:       "0xC4b9dA10d78cB1b4482c020fd3917b52B8B9D55A",
   challengeBonds:       "0x7320FfA3d0A83a48DA96d9639d032E7Ee1191f06",
@@ -111,7 +111,7 @@ const ALPHA_5_PASEO: ContractAddresses = {
   stakeRootV2:          "0xb5d3a08735C4D47BE03866eA020fa66A2bBCB7d3",
   identityVerifier:     "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
   emissionEngine:       "0xaD730e002b6e63c04bb3b226e938692F058955a1",
-  mintCoordinator:      "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
+  mintCoordinator:      "0xC7Fe963e5E67F188ab358b87960B68A479699f6B",  // switch-enabled (2026-06-12 upgrade)
   dualSig:              "0xE343Fd0986c8fF3B15DFe1107afd911dab950053",
   peopleChainIdentity:  "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
   peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
