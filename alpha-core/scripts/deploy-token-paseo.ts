@@ -86,6 +86,25 @@ async function main() {
   const vesting    = await deployOrReuse("vesting", "DatumVesting", [founder, authority, BigInt(block!.timestamp)]);
   const feeShare   = await deployOrReuse("feeShare", "DatumFeeShare", [wrapper]);
 
+  // ── Register canonical DATUM asset on the (mock) Asset Hub precompile ────────
+  // CRITICAL: the authority mints canonical into the wrapper reserve via
+  // precompile.mint(ASSET_ID, wrapper, total) before issuing WDATUM. That call
+  // is onlyIssuer(ASSET_ID); without registration issuerOf is address(0) and
+  // every emission mint reverts "E18" — caught fail-soft, so DOT settles but no
+  // WDATUM is ever issued (the bug that left authority.totalMinted at 0 on the
+  // first Paseo token deploy). Idempotent: skip if already registered.
+  {
+    const pc = new ethers.Contract(precompile, ["function issuerOf(uint256) view returns (address)"], p);
+    const curIssuer: string = await pc.issuerOf(ASSET_ID);
+    if (curIssuer === ZERO) {
+      await wire("AssetHubPrecompileMock.registerAsset", precompile, "AssetHubPrecompileMock", "registerAsset", [ASSET_ID, authority, "DATUM", "DATUM", 10]);
+    } else if (curIssuer.toLowerCase() !== authority.toLowerCase()) {
+      console.warn(`  WARN: asset ${ASSET_ID} issuer is ${curIssuer}, not the authority ${authority} — emission mint will fail; use transferIssuer.`);
+    } else {
+      console.log(`  OK (already): asset ${ASSET_ID} issuer = authority`);
+    }
+  }
+
   // ── Wire ────────────────────────────────────────────────────────────────────
   console.log("\nWiring token plane into the spine...");
   const auth = new ethers.Contract(authority, [
