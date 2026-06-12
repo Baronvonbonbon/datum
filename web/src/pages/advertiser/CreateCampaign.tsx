@@ -20,6 +20,7 @@ import { KNOWN_ASSETS, assetIdToAddress, getAssetMetadata, searchAssets, type Na
 import { PageExplainer } from "../../components/PageExplainer";
 import { ContractsTouched } from "../../components/ContractsTouched";
 import { StepTooltip } from "../../components/StepTooltip";
+import { CreativeDropzone } from "../../components/CreativeDropzone";
 
 const ERC20_MINIMAL_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)",
@@ -563,8 +564,8 @@ export function CreateCampaign() {
                   <input type="url" value={metaCtaUrl} onChange={(e) => setMetaCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
                 </WizardField>
               </div>
-              <WizardField label="Fallback Image URL (optional)" tooltip={{ optional: true, summary: "Image shown when no format-specific creative matches the publisher's slot.", details: "Use an IPFS CID or HTTPS URL. Format-specific overrides below take priority when available. If both are empty, the slot renders text-only." }}>
-                <input value={metaImageUrl} onChange={(e) => setMetaImageUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — used when no per-format image matches" />
+              <WizardField label="Fallback Image (optional)" tooltip={{ optional: true, summary: "Image shown when no format-specific creative matches the publisher's slot.", details: "Drag & drop an image to pin it to IPFS, or paste an existing CID/URL. Format-specific overrides below take priority when available. If both are empty, the slot renders text-only." }}>
+                <CreativeDropzone value={metaImageUrl} onChange={setMetaImageUrl} />
               </WizardField>
 
               <div>
@@ -572,21 +573,21 @@ export function CreateCampaign() {
                   Per-format Images (optional)
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
-                  Upload format-specific images to IPFS and paste their URLs here. The browser extension picks the best match for the publisher's ad slot. Images are stored in your IPFS metadata — verifiable on-chain.
+                  Drag &amp; drop an image onto a slot — it's pinned to IPFS and dimension-checked against the IAB size automatically. The browser extension picks the best match for the publisher's ad slot. Images are stored in your IPFS metadata — verifiable on-chain.
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {(Object.entries(AD_FORMAT_SIZES) as [AdFormat, { w: number; h: number }][]).map(([fmt, size]) => (
                     <div key={fmt}>
                       <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
                         <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmt}</span>
                         <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>{size.w}×{size.h}</span>
                       </div>
-                      <input
+                      <CreativeDropzone
                         value={formatImages[fmt] ?? ""}
-                        onChange={(e) => setFormatImages((prev) => ({ ...prev, [fmt]: e.target.value }))}
-                        className="nano-input"
-                        placeholder="https://... or IPFS CID"
-                        style={{ fontSize: 11 }}
+                        onChange={(v) => setFormatImages((prev) => ({ ...prev, [fmt]: v }))}
+                        targetW={size.w}
+                        targetH={size.h}
+                        compact
                       />
                     </div>
                   ))}

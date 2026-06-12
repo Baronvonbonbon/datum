@@ -19,6 +19,7 @@ import {
 import { humanizeError } from "@shared/errorCodes";
 import { useTx } from "../../hooks/useTx";
 import { useToast } from "../../context/ToastContext";
+import { CreativeDropzone } from "../../components/CreativeDropzone";
 
 // Default regulatory retention horizon: ~1 year of Hub blocks (6s blocks).
 // Used by the Bulletin Chain path when the advertiser doesn't override it.
@@ -245,28 +246,28 @@ export function SetMetadata() {
         <Field label="CTA URL (HTTPS only)" maxLen={2048}>
           <input type="url" value={ctaUrl} onChange={(e) => setCtaUrl(e.target.value)} maxLength={2048} required className="nano-input" placeholder="https://..." />
         </Field>
-        <Field label="Fallback Image URL (optional, HTTPS or IPFS)">
-          <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className="nano-input" placeholder="https://... or IPFS CID — used when no per-format image matches" />
+        <Field label="Fallback Image (optional)">
+          <CreativeDropzone value={imageUrl} onChange={setImageUrl} />
         </Field>
 
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 }}>Per-format Images (optional)</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
-            Upload format-specific images to IPFS and paste their URLs here. The extension picks the best match for the publisher's ad slot.
+            Drag &amp; drop an image onto a slot — it's pinned to IPFS and dimension-checked against the IAB size automatically. The extension picks the best match for the publisher's ad slot.
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {(Object.entries(AD_FORMAT_SIZES) as [AdFormat, { w: number; h: number }][]).map(([fmt, size]) => (
               <div key={fmt}>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>
                   <span style={{ fontWeight: 600, color: "var(--text)" }}>{fmt}</span>
                   <span style={{ color: "var(--text-faint)", marginLeft: 4 }}>{size.w}×{size.h}</span>
                 </div>
-                <input
+                <CreativeDropzone
                   value={formatImages[fmt] ?? ""}
-                  onChange={(e) => setFormatImages((prev) => ({ ...prev, [fmt]: e.target.value }))}
-                  className="nano-input"
-                  placeholder="https://... or IPFS CID"
-                  style={{ fontSize: 11 }}
+                  onChange={(v) => setFormatImages((prev) => ({ ...prev, [fmt]: v }))}
+                  targetW={size.w}
+                  targetH={size.h}
+                  compact
                 />
               </div>
             ))}
