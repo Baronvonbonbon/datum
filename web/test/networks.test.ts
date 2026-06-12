@@ -7,20 +7,20 @@ import {
   getNetworkDisplayName,
 } from "../src/shared/networks";
 
-// Snapshot of the alpha-5 Paseo deploy of 2026-05-21. If a re-deploy
-// changes these, the failing test is the signal to update both
-// networks.ts and this snapshot at the same time — keeps the source
+// Snapshot of the alpha-core Paseo full redeploy of 2026-06-11. If a re-deploy
+// changes these, the failing test is the signal to update both networks.ts
+// (incl. DEPLOY_VERSION) and this snapshot at the same time — keeps the source
 // of truth aligned with the addresses the UI ships.
 const ALPHA_5_KEY_ADDRESSES = {
-  campaigns:           "0x1Fe36fE7A096C6CfF9C9F55f02A1Cce1a44DE3c6",
-  publishers:          "0x357606eB86A75A88Aef257dB161C25fc10714183",
-  settlement:          "0xA81766522Ea4e11bd9374Cd2b0A8a66Ac7b98dB8",
-  pauseRegistry:       "0xac7f7c6B36887a487b63421e4D7A6aD54da40e91",
-  governanceRouter:    "0x44F8e4ceD19c767932F5540229C0454eAf2a695e",
-  council:             "0x4c0981d4b2521903Dcb8dc1B3D4C280DE063546d",
-  identityVerifier:    "0x77850A7490C6CE65AB936d1Bba58baf6f33d8c50",
-  mintCoordinator:     "0xeD00bD4ac8b4f0Fa40710226Bd56a17D60a18350",
-  peopleChainIdentity: "0xCF44b939a03ae511a880020428505a9bc68e76ff",
+  campaigns:           "0xC781D6d4Ce0567466A31c6ec50E336df42b2D346",
+  publishers:          "0xBc161945d7bdBCbfa419ee70956f7Fe67A1940CD",
+  settlement:          "0x477B92F0e938326Fa4D0F8533C6F7F6D7B0D70ee",
+  pauseRegistry:       "0xC9871944fabbb182602B1d2f626Fde868a155065",
+  governanceRouter:    "0xAb22653cDcA7214636708721AeDAc289E8635e80",
+  council:             "0x239e8c0bEbb5Fb5BC38da72dD51eac3f6e3b1b59",
+  identityVerifier:    "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
+  mintCoordinator:     "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
+  peopleChainIdentity: "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
 };
 
 describe("networks: polkadotTestnet addresses", () => {
@@ -57,13 +57,14 @@ describe("networks: polkadotTestnet addresses", () => {
     expect(addrs.blocklistCurator).toBeTruthy();
   });
 
-  it("leaves the token plane fields undefined (not yet deployed)", () => {
+  it("populates the token plane fields (deployed in the 2026-06-11 redeploy)", () => {
     const addrs = NETWORK_CONFIGS.polkadotTestnet.addresses;
-    expect(addrs.wrapper).toBeUndefined();
-    expect(addrs.mintAuthority).toBeUndefined();
+    expect(addrs.wrapper).toBeTruthy();
+    expect(addrs.mintAuthority).toBeTruthy();
+    expect(addrs.vesting).toBeTruthy();
+    expect(addrs.feeShare).toBeTruthy();
+    // bootstrapPool was not part of this deploy — stays undefined.
     expect(addrs.bootstrapPool).toBeUndefined();
-    expect(addrs.vesting).toBeUndefined();
-    expect(addrs.feeShare).toBeUndefined();
   });
 });
 
