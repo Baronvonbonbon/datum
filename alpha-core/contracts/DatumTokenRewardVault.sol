@@ -221,13 +221,19 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
         return _assetPermitted(token);
     }
 
-    /// @dev Low-level ERC-20 probe: both decimals() and totalSupply() must
-    ///      return 32 bytes. staticcall so a non-responsive address fails the
-    ///      check rather than reverting the whole tx.
+    /// @dev Low-level ERC-20 probe using only the GUARANTEED functions:
+    ///      `totalSupply()` + `balanceOf(address)` must each return 32 bytes.
+    ///      Deliberately does NOT probe `decimals()` — Polkadot Hub's
+    ///      pallet_assets ERC-20 precompiles implement the core transfer/
+    ///      balance/allowance surface but NOT the optional metadata
+    ///      (decimals/name/symbol live in the Assets pallet, not the
+    ///      precompile). Requiring decimals() would reject every native asset
+    ///      on a chain that follows the documented subset. staticcall so a
+    ///      non-responsive address fails the check rather than reverting.
     function _isErc20(address token) internal view returns (bool) {
-        (bool okD, bytes memory d) = token.staticcall(abi.encodeWithSignature("decimals()"));
         (bool okT, bytes memory t) = token.staticcall(abi.encodeWithSignature("totalSupply()"));
-        return okD && d.length >= 32 && okT && t.length >= 32;
+        (bool okB, bytes memory b) = token.staticcall(abi.encodeWithSignature("balanceOf(address)", address(this)));
+        return okT && t.length >= 32 && okB && b.length >= 32;
     }
 
     /// @notice Enumeration for migration / monitoring.
