@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-12T-emission-sidecar-switches";
+export const DEPLOY_VERSION = "2026-06-12T-emission-switch-on-engine";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -110,8 +110,8 @@ const ALPHA_5_PASEO: ContractAddresses = {
   stakeRoot:            "0xd51E85c519A3E9F288434bDD6CD4B34248B3f8F9",
   stakeRootV2:          "0xb5d3a08735C4D47BE03866eA020fa66A2bBCB7d3",
   identityVerifier:     "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
-  emissionEngine:       "0xaD730e002b6e63c04bb3b226e938692F058955a1",
-  mintCoordinator:      "0xC7Fe963e5E67F188ab358b87960B68A479699f6B",  // switch-enabled (2026-06-12 upgrade)
+  emissionEngine:       "0xff7336D7846A57425461E426839564956f5d78b7",  // v2: emission on/off switch (2026-06-12)
+  mintCoordinator:      "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",  // original (immutably-authorized minter); Settlement routes here
   dualSig:              "0xE343Fd0986c8fF3B15DFe1107afd911dab950053",
   peopleChainIdentity:  "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
   peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
