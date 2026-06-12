@@ -265,4 +265,63 @@ describe("Feature switches: DATUM emission + ERC sidecar", function () {
       await expect(vault.connect(stranger).setAssetAllowed(await token.getAddress(), true)).to.be.revertedWith("E18");
     });
   });
+
+  // ── Native pallet_assets ERC-20 precompile (no decimals/name/symbol) ──────
+  // Polkadot Hub's asset ERC-20 precompiles implement only the core surface
+  // (totalSupply/balanceOf/allowance/transfer/approve/transferFrom) — NOT the
+  // optional metadata. The gate's _isErc20 must accept them (probing the
+  // guaranteed funcs, not decimals()) and the full credit path must work.
+  describe("DatumTokenRewardVault native-asset precompile", function () {
+    let vault: any, mock: any, native: any, erc20: any, multiAsset: any;
+    const CID = 1n;
+    const AMT = ethers.parseEther("1000");
+    const TEN = ethers.parseEther("10");
+
+    beforeEach(async function () {
+      mock = await (await ethers.getContractFactory("MockCampaigns")).deploy();
+      vault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await mock.getAddress());
+      await vault.setSettlement(settlementSigner.address);
+      native = await (await ethers.getContractFactory("MockNativeAssetPrecompile")).deploy(); // NO decimals()
+      erc20 = await (await ethers.getContractFactory("MockERC20")).deploy("Tok", "TOK");        // has decimals()
+      multiAsset = await (await ethers.getContractFactory("AssetHubPrecompileMock")).deploy();  // balanceOf(uint256,address)
+      await mock.setCampaign(CID, advertiser.address, owner.address, 1000n, 5000, 1);
+    });
+
+    it("native precompile has NO decimals() but the gate still accepts it", async function () {
+      // sanity: the mock genuinely lacks decimals()
+      await expect((native as any).decimals?.() ?? Promise.reject(new Error("no decimals"))).to.be.rejected;
+      // the fixed _isErc20 (totalSupply + balanceOf) accepts it
+      await expect(vault.setAssetAllowed(await native.getAddress(), true))
+        .to.emit(vault, "AssetAllowedSet").withArgs(await native.getAddress(), true);
+      expect(await vault.isAssetPermitted(await native.getAddress())).to.equal(true);
+    });
+
+    it("still rejects EOAs and the multi-asset (non-ERC-20) precompile shape", async function () {
+      await expect(vault.setAssetAllowed(stranger.address, true)).to.be.revertedWith("not-erc20");
+      // AssetHubPrecompileMock exposes balanceOf(uint256,address) — not balanceOf(address) — so it fails the probe
+      await expect(vault.setAssetAllowed(await multiAsset.getAddress(), true)).to.be.revertedWith("not-erc20");
+    });
+
+    it("full credit lifecycle with a native asset: allowlist → deposit → credit → withdraw", async function () {
+      await vault.setAssetAllowed(await native.getAddress(), true);
+      // seed the advertiser (stands in for Assets-pallet issuance) + approve
+      await native.mint(advertiser.address, AMT * 2n);
+      await native.connect(advertiser).approve(await vault.getAddress(), AMT * 2n);
+
+      await vault.connect(advertiser).depositCampaignBudget(CID, await native.getAddress(), AMT);
+      expect(await vault.campaignTokenBudget(await native.getAddress(), CID)).to.equal(AMT);
+
+      await vault.connect(settlementSigner).creditReward(CID, await native.getAddress(), user.address, TEN);
+      expect(await vault.userTokenBalance(await native.getAddress(), user.address)).to.equal(TEN);
+
+      await vault.connect(user).withdraw(await native.getAddress());
+      expect(await native.balanceOf(user.address)).to.equal(TEN);
+      expect(await vault.userTokenBalance(await native.getAddress(), user.address)).to.equal(0n);
+    });
+
+    it("a standard ERC-20 (with decimals) is still accepted too", async function () {
+      await expect(vault.setAssetAllowed(await erc20.getAddress(), true)).to.emit(vault, "AssetAllowedSet");
+      expect(await vault.isAssetPermitted(await erc20.getAddress())).to.equal(true);
+    });
+  });
 });
