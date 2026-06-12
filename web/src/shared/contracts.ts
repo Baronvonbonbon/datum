@@ -435,13 +435,71 @@ const ROUTER_SLOT_NAMES: (keyof ContractAddresses)[] = [
   "settlementRateLimiter",
   "publisherReputation",
   "tagSystem",
+  // Registry-only slots (not part of the upgrade ladder, but registered so the
+  // webapp can resolve them from the router too — see REGISTRY_ONLY_KEYS in
+  // deploy.ts / register-registry-backfill.ts). Resolution falls back to the
+  // bundled address when a slot is still zero, so listing these is safe even
+  // before a deploy/backfill has populated them.
+  "attestationVerifier",
+  "advertiserStake",
+  "advertiserGovernance",
+  "interestCommitments",
+  "tagCurator",
+  "relayStake",
+  "relayGovernance",
+  "wrapper",
+  "mintAuthority",
+  "vesting",
+  "feeShare",
+  "brandRegistry",
+  "brandCurator",
 ];
+
+/// Core slots that must always be registered on a live deploy. If the router
+/// returns zero for these, it's not this deployment's router (or predates
+/// register()) — surfaced via RouterHealth so the UI can warn.
+const CORE_ROUTER_SLOTS: (keyof ContractAddresses)[] = ["campaigns", "settlement", "publishers"];
 
 /// Maps a few keys whose JSON name in ContractAddresses differs from the
 /// router slot name (the deploy script registers them under a shorter key).
 const ROUTER_NAME_OVERRIDES: Record<string, string> = {
   councilBlocklistCurator: "blocklistCurator",
 };
+
+// ── Router health — Option B staleness/inconsistency guard ──────────────────
+// Published after each resolveAddressesFromRouter pass so a banner can warn
+// when the configured router looks wrong. Note: a stale-but-alive previous
+// deploy can't be detected from chain alone (its contracts still answer), so
+// the real safeguard is keeping the router address fresh — but an EMPTY
+// registry or a DEAD resolved core contract are both reliably catchable.
+export type RouterHealth = {
+  /** Configured router returned zero for a core slot → wrong/old router address. */
+  registryEmpty: boolean;
+  /** Resolved core contract address has no bytecode → deploy wiped/replaced. */
+  deadCore: boolean;
+  /** Slots where the live registry differs from the bundled seed (informational —
+   *  expected after a governance upgrade, or when the webapp seed is behind). */
+  upgraded: { key: string; seed: string; live: string }[];
+  checkedAt: number;
+} | null;
+
+let _routerHealth: RouterHealth = null;
+const _routerHealthCbs = new Set<(h: RouterHealth) => void>();
+
+function _emitRouterHealth(h: RouterHealth): void {
+  _routerHealth = h;
+  for (const cb of _routerHealthCbs) cb(h);
+}
+
+export function getRouterHealth(): RouterHealth {
+  return _routerHealth;
+}
+
+export function subscribeRouterHealth(cb: (h: RouterHealth) => void): () => void {
+  _routerHealthCbs.add(cb);
+  cb(_routerHealth);
+  return () => { _routerHealthCbs.delete(cb); };
+}
 
 /// Resolve the live registered address for each Upgradable contract via the
 /// router. Falls back to the JSON address when the slot is empty. Errors are
@@ -459,17 +517,49 @@ export async function resolveAddressesFromRouter(
   }
   const out: ContractAddresses = { ...fallback };
   const ZERO = "0x0000000000000000000000000000000000000000";
+  const resolvedZeroCore: string[] = [];
+  const upgraded: { key: string; seed: string; live: string }[] = [];
   for (const key of ROUTER_SLOT_NAMES) {
     const slotName = ROUTER_NAME_OVERRIDES[key as string] ?? (key as string);
     const slotHash = keccak256(toUtf8Bytes(slotName));
     try {
       const live: string = await router.currentAddrOf(slotHash);
       if (live && live.toLowerCase() !== ZERO) {
+        const seed = (fallback as any)[key] as string | undefined;
+        if (seed && seed.toLowerCase() !== live.toLowerCase()) {
+          upgraded.push({ key: key as string, seed, live });
+        }
         (out as any)[key] = live;
+      } else if (CORE_ROUTER_SLOTS.includes(key)) {
+        resolvedZeroCore.push(key as string);
       }
     } catch {
       // network or call error — keep fallback
     }
   }
+
+  // ── Health check (Option B) ──────────────────────────────────────────────
+  const registryEmpty = resolvedZeroCore.length > 0;
+  let deadCore = false;
+  if (!registryEmpty && out.campaigns) {
+    // Single cheap liveness probe on the resolved core: no bytecode ⇒ the
+    // deploy this router points at is gone.
+    try {
+      const code = await provider.getCode(out.campaigns);
+      deadCore = !code || code === "0x";
+    } catch { /* provider hiccup — don't flag */ }
+  }
+  _emitRouterHealth({ registryEmpty, deadCore, upgraded, checkedAt: Date.now() });
+  if (registryEmpty) {
+    console.warn(
+      `[router] configured governanceRouter ${fallback.governanceRouter} returned no address for core slot(s) ` +
+      `[${resolvedZeroCore.join(", ")}] — it may be the wrong/old router. Check networks.ts / Settings.`,
+    );
+  } else if (deadCore) {
+    console.warn(`[router] resolved campaigns ${out.campaigns} has no bytecode — deploy may be wiped.`);
+  } else if (upgraded.length) {
+    console.info(`[router] ${upgraded.length} slot(s) resolved newer than the bundled seed:`, upgraded);
+  }
+
   return out;
 }
