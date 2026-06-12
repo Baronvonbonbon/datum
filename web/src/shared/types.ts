@@ -474,4 +474,9 @@ export interface WebAppSettings {
    *  that exceed pine's rolling window. Default: false. When off, pages that
    *  need history-beyond-pine show an "Enable RPC" CTA instead. */
   rpcEnabled?: boolean;
+  /** Stamp of the deploy `contractAddresses` were sourced from (see
+   *  DEPLOY_VERSION in networks.ts). When a persisted value doesn't match the
+   *  current build, SettingsContext flushes cached addresses on load so a
+   *  returning browser can't keep pointing at a previous deploy's contracts. */
+  addressesVersion?: string;
 }

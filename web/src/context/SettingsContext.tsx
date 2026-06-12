@@ -45,11 +45,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
           const v = (parsed as any)[k];
           if (typeof v === "string" && v && !secrets[k]) (secrets as any)[k] = v;
         }
-        // Deep-merge contractAddresses so new keys from DEFAULT_SETTINGS are preserved
-        const mergedAddresses = {
-          ...DEFAULT_SETTINGS.contractAddresses,
-          ...(parsed.contractAddresses ?? {}),
-        };
+        // Address handling depends on the deploy stamp:
+        //  - same deploy  → deep-merge so new keys from DEFAULT_SETTINGS are
+        //    added while the user's own per-key overrides persist.
+        //  - new deploy (or no stamp) → drop the cached addresses entirely and
+        //    take DEFAULT_SETTINGS', so a returning browser can't keep pointing
+        //    at a previous deploy's now-dead contracts. (Manual overrides from
+        //    before the redeploy are intentionally discarded — they're stale.)
+        const versionMatch = parsed.addressesVersion === DEFAULT_SETTINGS.addressesVersion;
+        const mergedAddresses = versionMatch
+          ? { ...DEFAULT_SETTINGS.contractAddresses, ...(parsed.contractAddresses ?? {}) }
+          : { ...DEFAULT_SETTINGS.contractAddresses };
         // Migrate stale IPFS gateway URLs (pre-rename: ipfs.datum.javcon.io or missing /ipfs/ path)
         if (
           parsed.ipfsGateway === "https://ipfs.datum.javcon.io" ||
@@ -59,7 +65,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         ) {
           parsed.ipfsGateway = DEFAULT_SETTINGS.ipfsGateway;
         }
-        return { ...DEFAULT_SETTINGS, ...parsed, ...secrets, contractAddresses: mergedAddresses };
+        return {
+          ...DEFAULT_SETTINGS,
+          ...parsed,
+          ...secrets,
+          contractAddresses: mergedAddresses,
+          // Re-stamp to the current deploy so the flush above runs once, not on every load.
+          addressesVersion: DEFAULT_SETTINGS.addressesVersion,
+        };
       }
       return { ...DEFAULT_SETTINGS, ...secrets };
     } catch { /* ignore */ }

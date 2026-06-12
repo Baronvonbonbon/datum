@@ -37,13 +37,20 @@ const EMPTY_ADDRESSES: ContractAddresses = {
   council: "",
 };
 
-// Alpha-5 Paseo addresses — 43-contract deploy of 2026-05-21.
+// Alpha-core Paseo addresses — full core redeploy of 2026-06-11.
+//
+// DEPLOY_VERSION stamps the active deploy. SettingsContext compares a
+// persisted copy of this stamp against the current value on load; on a
+// mismatch it flushes any cached contractAddresses from localStorage so a
+// returning browser can't keep pointing at a previous deploy's (now-dead)
+// contracts. Bump this whenever the address block below is re-synced.
+export const DEPLOY_VERSION = "2026-06-11T20:12:00.635Z";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
-// changes (re-deploy), this block must be updated alongside. We keep
-// the values inline rather than importing the JSON so the webapp
-// build stays self-contained and works on Cloudflare's "cd web &&
-// npm install + vite build" runner where the alpha-5 tree may not be
+// changes (re-deploy), this block AND DEPLOY_VERSION must be updated
+// alongside. We keep the values inline rather than importing the JSON so
+// the webapp build stays self-contained and works on Cloudflare's "cd web
+// && npm install + vite build" runner where the alpha-core tree may not be
 // available at module-resolution time.
 //
 // Field name mapping:
@@ -51,77 +58,75 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 //   JSON's `blocklistCurator`  → both `blocklistCurator`
 //                                 AND `councilBlocklistCurator`
 //                                 (alpha-4 alias for back-compat)
-// Alpha-5 v5 Paseo deploy — 2026-05-23T12:23:32Z. Adds the advertiser
-// fraud track (DatumAdvertiserStake + DatumAdvertiserGovernance — now
-// actually deployed, not just modifier-wired), plus DatumInterestCommitments
-// (ZK Path-A user-interest roots) and DatumTagCurator (governance-curated
-// tag lane). 13 contracts × 33 PG-routable selectors on the
-// ParameterGovernance whitelist; 20 of those selectors are PG-tunable
-// parameters across the Phase A + Phase B surface. Previous v4 addresses
-// archived at alpha-core/deployed-addresses.v4-pre-advertiser-track.json.
-// Live Paseo deploy 2026-05-25 (C0+C1+C2 — claim-hash schema bump + policy envelope).
-// Previous v5 addresses archived at alpha-4/deployed-addresses.json.bak-2026-05-06.
-// Synced from alpha-core/deployed-addresses.json (deployedAt 2026-05-23). Live
-// router resolution still overlays these on load via DatumGovernanceRouter,
-// but the hardcoded values are what get used on cold-load (before the router
-// resolve returns) — they MUST match the active deploy or first-render reads
-// hit dead bytecode and revert.
+// JSON keys not modeled in ContractAddresses (assetHubPrecompile,
+// campaignsMigrationLogic, tokenAssetId) are intentionally omitted — they
+// are deploy/extension concerns, not webapp call targets.
+//
+// The hardcoded values are what get used on cold-load (before any live
+// router resolve returns) — they MUST match the active deploy or
+// first-render reads hit dead bytecode and revert.
 const ALPHA_5_PASEO: ContractAddresses = {
   // Core
-  campaigns:            "0x1Fe36fE7A096C6CfF9C9F55f02A1Cce1a44DE3c6",
-  publishers:           "0x357606eB86A75A88Aef257dB161C25fc10714183",
-  governanceV2:         "0x925C323557DE415E0cc8aB36A795B2908e0ED4A4",
-  settlement:           "0xA81766522Ea4e11bd9374Cd2b0A8a66Ac7b98dB8",
-  relay:                "0xEc183ceadCFE99cf741A6A53d357ffd583941BB0",
-  pauseRegistry:        "0xac7f7c6B36887a487b63421e4D7A6aD54da40e91",
-  timelock:             "0x4aEB56824d6E4D3e8EdB39DCF0ac875e6dFA8480",
-  zkVerifier:           "0x2fC5d97608Bd3836124268e064c7aA4024312Cf5",
+  campaigns:            "0xC781D6d4Ce0567466A31c6ec50E336df42b2D346",
+  publishers:           "0xBc161945d7bdBCbfa419ee70956f7Fe67A1940CD",
+  governanceV2:         "0x750F20ceAec68c8405B29D7b4a28d58Ac217bfDE",
+  settlement:           "0x477B92F0e938326Fa4D0F8533C6F7F6D7B0D70ee",
+  relay:                "0x05eDD6c97cca1111169B19174cfE4987939EeE08",
+  pauseRegistry:        "0xC9871944fabbb182602B1d2f626Fde868a155065",
+  timelock:             "0xF0F3111A9217950A336E2DBf7310aC6A79cE6eC6",
+  zkVerifier:           "0x2C2613c0838f8a0065A3e497a56068875605Bf24",
   // Satellites
-  budgetLedger:         "0x6c24bBEEC2F368968B8e8b5Cb82a6726f66f7AC9",
-  paymentVault:         "0x49Cbe782Fb2Bc5216E7AE0A29598451De6759265",
-  lifecycle:            "0xe58eEDdf0029F109dF8d5b788836557D3Dd1F8f9",
-  attestationVerifier:  "0x290710d76458C71f143F0369A6cecF7555F3F242",
-  claimValidator:       "0x8B8BA033E88c7327441a0b7462123Ef2D35a7212",
-  tokenRewardVault:     "0xA43111340dD5Fb55086892FA45553D935bB03211",
+  budgetLedger:         "0x1E4Ed63Af3E0561D6c51F231f6BF14404Be0B858",
+  paymentVault:         "0xD489173e75289608ef766b8F8857D734982bad31",
+  lifecycle:            "0x54197f23C63A774391Fa27CD25470e63dF3FE2c0",  // JSON: campaignLifecycle
+  attestationVerifier:  "0xCCA37672489D0b023B3aaDb338E3474E3E4D4fd4",
+  claimValidator:       "0x2988fA3E3c9D42d7FB641e287419Dc2974511FD4",
+  tokenRewardVault:     "0xc8AF35a6d82Ce6759365320D455e90bFf6DDd3c1",
   // Fraud prevention
-  publisherStake:       "0x1ffc5Fb6B2F2318B952d7C10f9908DCbb2104Ddd",
-  challengeBonds:       "0xbcb2562f98a6568D05e5140bC93137Fbd76F175b",
-  publisherGovernance:  "0x1CDB046B1Cc7985dB86381e58B59D9cd68641E9f",
-  advertiserStake:      "0x8Eb466b4D341f7E335734d26fc5a060D1948636F",
-  advertiserGovernance: "0x2820448bA725C5A5e298066E2D10Ef22adE9C7B7",
-  interestCommitments:  "0x480bE8e1Fc61247eD2dB1c43A9d9b9Fd8245316c",
-  tagCurator:           "0x2486244A5B8c4Bd2390e332A785139Cc99531d2c",
-  parameterGovernance:  "0x65aAd61c29eb81Fb4699af29307137C9Aa879A87",
-  clickRegistry:        "0x4fCFAF1Ea86d60361B53C6044E178b0fA9B9F62d",
+  publisherStake:       "0xC4b9dA10d78cB1b4482c020fd3917b52B8B9D55A",
+  challengeBonds:       "0x7320FfA3d0A83a48DA96d9639d032E7Ee1191f06",
+  publisherGovernance:  "0x08cB4533C102cF771eb859E5a9d3f6A29Dd2258D",
+  advertiserStake:      "0xB4C976a1075B6F2C555a784A0741dF1B26Ce4d60",
+  advertiserGovernance: "0xA783e692ad9A83D895d8533A082a178631c21506",
+  interestCommitments:  "0x1eD029c142Ba8181E242599feB495b4EA7aFD020",
+  tagCurator:           "0xCB24fAF5bb383e5E4Fba9EaB8e3251f3453A42CD",
+  parameterGovernance:  "0xa831cc422DA225E3B0c5Cb4148ED36507Aa25697",
+  clickRegistry:        "0xc83ab97cCFfFB3Ec4201300470efeae4E5D8Fc80",
   // Governance ladder
-  governanceRouter:     "0x44F8e4ceD19c767932F5540229C0454eAf2a695e",
-  council:              "0x4c0981d4b2521903Dcb8dc1B3D4C280DE063546d",
+  governanceRouter:     "0xAb22653cDcA7214636708721AeDAc289E8635e80",
+  council:              "0x239e8c0bEbb5Fb5BC38da72dD51eac3f6e3b1b59",
   // Carve-outs (alpha-4 EIP-170)
-  powEngine:            "0xB07df9ef45daa337b481d66Bb4929F0A4b18e8c5",
-  publisherReputation:  "0xD087C5f0c7bC39Fa1e48C5801dac4799503c06af",
-  nullifierRegistry:    "0x947624b57FD48a725Fa5C0f768F95563FAAE0906",
-  settlementRateLimiter:"0x395c0f156fd2533c242467A24D43b4fE507541EB",
-  campaignCreative:     "0xCb557515229C89522dB9B2D3CE6b5F14F54A12FA",
-  reports:              "0x6aa3F56cF2374D083090dC2f4158F35D80867800",
-  campaignAllowlist:    "0xF3BEE042f717089f29e43EC43a8bCE150311E6c0",
-  tagSystem:            "0x28c1Ec43BEE96efaB6851d724738F1689c9a9d89",
-  blocklistCurator:     "0xf4627bB53a854db2bB5d458F778B1E89d0A09D98",
-  councilBlocklistCurator: "0xf4627bB53a854db2bB5d458F778B1E89d0A09D98",  // alpha-4 alias
-  activationBonds:      "0xb86a33a529Ca0044664e1671E3b46F37605D4C01",
-  stakeRoot:            "0xc069068994616b29AE131Fc709F0CD5Fa8E9Cca1",
-  stakeRootV2:          "0x5D3d64AA57bb093b10249749Ee914C259Ae43dD4",
-  identityVerifier:     "0x77850A7490C6CE65AB936d1Bba58baf6f33d8c50",
-  emissionEngine:       "0xFFA9199AD02ef1Bf67aF29339aC14BB4a1633D7c",
-  mintCoordinator:      "0xeD00bD4ac8b4f0Fa40710226Bd56a17D60a18350",
-  dualSig:              "0x56c69BA2D43b86F4E0dB56139ADDdDF4F833eD30",
-  peopleChainIdentity:  "0xCF44b939a03ae511a880020428505a9bc68e76ff",
-  peopleChainXcmBridge: "0x7E6d15bA29EE6D800A19354c27072b51696D53b9",
-  peopleChainBondedReporter: "0x2DC46Aa3de0E28d9820031149d39a0a2721d1f4a",
-  settlementLogicA:     "0x0554E0C7dB45de921Fa771361173c40FAE8b3CfA",
-  settlementLogicB:     "0x6D3790889552360C375BfE49D5BAb1fD7b1f8Ee3",
-  relayStake:           "0x5Bf314ea0353BbD006241f7eFA106f9B0D6f1b5d",
-  relayGovernance:      "0x8Aa9D4dcA810096119Ce0F4152ad4f25eab8bC55",
-  // Brand layer (deployed 2026-05-26 — separate deploy, not in deployed-addresses.json)
+  powEngine:            "0x378D1C3e856fdEC596680A86b4A73ff9215CFa82",
+  publisherReputation:  "0xA180c851025A139abA1D2197F345548121825434",
+  nullifierRegistry:    "0x9485Ac29018E259a0691526381f5ab756525f96c",
+  settlementRateLimiter:"0x8e83F4B3cf5317A66A93d0ea90549b39ca3f627f",
+  campaignCreative:     "0xC25091c039747120797724FFf1401f892eF6157e",
+  reports:              "0xA7aDb0411E9faD09Ad8Ad4C01dCeE19b39E725b1",
+  campaignAllowlist:    "0x08f3ef697f49a21a04F71793dc993e314bf697EE",
+  tagSystem:            "0x78c9404fEAc5885Ba9B1fa01Cc39e617047ea569",
+  blocklistCurator:     "0xdcAD33da87EE4007e57d03e95AC13bEEcdB69B0b",
+  councilBlocklistCurator: "0xdcAD33da87EE4007e57d03e95AC13bEEcdB69B0b",  // alpha-4 alias
+  activationBonds:      "0x8609C948cd70BBd7f49395CfBAeb215F81028044",
+  stakeRoot:            "0xd51E85c519A3E9F288434bDD6CD4B34248B3f8F9",
+  stakeRootV2:          "0xb5d3a08735C4D47BE03866eA020fa66A2bBCB7d3",
+  identityVerifier:     "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
+  emissionEngine:       "0xaD730e002b6e63c04bb3b226e938692F058955a1",
+  mintCoordinator:      "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
+  dualSig:              "0xE343Fd0986c8fF3B15DFe1107afd911dab950053",
+  peopleChainIdentity:  "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
+  peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
+  peopleChainBondedReporter: "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7",
+  settlementLogicA:     "0x0014DFb6564C3BA281f97AeDD4CB8B173266e642",
+  settlementLogicB:     "0xCCEd48AD37405188f6ff00a3b029D03f40336F40",
+  relayStake:           "0xc4Ea887E850FC56Af70A8a048eee16211B415408",
+  relayGovernance:      "0x7AD25683f625eF1C9db4f164aB1937B93AB503d1",
+  // Token plane (deployed in the 2026-06-11 full redeploy)
+  wrapper:              "0xb867f7b0Ee4b528e447b17ad57a72a1aa6fB07a5",
+  mintAuthority:        "0xE278117D8ec09159D2736266d3b308D2A24c5B02",
+  vesting:              "0x347644840bd6517b60EAb79d2AbF3b974fC0f7FE",
+  feeShare:             "0xfeee95ab852fB26C6Fe7235F9A986b0576E15887",
+  // Brand layer (deployed 2026-05-26 — separate deploy lineage, not part
+  // of the core redeploy and not present in deployed-addresses.json)
   brandRegistry:        "0x1d1370E261dca558962b176FaD5851E0d5Ef388e",
   brandCurator:         "0x8E7F392aB97D2D9c099820aa0aB2c6255d0d307B",
 };
@@ -190,6 +195,9 @@ export const DEFAULT_SETTINGS: WebAppSettings = {
   rpcUrl: NETWORK_CONFIGS.polkadotTestnet.rpcUrl,
   network: "polkadotTestnet",
   contractAddresses: NETWORK_CONFIGS.polkadotTestnet.addresses,
+  // Stamp of the deploy these addresses came from. On load, a persisted
+  // copy that doesn't match triggers an address flush (see SettingsContext).
+  addressesVersion: DEPLOY_VERSION,
   ipfsGateway: "https://ipfs-datum.javcon.io/ipfs/",
   pinataApiKey: "",
   ipfsProvider: "selfhosted",
