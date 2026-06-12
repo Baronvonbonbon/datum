@@ -2782,6 +2782,9 @@ async function main() {
     // DatumTokenRewardVault — ERC sidecar master switch + per-token block
     { contractKey: "tokenRewardVault",     sig: "setTokenRewardsEnabled(bool)",                      viaParamGovernanceField: true },
     { contractKey: "tokenRewardVault",     sig: "setTokenRewardBlocked(address,bool)",               viaParamGovernanceField: true },
+    // Asset gating: compliant allowlist <-> open mode + per-asset allowlist
+    { contractKey: "tokenRewardVault",     sig: "setAssetAllowlistEnabled(bool)",                    viaParamGovernanceField: true },
+    { contractKey: "tokenRewardVault",     sig: "setAssetAllowed(address,bool)",                     viaParamGovernanceField: true },
     // ParameterGovernance self-governance — voting/timelock/quorum/bond. KEEP LAST among ownership-transfer entries.
     { contractKey: "parameterGovernance",  sig: "setParams(uint256,uint256,uint256,uint256)" },
   ];

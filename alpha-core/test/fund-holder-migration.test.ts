@@ -162,6 +162,7 @@ describe("Fund-holder upgrade migration (DatumUpgradable)", function () {
     const v1 = await TRV.deploy(await mock.getAddress());
     await v1.setRouter(await router.getAddress());
     await v1.setSettlement(c.address); // EOA stand-in for Settlement
+    await v1.setAssetAllowlistEnabled(false); // open mode — migration test predates the asset allowlist
     await token.connect(a).approve(await v1.getAddress(), parseDOT("30"));
     await v1.connect(a).depositCampaignBudget(9, await token.getAddress(), parseDOT("30"));
     await v1.connect(c).creditReward(9, await token.getAddress(), b.address, parseDOT("12"));

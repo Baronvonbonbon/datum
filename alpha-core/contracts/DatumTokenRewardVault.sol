@@ -160,6 +160,81 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     }
 
     // -------------------------------------------------------------------------
+    // Asset gating — compliant allowlist start → fully open (governance switch)
+    // -------------------------------------------------------------------------
+    //
+    // Two modes, flippable both ways by governance:
+    //   Allowlist (default): only `assetAllowed[token]` reward tokens may be
+    //     deposited or credited. Use this for a regulatory-compliant launch
+    //     (curated stablecoins / vetted assets only).
+    //   Open: any token may be used EXCEPT those on the `tokenRewardBlocked`
+    //     denylist (which always wins, in either mode, for emergency removal of
+    //     a sanctioned/compromised token).
+    //
+    // Tokens are addresses regardless of origin: an ERC-20 is its contract
+    // address; a native pallet_assets asset is its ERC-20 precompile address
+    // (assetIdToAddress off-chain). Onboarding = governance adds the address.
+
+    /// @notice When true, only allowlisted tokens are permitted (compliant
+    ///         start). When false, all tokens are open (denylist still applies).
+    ///         Default true.
+    bool public assetAllowlistEnabled = true;
+    /// @notice Curated allowlist of permitted reward tokens.
+    mapping(address => bool) public assetAllowed;
+    /// @dev Append-only enumeration of ever-allowlisted tokens, for migration.
+    address[] private _allowedTokens;
+    mapping(address => bool) private _allowedTracked;
+
+    event AssetAllowlistModeSet(bool enabled);
+    event AssetAllowedSet(address indexed token, bool allowed);
+
+    /// @notice Flip between Allowlist (compliant) and Open. Reversible.
+    function setAssetAllowlistEnabled(bool enabled) external onlyToggleAuth whenNotFrozen {
+        assetAllowlistEnabled = enabled;
+        emit AssetAllowlistModeSet(enabled);
+    }
+
+    /// @notice Add/remove a reward token from the allowlist. On add, the token
+    ///         is sanity-checked as ERC-20-compatible (decimals + totalSupply
+    ///         respond) so non-ERC-20 / fat-fingered addresses can't be onboarded.
+    ///         Works identically for ERC-20 contracts and native-asset ERC-20
+    ///         precompiles.
+    function setAssetAllowed(address token, bool allowed) external onlyToggleAuth whenNotFrozen {
+        require(token != address(0), "E00");
+        if (allowed) {
+            require(_isErc20(token), "not-erc20");
+            if (!_allowedTracked[token]) { _allowedTracked[token] = true; _allowedTokens.push(token); }
+        }
+        assetAllowed[token] = allowed;
+        emit AssetAllowedSet(token, allowed);
+    }
+
+    /// @dev Permission check composing denylist > mode. Denylist always wins.
+    function _assetPermitted(address token) internal view returns (bool) {
+        if (tokenRewardBlocked[token]) return false;
+        if (assetAllowlistEnabled) return assetAllowed[token];
+        return true;
+    }
+
+    /// @notice True if `token` may currently be deposited / credited.
+    function isAssetPermitted(address token) external view returns (bool) {
+        return _assetPermitted(token);
+    }
+
+    /// @dev Low-level ERC-20 probe: both decimals() and totalSupply() must
+    ///      return 32 bytes. staticcall so a non-responsive address fails the
+    ///      check rather than reverting the whole tx.
+    function _isErc20(address token) internal view returns (bool) {
+        (bool okD, bytes memory d) = token.staticcall(abi.encodeWithSignature("decimals()"));
+        (bool okT, bytes memory t) = token.staticcall(abi.encodeWithSignature("totalSupply()"));
+        return okD && d.length >= 32 && okT && t.length >= 32;
+    }
+
+    /// @notice Enumeration for migration / monitoring.
+    function allowedTokenCount() external view returns (uint256) { return _allowedTokens.length; }
+    function allowedTokenAt(uint256 i) external view returns (address) { return _allowedTokens[i]; }
+
+    // -------------------------------------------------------------------------
     // Deposit (advertiser)
     // -------------------------------------------------------------------------
 
@@ -167,6 +242,9 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
     function depositCampaignBudget(uint256 campaignId, address token, uint256 amount) external {
         require(token != address(0), "E00");
         require(amount > 0, "E11");
+        // Asset gate (compliant allowlist / open mode). Reject up front so the
+        // advertiser never strands a budget in a non-permitted token.
+        require(_assetPermitted(token), "asset-not-allowed");
 
         // Verify caller is the campaign advertiser
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);
@@ -191,9 +269,11 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
         require(msg.sender == settlement, "E25");
         require(user != address(0), "E00");
 
-        // Sidecar master switch / per-token block — when off, no new rewards
-        // accrue but settlement still succeeds (mirrors the budget==0 skip).
-        if (!tokenRewardsEnabled || tokenRewardBlocked[token]) {
+        // Sidecar master switch / asset gate (denylist + allowlist mode) — when
+        // not permitted, no new rewards accrue but settlement still succeeds
+        // (mirrors the budget==0 skip). Defense-in-depth vs the deposit gate:
+        // catches a token removed from the allowlist after a budget was funded.
+        if (!tokenRewardsEnabled || !_assetPermitted(token)) {
             emit RewardCreditSkipped(campaignId, token, user); // AUDIT-019
             return;
         }
@@ -368,6 +448,14 @@ contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, Datum
         tokenRewardsEnabled = old.tokenRewardsEnabled();
         parameterGovernance = old.parameterGovernance();
         council = old.council();
+        // Preserve asset-gating mode + the curated allowlist (enumerable).
+        assetAllowlistEnabled = old.assetAllowlistEnabled();
+        uint256 na = old.allowedTokenCount();
+        for (uint256 i = 0; i < na; i++) {
+            address at = old.allowedTokenAt(i);
+            if (!_allowedTracked[at]) { _allowedTracked[at] = true; _allowedTokens.push(at); }
+            assetAllowed[at] = old.assetAllowed(at);
+        }
         uint256 nt = old.tokenCount();
         for (uint256 i = 0; i < nt; i++) {
             address token = old.tokenAt(i);

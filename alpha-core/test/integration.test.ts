@@ -216,6 +216,7 @@ describe("Integration", function () {
     mockERC20 = await (await ethers.getContractFactory("MockERC20")).deploy("Test USD", "TUSD");
     tokenRewardVault = await (await ethers.getContractFactory("DatumTokenRewardVault")).deploy(await campaigns.getAddress());
     await tokenRewardVault.setSettlement(await settlement.getAddress());
+    await tokenRewardVault.setAssetAllowlistEnabled(false); // open mode — integration predates the asset allowlist
     await settlement.setTokenRewardVault(await tokenRewardVault.getAddress());
 
     await lifecycle.setCampaigns(await campaigns.getAddress());
