@@ -2550,6 +2550,38 @@ async function main() {
 
   console.log("\n  Upgrade-ladder wiring complete. router.contractAddr(name) returns live addresses; setRouter activates whenOpenGovPhase guards on lock* functions.");
 
+  // ── Registry-only contracts (resolvable, not upgrade-laddered) ───────────
+  // These don't inherit DatumUpgradable (token plane, advertiser-fraud track,
+  // stateless verifiers, separate relay-gov lane), so they get a registry
+  // entry only — register() with no setRouter back-wiring. The webapp's
+  // resolveAddressesFromRouter resolves them through the same currentAddrOf
+  // surface, so a redeploy only needs the router address kept fresh on the
+  // client. register() is idempotent (skips when already pointing at addr).
+  // Brand layer (brandRegistry/brandCurator) is a separate deploy and is
+  // registered by its own script, not here.
+  const REGISTRY_ONLY_KEYS: (keyof typeof addresses)[] = [
+    "attestationVerifier",
+    "advertiserStake",
+    "advertiserGovernance",
+    "interestCommitments",
+    "tagCurator",
+    "relayStake",
+    "relayGovernance",
+    "wrapper",
+    "mintAuthority",
+    "vesting",
+    "feeShare",
+  ];
+  for (const key of REGISTRY_ONLY_KEYS) {
+    const addr = addresses[key];
+    if (!addr) {
+      console.log(`  SKIP (registry-only): ${key} (address not in deployed-addresses)`);
+      continue;
+    }
+    await registerIfNeeded(key, addr);
+  }
+  console.log("  Registry-only registration complete.");
+
   // EIP-170 carve-out: point Campaigns at the DELEGATECALL migration logic
   // (lock-once; enables full-state migration on a future upgrade). MUST run
   // here — setMigrationLogic is onlyGovernance, which reads Campaigns' own

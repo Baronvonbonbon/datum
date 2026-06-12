@@ -16,6 +16,7 @@ import { BrandMark } from "./BrandMark";
 import { PineStatusChip } from "./PineStatusChip";
 import { RpcToggleChip } from "./RpcToggleChip";
 import { PineWarmUpBanner } from "./PineWarmUpBanner";
+import { RouterHealthBanner } from "./RouterHealthBanner";
 import { useContracts } from "../hooks/useContracts";
 import { isPathEnabled } from "../lib/features";
 import type { JsonRpcApiProvider } from "ethers";
@@ -338,6 +339,9 @@ export function Layout() {
 
       {/* ── Pine warm-up / offline indicator ────────────────────────────── */}
       <PineWarmUpBanner />
+
+      {/* ── Router registry health (stale/wrong router address) ─────────── */}
+      <RouterHealthBanner />
 
       {/* ── Protocol paused banner ──────────────────────────────────────── */}
       {protocolPaused && (
