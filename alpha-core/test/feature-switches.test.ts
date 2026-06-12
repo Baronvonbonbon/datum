@@ -141,4 +141,45 @@ describe("Feature switches: DATUM emission + ERC sidecar", function () {
         .to.be.revertedWith("E18");
     });
   });
+
+  // ── Emission switch on the engine (DatumEmissionEngine) ───────────────────
+  // This is the live-deployment home for the emission switch: the WDATUM mint
+  // chain is immutably anchored to the original coordinator, so the switch must
+  // sit downstream on the engine — OFF => computeAndClipMint returns 0 => the
+  // coordinator mints nothing, mint chain untouched.
+  describe("DatumEmissionEngine.emissionEnabled", function () {
+    let engine: any;
+    const DOT = ethers.parseEther("1");
+
+    beforeEach(async function () {
+      engine = await (await ethers.getContractFactory("DatumEmissionEngine")).deploy();
+      await engine.setSettlement(settlementSigner.address); // caller of computeAndClipMint
+    });
+
+    it("defaults to enabled", async function () {
+      expect(await engine.emissionEnabled()).to.equal(true);
+    });
+
+    it("owner/PG/Council can toggle; strangers cannot", async function () {
+      await engine.setParameterGovernance(pg.address);
+      await engine.setCouncil(council.address);
+      await expect(engine.setEmissionEnabled(false)).to.emit(engine, "EmissionEnabledSet").withArgs(false);
+      await expect(engine.connect(pg).setEmissionEnabled(true)).to.emit(engine, "EmissionEnabledSet");
+      await expect(engine.connect(council).setEmissionEnabled(false)).to.emit(engine, "EmissionEnabledSet");
+      await expect(engine.connect(stranger).setEmissionEnabled(true)).to.be.revertedWith("E18");
+    });
+
+    it("computeAndClipMint mints when enabled", async function () {
+      const minted = await engine.connect(settlementSigner).computeAndClipMint.staticCall(DOT);
+      expect(minted > 0n).to.equal(true);
+      await expect(engine.connect(settlementSigner).computeAndClipMint(DOT)).to.emit(engine, "MintComputed");
+    });
+
+    it("computeAndClipMint returns 0 and is a no-op when disabled", async function () {
+      await engine.setEmissionEnabled(false);
+      const minted = await engine.connect(settlementSigner).computeAndClipMint.staticCall(DOT);
+      expect(minted).to.equal(0n);
+      await expect(engine.connect(settlementSigner).computeAndClipMint(DOT)).to.not.emit(engine, "MintComputed");
+    });
+  });
 });
