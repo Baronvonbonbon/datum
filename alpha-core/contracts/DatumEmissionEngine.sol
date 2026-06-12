@@ -23,7 +23,8 @@ import "./DatumPlumbingLockable.sol";
 ///         Anyone can call permissionless `rollEpoch()` after the halving
 ///         interval, and `adjustRate()` after the adjustment period.
 contract DatumEmissionEngine is DatumPlumbingLockable {
-    function version() public pure override returns (uint256) { return 1; }
+    // v2: governance emission on/off switch + state-preserving _migrate.
+    function version() public pure override returns (uint256) { return 2; }
 
 
     // ─── Baked monetary constants (non-governable) ──────────────────────────
@@ -110,6 +111,70 @@ contract DatumEmissionEngine is DatumPlumbingLockable {
         require(addr != address(0), "E00");
         settlement = addr;
         emit SettlementSet(addr);
+    }
+
+    // ─── Emission on/off switch (governance-settable; not lock-once) ─────────
+    /// @notice Master switch for DATUM emission. When false, computeAndClipMint
+    ///         returns 0 so settled batches mint nothing. Default on.
+    bool public emissionEnabled = true;
+    /// @notice ParameterGovernance — normal-ops toggle authority via proposal.
+    address public parameterGovernance;
+    /// @notice DatumCouncil — emergency toggle authority (instant N-of-M).
+    address public council;
+
+    event EmissionEnabledSet(bool enabled);
+    event ParameterGovernanceSet(address indexed pg);
+    event CouncilSet(address indexed council);
+
+    function setParameterGovernance(address pg) external onlyOwner {
+        require(pg != address(0), "E00");
+        parameterGovernance = pg;
+        emit ParameterGovernanceSet(pg);
+    }
+
+    function setCouncil(address c) external onlyOwner {
+        require(c != address(0), "E00");
+        council = c;
+        emit CouncilSet(c);
+    }
+
+    /// @dev Owner (Timelock/Council later), ParameterGovernance (proposal flow),
+    ///      or Council (emergency override) may flip the emission switch.
+    modifier onlyToggleAuth() {
+        require(
+            msg.sender == owner() ||
+            msg.sender == parameterGovernance ||
+            (council != address(0) && msg.sender == council),
+            "E18"
+        );
+        _;
+    }
+
+    /// @notice Turn DATUM emission on/off. Toggleable repeatedly.
+    function setEmissionEnabled(bool enabled) external onlyToggleAuth whenNotFrozen {
+        emissionEnabled = enabled;
+        emit EmissionEnabledSet(enabled);
+    }
+
+    /// @dev Carry the full emission curve state forward on a redeploy-upgrade so
+    ///      the schedule (epoch/budget/rate/day) is continuous. emissionEnabled
+    ///      defaults on; toggle authorities are re-wired by the upgrade. Reads
+    ///      only fields the predecessor is guaranteed to expose, so the router's
+    ///      atomic migrate() hook succeeds even when migrating from a pre-switch
+    ///      engine.
+    function _migrate(address oldContract) internal override {
+        DatumEmissionEngine o = DatumEmissionEngine(oldContract);
+        currentEpoch                      = o.currentEpoch();
+        epochStartTime                    = o.epochStartTime();
+        remainingEpochBudget              = o.remainingEpochBudget();
+        dayStartTime                      = o.dayStartTime();
+        remainingDailyCap                 = o.remainingDailyCap();
+        dailyMinted                       = o.dailyMinted();
+        currentRate                       = o.currentRate();
+        lastAdjustmentTime                = o.lastAdjustmentTime();
+        cumulativeDotThisAdjustmentPeriod = o.cumulativeDotThisAdjustmentPeriod();
+        adjustmentPeriodSeconds           = o.adjustmentPeriodSeconds();
+        totalMinted                       = o.totalMinted();
     }
 
     // ─── Permissionless mechanics ───────────────────────────────────────────
@@ -200,6 +265,11 @@ contract DatumEmissionEngine is DatumPlumbingLockable {
     /// @return effective Effective DATUM to mint (10-decimal base).
     function computeAndClipMint(uint256 dotPaidWei) external whenNotFrozen returns (uint256 effective) {
         require(msg.sender == settlement, "not settlement");
+        // Emission master switch (governance on/off). When off, return 0 so the
+        // caller (MintCoordinator) mints nothing — the immutable mint chain stays
+        // intact; only the per-batch amount goes to zero. No accumulator side
+        // effects while disabled.
+        if (!emissionEnabled) return 0;
         // 18-dec wei → 10-dec DOT base (the 2026-06 denomination migration moved
         // settlement to 18-dec wei; this engine's math stays 10-dec). Sub-1e8-wei
         // dust normalizes to 0 and mints nothing.

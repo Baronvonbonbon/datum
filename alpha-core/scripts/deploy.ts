@@ -2773,7 +2773,11 @@ async function main() {
     { contractKey: "mintCoordinator",      sig: "setMintRate(uint256)",                              viaParamGovernanceField: true },
     { contractKey: "mintCoordinator",      sig: "setDustMintThreshold(uint256)",                     viaParamGovernanceField: true },
     { contractKey: "mintCoordinator",      sig: "setDatumRewardSplit(uint16,uint16,uint16)",         viaParamGovernanceField: true },
-    // DATUM emission master switch (governance on/off)
+    // DATUM emission master switch (governance on/off). Primary home is the
+    // engine (works even when the mint chain is immutably anchored to the
+    // original coordinator); the coordinator copy is whitelisted too for
+    // deployments where the coordinator is itself the live minter.
+    { contractKey: "emissionEngine",       sig: "setEmissionEnabled(bool)" },
     { contractKey: "mintCoordinator",      sig: "setEmissionEnabled(bool)",                          viaParamGovernanceField: true },
     // DatumTokenRewardVault — ERC sidecar master switch + per-token block
     { contractKey: "tokenRewardVault",     sig: "setTokenRewardsEnabled(bool)",                      viaParamGovernanceField: true },
@@ -2898,7 +2902,7 @@ async function main() {
   if (!addresses.council) {
     console.log("  SKIP: DatumCouncil not deployed — emission/sidecar switches owner+PG only.");
   } else {
-    for (const key of ["mintCoordinator", "tokenRewardVault"] as (keyof typeof addresses)[]) {
+    for (const key of ["mintCoordinator", "tokenRewardVault", "emissionEngine"] as (keyof typeof addresses)[]) {
       const targetAddr = addresses[key];
       if (!targetAddr || targetAddr === ZERO_ADDRESS) {
         console.log(`  SKIP: ${key} not deployed`);

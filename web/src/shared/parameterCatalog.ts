@@ -15,7 +15,8 @@ export type ContractKey =
   | "publisherGovernance"
   | "parameterGovernance"
   | "mintCoordinator"
-  | "tokenRewardVault";
+  | "tokenRewardVault"
+  | "emissionEngine";
 
 export type ArgKind = "uint256-blocks" | "uint256-bps" | "uint256-planck" | "uint256-count" | "bool";
 
@@ -121,13 +122,13 @@ export const PARAM_CATALOG: ParamSetter[] = [
 
   // ── Feature switches (governance on/off) ───────────────────────────────────
   {
-    contractKey: "mintCoordinator",
-    contractLabel: "MintCoordinator",
+    contractKey: "emissionEngine",
+    contractLabel: "EmissionEngine",
     fnName: "setEmissionEnabled",
     signature: "setEmissionEnabled(bool)",
     abi: "function setEmissionEnabled(bool enabled)",
     description:
-      "Master switch for DATUM emission. Off = settled batches mint no DATUM (settlement still succeeds; already-minted balances unaffected). Also flippable instantly by the Council in an emergency.",
+      "Master switch for DATUM emission. Off = settled batches mint no DATUM (settlement still succeeds; already-minted balances unaffected). Enforced on the engine (returns 0 when off) so it works regardless of the mint-authority binding. Also flippable instantly by the Council in an emergency.",
     args: [
       { name: "enabled", kind: "bool", description: "on = DATUM minted per settled batch; off = no new emission." },
     ],
