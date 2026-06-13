@@ -69,7 +69,18 @@ async function main() {
   console.log(`  new vault ${newVault} (v${(await view(newVault, "version() view returns(uint256)", "version")).toString()})`);
 
   // settlement pointer (NOT carried by _migrate)
-  if (eq(await view(newVault, "settlement() view returns(address)", "settlement"), ZERO)) { await send(newVault, "setSettlement(address)", "setSettlement", [A.settlement]); console.log("  SET new.settlement"); }
+  // Pointers NOT carried by _migrate. CRUCIAL: set `router` BEFORE
+  // upgradeContract — the router-fired `migrate()` is onlyGovernanceOrRouter,
+  // so without the router wired the migrate is silently rejected and NOTHING
+  // (mode/allowlist/PG/council/funds) carries. PG/council are belt-and-braces
+  // (migrate copies them once router is set).
+  const ensureSelf = async (getter: string, frag: string, name: string, desired: string) => {
+    if (eq(await view(newVault, `${getter}() view returns(address)`, getter), ZERO)) { await send(newVault, frag, name, [desired]); console.log(`  SET new.${getter}`); }
+  };
+  await ensureSelf("settlement", "setSettlement(address)", "setSettlement", A.settlement);
+  await ensureSelf("router", "setRouter(address)", "setRouter", A.governanceRouter);
+  if (A.parameterGovernance) await ensureSelf("parameterGovernance", "setParameterGovernance(address)", "setParameterGovernance", A.parameterGovernance);
+  if (A.council) await ensureSelf("council", "setCouncil(address)", "setCouncil", A.council);
 
   // router upgradeContract → atomic freeze(old) + new.migrate(old) (carries mode + allowlist + enumeration)
   const nameKey = ethers.keccak256(ethers.toUtf8Bytes("tokenRewardVault"));
