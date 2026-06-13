@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-12T-sidecar-asset-gating";
+export const DEPLOY_VERSION = "2026-06-12T-vault-v2-decimals-fix";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -81,7 +81,7 @@ const ALPHA_5_PASEO: ContractAddresses = {
   lifecycle:            "0x54197f23C63A774391Fa27CD25470e63dF3FE2c0",  // JSON: campaignLifecycle
   attestationVerifier:  "0xCCA37672489D0b023B3aaDb338E3474E3E4D4fd4",
   claimValidator:       "0x2988fA3E3c9D42d7FB641e287419Dc2974511FD4",
-  tokenRewardVault:     "0xf3733FF78659eE4A6177529FD1857b744b687F83",  // switch + asset-gating (allowlist, 2026-06-12)
+  tokenRewardVault:     "0x6D371368806F4795ADAe8b1e1F403c75086Ed4e1",  // v2: asset gate hardened (no decimals() req), 2026-06-12
   // Fraud prevention
   publisherStake:       "0xC4b9dA10d78cB1b4482c020fd3917b52B8B9D55A",
   challengeBonds:       "0x7320FfA3d0A83a48DA96d9639d032E7Ee1191f06",
