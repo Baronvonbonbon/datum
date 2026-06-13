@@ -1077,6 +1077,39 @@ describe("DatumSettlement", function () {
       ).to.be.revertedWithCustomError(dualSig, "E83");
     });
 
+    it("D9: identical publisher & advertiser signing key reverts E89 (A1 independence guard)", async function () {
+      const cid = await createTestCampaign();
+      // Worst case for the guard: register `protocol` as BOTH the publisher's
+      // relay signer AND the advertiser's delegated signer, so the on-chain
+      // ROLE checks (E82/E83/E84/E85) would each individually accept a single
+      // key — exactly the "dual-sig is theater" collapse where one operator
+      // signs both sides. The independence guard must still reject it.
+      await mock.setRelaySigner(publisher.address, protocol.address);
+      await mock.setAdvertiserRelaySigner(owner.address, protocol.address);
+      const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);
+      // `protocol` signs BOTH sides; envelope binds it as both expected keys so
+      // the role checks pass and only the same-signer guard can catch it.
+      const batch = await makeDualSignedBatch(
+        cid, claims, protocol, protocol, undefined, protocol.address, protocol.address,
+      );
+
+      await expect(
+        dualSig.connect(other).settleSignedClaims([batch])
+      ).to.be.revertedWithCustomError(dualSig, "E89");
+
+      // Positive control: with the advertiser side signed by a DISTINCT key
+      // (owner = the campaign advertiser EOA), the same batch shape settles.
+      await mock.setAdvertiserRelaySigner(owner.address, ethers.ZeroAddress);
+      const okBatch = await makeDualSignedBatch(
+        cid, claims, protocol, owner, undefined, protocol.address, ethers.ZeroAddress,
+      );
+      const res = await dualSig.connect(other).settleSignedClaims.staticCall([okBatch]);
+      expect(res.settledCount).to.equal(1n);
+
+      // cleanup so later tests are unaffected
+      await mock.setRelaySigner(publisher.address, ethers.ZeroAddress);
+    });
+
     it("D5: expired deadline is skipped gracefully (not reverted)", async function () {
       const cid = await createTestCampaign();
       const claims = buildClaimChain(cid, publisher.address, user.address, 1, BID_CPM, 1000n);

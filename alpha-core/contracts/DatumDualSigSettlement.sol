@@ -87,6 +87,12 @@ contract DatumDualSigSettlement is
     error E83();
     error E84();
     error E85();
+    /// @notice A1 independence guard: the publisher-side and advertiser-side
+    ///         signatures recovered to the SAME key. A single party holding
+    ///         both keys defeats the dual-sig refutation guarantee ("either
+    ///         party can withhold their sig"). Advertiser and publisher are
+    ///         always distinct roles in DATUM, so a shared signer is invalid.
+    error E89();
     error Paused();
     error LockedAlready();
 
@@ -231,6 +237,18 @@ contract DatumDualSigSettlement is
             } else {
                 if (advSigner != expectedAdvertiser) revert E83();
             }
+
+            // ── A1 independence guard ───────────────────────────────────────
+            // The two signatures must come from DISTINCT keys. If the same key
+            // satisfied both the publisher-side and advertiser-side checks (e.g.
+            // one operator registered as both the publisher's relay signer and
+            // the advertiser's delegated signer, or one party holding both EOAs),
+            // dual-sig refutation is theater — there is no second party who can
+            // independently refuse. Advertiser and publisher are always distinct
+            // roles in DATUM, so a shared signer is never legitimate. This is
+            // defense-in-depth: it cannot prove off-chain custody independence,
+            // but it makes the degenerate same-key collapse unrepresentable.
+            if (advSigner == pubSigner) revert E89();
 
             // Graceful skip (staleness): replay anchor. Pre-checked here (after
             // sig verification) so a malformed cosig still reverts, but a valid
