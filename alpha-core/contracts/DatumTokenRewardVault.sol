@@ -16,7 +16,9 @@ import "./interfaces/IDatumCampaigns.sol";
 ///         Separated from DatumPaymentVault to keep ETH-native accounting isolated.
 ///         Only supports EVM-native ERC-20 tokens (not native Asset Hub assets).
 contract DatumTokenRewardVault is IDatumTokenRewardVault, ReentrancyGuard, DatumPlumbingLockable {
-    function version() public pure virtual override returns (uint256) { return 1; }
+    // v2: asset-gating ERC-20 probe hardened to not require decimals() (native
+    // pallet_assets precompiles lack metadata). Switches + allowlist unchanged.
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     using SafeERC20 for IERC20;
     address public settlement;
