@@ -17,7 +17,7 @@
   "governanceRouter": "0xAb22653cDcA7214636708721AeDAc289E8635e80",
   "powEngine": "0x378D1C3e856fdEC596680A86b4A73ff9215CFa82",
   "nullifierRegistry": "0x9485Ac29018E259a0691526381f5ab756525f96c",
-  "dualSig": "0xE343Fd0986c8fF3B15DFe1107afd911dab950053",
+  "dualSig": "0x4731799d15C629b354fF809171751F3bC92d988e",
   "network": "polkadotTestnet",
   "deployedAt": "2026-06-11T20:12:00.635Z",
   "zkVerifier": "0x2C2613c0838f8a0065A3e497a56068875605Bf24",

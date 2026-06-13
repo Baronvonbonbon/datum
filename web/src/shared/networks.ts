@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-12T-vault-v2-decimals-fix";
+export const DEPLOY_VERSION = "2026-06-13T-dualsig-v2-independence";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -112,7 +112,7 @@ const ALPHA_5_PASEO: ContractAddresses = {
   identityVerifier:     "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
   emissionEngine:       "0xff7336D7846A57425461E426839564956f5d78b7",  // v2: emission on/off switch (2026-06-12)
   mintCoordinator:      "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",  // original (immutably-authorized minter); Settlement routes here
-  dualSig:              "0xE343Fd0986c8fF3B15DFe1107afd911dab950053",
+  dualSig:              "0x4731799d15C629b354fF809171751F3bC92d988e",
   peopleChainIdentity:  "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
   peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
   peopleChainBondedReporter: "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7",
