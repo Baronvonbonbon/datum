@@ -43,7 +43,9 @@ contract DatumDualSigSettlement is
     ReentrancyGuard,
     EIP712
 {
-    function version() public pure override returns (uint256) { return 1; }
+    // v2: adds the A1 independence guard (E89) — publisher-side and
+    // advertiser-side signatures must recover to distinct keys.
+    function version() public pure override returns (uint256) { return 2; }
 
     // ─────────────────────────────────────────────────────────────────────
     // Wiring
