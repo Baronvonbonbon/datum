@@ -1,0 +1,13 @@
+{
+  "name": "datum-web-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright live-settlement harness — drives the /demo page (real claimBuilder/claimCore via the in-page daemon) and asserts an on-chain settlement against the live Paseo deploy.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

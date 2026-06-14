@@ -29,7 +29,7 @@ function solvePowNonce(claimHash: string, target: bigint, maxIters = 2_000_000):
 }
 // Canonical claim hash lives in claimCore (shared with the extension claimBuilder)
 // — the daemon must NOT keep its own copy of the preimage schema (it drifted 3×).
-import { computeClaimHash } from "@ext/background/claimCore";
+import { computeClaimHash, toSlimClaim } from "@ext/background/claimCore";
 // The ONE shared message router + the real claimBuilder. Workstream A: the demo
 // no longer hand-mirrors the background switch — it builds demoEnv and calls the
 // same routeMessage. Workstream B: claimBuilder is now snarkjs-free (ZK injected
@@ -891,10 +891,26 @@ async function handleMessage(msg: any): Promise<unknown> {
             console.warn("[datum-daemon] PoW solve step failed (submitting as-is):", e);
           }
 
+          // SLIM (#2): settleClaims takes the on-chain slim Claim
+          // (publisher,eventCount,rateWei,actionType,proof[]) — convert from the
+          // rich internal claim (powNonce solved just above) before submitting,
+          // exactly like the extension's relay + attested paths. Passing the flat
+          // claim reverts with "missing value for component proof".
           const claimBatches = chunk.map((b: any) => ({
             user: b.user,
             campaignId: b.campaignId,
-            claims: b.claims,
+            claims: b.claims.map((c: any) => toSlimClaim({
+              publisher: c.publisher,
+              eventCount: BigInt(c.eventCount ?? 1),
+              rateWei: BigInt(c.rateWei),
+              actionType: Number(c.actionType ?? 0),
+              clickSessionHash: c.clickSessionHash,
+              stakeRootUsed: c.stakeRootUsed,
+              nullifier: c.nullifier,
+              powNonce: c.powNonce,
+              zkProof: c.zkProof,
+              actionSig: c.actionSig,
+            })),
           }));
 
           // Record expected post-settlement nonces for on-chain verification
