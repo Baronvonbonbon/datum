@@ -1111,19 +1111,22 @@ export function ClaimQueue({ address, onSettled }: Props) {
 
           {address ? (
             <div style={{ marginTop: 12, display: "flex", gap: 8, flexDirection: "column" }}>
-              <button
-                onClick={submitAll}
-                disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
-                style={primaryBtn}
-              >
-                {submitting ? <BouncingText text="Submitting claims..." /> : "Submit All (you pay gas)"}
-              </button>
+              {/* Gasless relay path is the default/primary action: the publisher's
+                  relay submits + pays gas, so a user with no PAS can still earn.
+                  Paying your own gas is the secondary fallback. */}
               <button
                 onClick={signForRelay}
                 disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
+                style={primaryBtn}
+              >
+                {signing ? <BouncingText text="Submitting claims..." /> : "Submit All (gasless)"}
+              </button>
+              <button
+                onClick={submitAll}
+                disabled={submitting || signing || submittingCampaign !== null || discardingCampaign !== null}
                 style={secondaryBtn}
               >
-                {signing ? <BouncingText text="Signing claims..." /> : "Sign for Publisher (zero gas)"}
+                {submitting ? <BouncingText text="Submitting claims..." /> : "Submit yourself (you pay gas)"}
               </button>
               <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                 <button
