@@ -730,17 +730,10 @@ async function autoFlushDirect() {
       catch { powEnforced = false; /* unreadable engine ⇒ skip (relay/validator will reject if truly enforced) */ }
     }
 
-    const attestedBatches = await Promise.all(batches.map(async (b) => {
-      const publisher = b.claims[0]?.publisher ?? "";
-
-      // SLIM (#2): firstNonce = nonce of the batch's first claim. It must equal
-      // the on-chain lastNonce+1 (the chain state is synced from chain), and is
-      // the replay anchor the AttestationVerifier checks + the publisher signs.
+    // Build each batch's SLIM claims (PoW solved first so claimsHash matches what
+    // is submitted byte-for-byte).
+    const built = await Promise.all(batches.map(async (b) => {
       const firstNonce = b.claims[0]?.nonce ?? 0n;
-
-      // #5: solve PoW per claim FIRST, then build the slim claims, so the
-      //     content claimsHash the publisher cosigns matches the submitted
-      //     claims byte-for-byte (powNonce lives in the proof sidecar).
       const slimClaims = await Promise.all(b.claims.map(async (c) => {
         let powNonce = c.powNonce;
         if (powEnforced) {
@@ -754,68 +747,102 @@ async function autoFlushDirect() {
           }
         }
         return toSlimClaim({
-          publisher: c.publisher,
-          eventCount: c.eventCount,
-          rateWei: c.rateWei,
-          actionType: c.actionType,
-          clickSessionHash: c.clickSessionHash,
-          stakeRootUsed: c.stakeRootUsed,
-          nullifier: c.nullifier,
-          powNonce,
-          zkProof: c.zkProof,
-          actionSig: c.actionSig,
+          publisher: c.publisher, eventCount: c.eventCount, rateWei: c.rateWei, actionType: c.actionType,
+          clickSessionHash: c.clickSessionHash, stakeRootUsed: c.stakeRootUsed, nullifier: c.nullifier,
+          powNonce, zkProof: c.zkProof, actionSig: c.actionSig,
         });
       }));
+      return { b, firstNonce, slimClaims };
+    }));
 
-      // SLIM (#2): claimsHash now binds to keccak(abi.encode(slimClaim)) per
-      // claim (not the old per-claim claimHash), computed over the FINAL slim
-      // claims so the publisher cosig matches what is submitted on-chain.
-      const claimsHash = contentHashClaims(slimClaims);
+    // GASLESS DEFAULT: route batches whose publisher has a known relay domain +
+    // on-chain relaySigner to that relay (it co-signs publisher+advertiser and
+    // submits settleSignedClaims, paying gas). Batches with no relay fall back to
+    // the user-pays attested path below. The user only signs the ClaimBatch — the
+    // same envelope the proven popup signForRelay produces.
+    // NOTE: not runtime-tested in the service-worker context; verify auto-submit
+    // before relying on it. Relay settlement is async, so relay-routed batches get
+    // a settle-window before the lastNonce reconciliation prunes (see below).
+    const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+    const { getPublishersContract } = await import("@shared/contracts");
+    const publishers = getPublishersContract(settings.contractAddresses, provider);
+    const dualSigAddr = settings.contractAddresses.dualSig;
+    const eip712Domain = dualSigAddr
+      ? { name: "DatumSettlement", version: "1", chainId: chainIdForNetwork(settings.network), verifyingContract: dualSigAddr }
+      : null;
+    const claimBatchTypes = {
+      ClaimBatch: [
+        { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "firstNonce", type: "uint256" },
+        { name: "claimsHash", type: "bytes32" }, { name: "deadlineBlock", type: "uint256" },
+        { name: "expectedRelaySigner", type: "address" }, { name: "expectedAdvertiserRelaySigner", type: "address" },
+      ],
+    };
 
-      let publisherSig = "0x";
-      try {
-        const attestResult = await requestPublisherAttestation(
-          publisher,
-          b.campaignId.toString(),
-          b.user,
-          firstNonce,
-          claimsHash,
-          deadlineBlock,
-        );
-        if (attestResult.signature) publisherSig = attestResult.signature;
-        if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
-      } catch {
-        // Attestation unavailable — degraded trust mode
+    const attestedBatches: Array<{ user: string; campaignId: bigint; firstNonce: bigint; claims: unknown[]; deadlineBlock: bigint; publisherSig: string }> = [];
+    let relayRouted = 0;
+    for (const { b, firstNonce, slimClaims } of built) {
+      const publisher = b.claims[0]?.publisher ?? "";
+      const domKey = `publisherDomain:${publisher.toLowerCase()}`;
+      const dom: string | undefined = publisher ? (await chrome.storage.local.get(domKey))[domKey] : undefined;
+      let relaySigner = ZERO_ADDR;
+      if (dom && eip712Domain) { try { relaySigner = await publishers.relaySigner(publisher); } catch { /* fall back */ } }
+      const canRelay = !!dom && !!eip712Domain && !!relaySigner && !/^0x0+$/i.test(relaySigner);
+
+      if (canRelay) {
+        // Gasless relay path — user signs the ClaimBatch; relay co-signs + submits.
+        try {
+          const claimsHash = contentHashClaims(slimClaims as never[]);
+          const value = { user: b.user, campaignId: b.campaignId, firstNonce, claimsHash, deadlineBlock, expectedRelaySigner: relaySigner, expectedAdvertiserRelaySigner: ZERO_ADDR };
+          const userSig = await wallet.signTypedData(eip712Domain!, claimBatchTypes, value);
+          const envelope = {
+            user: b.user, campaignId: b.campaignId.toString(), firstNonce: firstNonce.toString(), deadlineBlock: deadlineBlock.toString(),
+            claims: (slimClaims as Array<{ publisher: string; eventCount: bigint; rateWei: bigint; actionType: number; proof: unknown }>).map((c) => ({ publisher: c.publisher, eventCount: c.eventCount.toString(), rateWei: c.rateWei.toString(), actionType: c.actionType, proof: c.proof })),
+            userSig, expectedRelaySigner: relaySigner, expectedAdvertiserRelaySigner: ZERO_ADDR,
+          };
+          const base = "https://" + dom!.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+          const resp = await fetch(`${base}/claim`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(envelope), signal: AbortSignal.timeout(15000) });
+          if (resp.ok) { relayRouted++; console.log(`[DATUM] Auto-flush: campaign ${b.campaignId} routed gaslessly to relay ${dom}`); }
+          else console.warn(`[DATUM] Auto-flush: relay ${resp.status} for campaign ${b.campaignId}; left queued for retry`);
+        } catch (e) {
+          console.warn(`[DATUM] Auto-flush: relay POST failed for campaign ${b.campaignId}:`, e);
+        }
+        continue; // relay-routed (or attempted) — not attested
       }
 
-      return {
-        user: b.user,
-        campaignId: b.campaignId,
-        firstNonce,
-        claims: slimClaims,
-        deadlineBlock,
-        publisherSig,
-      };
-    }));
+      // Fallback: user-pays attested path — request the publisher's attestation.
+      let publisherSig = "0x";
+      try {
+        const attestResult = await requestPublisherAttestation(publisher, b.campaignId.toString(), b.user, firstNonce, contentHashClaims(slimClaims as never[]), deadlineBlock);
+        if (attestResult.signature) publisherSig = attestResult.signature;
+        if (attestResult.error) console.warn(`[DATUM] Auto-flush attestation warning for campaign ${b.campaignId}: ${attestResult.error}`);
+      } catch { /* attestation unavailable — degraded trust mode */ }
+      attestedBatches.push({ user: b.user, campaignId: b.campaignId, firstNonce, claims: slimClaims, deadlineBlock, publisherSig });
+    }
 
     let settledCount = 0;
     let rejectedCount = 0;
     const rejectedCampaignIds = new Set<string>();
 
-    const signerAddress = await wallet.getAddress();
-    const nonceBefore = await provider.getTransactionCount(signerAddress);
-    console.log(`[DATUM] Auto-flush: submitting ${batches.length} batch(es) for ${userAddress.slice(0, 10)}…`);
-    // Paseo pallet-revive: explicit gas opts required
-    await attestationVerifier.settleClaimsAttested(attestedBatches, {
-      gasLimit: 500_000_000n,
-      type: 0,
-      gasPrice: 1_000_000_000_000n,
-    });
-    // Nonce poll — Paseo getTransactionReceipt returns null for confirmed txs
-    for (let i = 0; i < 60; i++) {
-      const current = await provider.getTransactionCount(signerAddress);
-      if (current > nonceBefore) { console.log(`[DATUM] Auto-flush: tx confirmed (poll ${i + 1})`); break; }
-      await new Promise((r) => setTimeout(r, 2000));
+    // User-pays attested submission (only the fallback batches that had no relay).
+    if (attestedBatches.length > 0) {
+      const signerAddress = await wallet.getAddress();
+      const nonceBefore = await provider.getTransactionCount(signerAddress);
+      console.log(`[DATUM] Auto-flush: submitting ${attestedBatches.length} attested batch(es) (user pays gas) for ${userAddress.slice(0, 10)}…`);
+      // Paseo pallet-revive: explicit gas opts required
+      await attestationVerifier.settleClaimsAttested(attestedBatches, { gasLimit: 500_000_000n, type: 0, gasPrice: 1_000_000_000_000n });
+      // Nonce poll — Paseo getTransactionReceipt returns null for confirmed txs
+      for (let i = 0; i < 60; i++) {
+        if ((await provider.getTransactionCount(signerAddress)) > nonceBefore) { console.log(`[DATUM] Auto-flush: attested tx confirmed (poll ${i + 1})`); break; }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    // Relay settles asynchronously — give it a settle window before the per-campaign
+    // lastNonce reconciliation below, so async relay batches aren't mis-flagged as
+    // rejected (and reset). Anything not settled in the window stays queued and the
+    // chain-state sync reconciles it on the next cycle.
+    if (relayRouted > 0) {
+      console.log(`[DATUM] Auto-flush: ${relayRouted} batch(es) routed gaslessly; waiting for relay settlement…`);
+      await new Promise((r) => setTimeout(r, 24000));
     }
 
     // Verify on-chain lastNonce per campaign to determine what settled/rejected
