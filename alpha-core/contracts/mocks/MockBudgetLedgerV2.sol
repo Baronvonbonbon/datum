@@ -8,5 +8,6 @@ import "../DatumBudgetLedger.sol";
 ///      `_migrate` + `migrateFundsTo`, so the migration test can verify budget
 ///      accounting + refunds + native DOT are copied from a frozen predecessor.
 contract MockBudgetLedgerV2 is DatumBudgetLedger {
-    function version() public pure override returns (uint256) { return 2; }
+    // version 3 (> DatumBudgetLedger's 2) so it remains a valid migrate target.
+    function version() public pure override returns (uint256) { return 3; }
 }

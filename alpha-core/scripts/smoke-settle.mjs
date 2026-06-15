@@ -57,11 +57,14 @@ function computeClaimHash({ campaignId, publisher, user, eventCount, rateWei, ac
 }
 // PoW: find powNonce s.t. keccak256(abi.encodePacked(claimHash, powNonce)) <= target.
 function solvePow(claimHash, target) {
-  for (let i = 0n; i < 5_000_000n; i++) {
+  // Expected iters ≈ 2^256 / target; the seeded Paseo difficulty needs ~17M, so
+  // provision generously (one-off smoke; pure-JS keccak). Tunable via POW_CAP.
+  const CAP = BigInt(process.env.POW_CAP || 80_000_000);
+  for (let i = 0n; i < CAP; i++) {
     const powNonce = toBeHex(i, 32);
     if (BigInt(keccak256(claimHash + powNonce.slice(2))) <= target) return { powNonce, iters: i };
   }
-  throw new Error("PoW not solved in 5M iters");
+  throw new Error(`PoW not solved in ${CAP} iters`);
 }
 const VAULT_ABI = ["function userBalance(address) view returns (uint256)", "function publisherBalance(address) view returns (uint256)"];
 

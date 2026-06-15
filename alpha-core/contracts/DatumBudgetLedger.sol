@@ -20,7 +20,10 @@ import "./interfaces/IDatumCampaigns.sol";
 ///         Daily cap uses block.timestamp / 86400 as day index (accepted PoC risk).
 ///         Single _send() site for native transfers.
 contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigratable {
-    function version() public pure virtual override returns (uint256) { return 1; }
+    // v2 (2026-06-15): multi-claim fan-out — added deduct() + transferSettled()
+    // for the batched settle path. Bumped so the upgrade ladder can migrate the
+    // v1 escrow into this build (DatumUpgradable.migrate requires old < new).
+    function version() public pure virtual override returns (uint256) { return 2; }
 
     // -------------------------------------------------------------------------
     // Authorization
@@ -413,11 +416,67 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigr
     ///      refs (campaigns/settlement/lifecycle) and the lock flags are NOT
     ///      copied — they are re-wired on the fresh contract (the rewire leg),
     ///      then re-locked at OpenGov. Native DOT moves via `migrateFundsTo`.
-    function _migrate(address oldContract) internal override {
+    /// @notice U3 pagination cursor — index into the predecessor's budget-campaign
+    ///         set reached so far. Reads return partial state mid-migration, so
+    ///         OFF-CHAIN CONSUMERS MUST gate on `migrated == true` (U6).
+    uint256 public migrationCursor;
+
+    /// @notice Campaigns copied per `migrate()` batch. Each campaign costs ~5
+    ///         cross-contract staticcalls to the frozen predecessor (budgetCampaignAt
+    ///         + 3×getBudgetFull + lastSettlementBlock) plus 13 storage writes —
+    ///         and pallet-revive's per-tx proof-size ceiling is dominated by those
+    ///         cumulative cross-contract reads (the same constraint that caps
+    ///         settle batch size on Paseo). Tunable (not a constant) so governance
+    ///         can fit the batch to the live ceiling without a redeploy; the
+    ///         single-call copy reverted on the live 29-campaign escrow. Governance
+    ///         calls `migrate()` repeatedly until `migrated()` flips.
+    uint256 public migrationBatchSize = 5;
+
+    /// @notice Tune the per-call migration batch (owner/deploy-phase; the migrate
+    ///         path is governance-gated regardless). Cursor-based, so changing it
+    ///         between batches is safe.
+    function setMigrationBatchSize(uint256 n) external onlyOwner {
+        require(n > 0 && n <= 100, "E12");
+        migrationBatchSize = n;
+    }
+
+    /// @notice U3: gas-paginated override of `DatumUpgradable.migrate()`. Copies
+    ///         treasury + the (small, transient) pending-refund set on the first
+    ///         batch, then up to `MIGRATION_BATCH_SIZE` budget campaigns per call
+    ///         (3 pots + lastSettlementBlock each) from a frozen predecessor,
+    ///         advancing `migrationCursor`, and sets `migrated` only on the batch
+    ///         that reaches the end. Native escrow is swept separately by
+    ///         `migrateFundsTo` once migration completes. Structural refs
+    ///         (campaigns/settlement/lifecycle/router) are re-wired on the fresh
+    ///         contract, not copied. MH-1: any non-final batch self-`frozen`s this
+    ///         contract so no not-yet-copied campaign can write state a later
+    ///         batch would clobber; the final batch unfreezes + locks `migrated`.
+    function migrate(address oldContract) external override onlyGovernanceOrRouter {
+        require(!migrated, "already migrated");
+        require(oldContract != address(0), "E00");
+        require(oldContract != address(this), "E18");
+
         DatumBudgetLedger old = DatumBudgetLedger(payable(oldContract));
-        treasury = old.treasury();
-        uint256 nc = old.budgetCampaignCount();
-        for (uint256 i = 0; i < nc; i++) {
+        if (migrationSource == address(0)) {
+            // First batch: validate the predecessor + copy scalar/small state.
+            require(old.version() < version(), "downgrade");
+            require(old.frozen(), "old-not-frozen");
+            migrationSource = oldContract;
+            treasury = old.treasury();
+            uint256 nr = old.refundHolderCount();
+            for (uint256 i = 0; i < nr; i++) {
+                address a = old.refundHolderAt(i);
+                pendingAdvertiserRefund[a] = old.pendingAdvertiserRefund(a);
+                _trackRefundHolder(a);
+            }
+        } else {
+            require(oldContract == migrationSource, "source-mismatch");
+        }
+
+        uint256 total = old.budgetCampaignCount();
+        uint256 end = migrationCursor + migrationBatchSize;
+        if (end > total) end = total;
+        for (uint256 i = migrationCursor; i < end; i++) {
             uint256 id = old.budgetCampaignAt(i);
             for (uint8 t = 0; t <= 2; t++) {
                 (uint256 rem, uint256 cap, uint256 spent, uint256 day) = old.getBudgetFull(id, t);
@@ -426,11 +485,18 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigr
             lastSettlementBlock[id] = old.lastSettlementBlock(id);
             _trackBudgetCampaign(id);
         }
-        uint256 nr = old.refundHolderCount();
-        for (uint256 i = 0; i < nr; i++) {
-            address a = old.refundHolderAt(i);
-            pendingAdvertiserRefund[a] = old.pendingAdvertiserRefund(a);
-            _trackRefundHolder(a);
+        migrationCursor = end;
+
+        if (end >= total) {
+            // Final batch: complete. Unfreeze (if we froze during the window) and
+            // lock `migrated`.
+            migrated = true;
+            if (frozen) { frozen = false; emit Unfrozen(); }
+            emit Migrated(oldContract, old.version(), version());
+        } else if (!frozen) {
+            // More batches remain — hold frozen so the partial window is safe.
+            frozen = true;
+            emit Frozen();
         }
     }
 

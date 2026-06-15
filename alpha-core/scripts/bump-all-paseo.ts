@@ -52,6 +52,13 @@ async function tx(to: string, abi: string[], method: string, args: any[] = [], v
   await gov.sendTransaction({ to, data, value, ...GAS, nonce });
   await waitNonce(nonce);
 }
+// Pre-flight weight (compute) of a call via eth_estimateGas — reliable on
+// pallet-revive even though getTransactionReceipt is flaky. Returns weight
+// units (0n if the estimate reverts). Used to document migration cost.
+async function estGas(to: string, abi: string[], method: string, args: any[] = [], value = 0n): Promise<bigint> {
+  const data = new ethers.Interface(abi).encodeFunctionData(method, args);
+  try { return await p.estimateGas({ from: gov.address, to, data, value }); } catch { return 0n; }
+}
 const ro = (addr: string, abi: string[]) => new Contract(addr, abi, p);
 
 type Entry = {
@@ -61,7 +68,7 @@ type Entry = {
   verify: (v2: string) => Promise<void>;
 };
 
-const results: { name: string; ok: boolean; note: string }[] = [];
+const results: { name: string; ok: boolean; note: string; freeze?: bigint; migrate?: bigint; sweep?: bigint }[] = [];
 
 async function main() {
   const rpc = process.env.TESTNET_RPC || "https://eth-rpc-testnet.polkadot.io/";
@@ -181,11 +188,14 @@ async function main() {
       const natBefore = await p.getBalance(v1);
       const tokBefore = e.token ? await ro(token, TOKEN_ABI).balanceOf(v1) : 0n;
 
+      const gFreeze = await estGas(v1, UPG, "freeze", []);
       await tx(v1, UPG, "freeze", []);
       const v2 = await deploy(e.v2, e.args());
       await tx(v2, UPG, "setRouter", [router]);
+      const gMigrate = await estGas(v2, UPG, "migrate", [v1]);
       await tx(v2, UPG, "migrate", [v1]);
-      if (e.fund || e.token) await tx(v1, UPG, "migrateFundsTo", [v2]);
+      let gSweep = 0n;
+      if (e.fund || e.token) { gSweep = await estGas(v1, UPG, "migrateFundsTo", [v2]); await tx(v1, UPG, "migrateFundsTo", [v2]); }
 
       const natAfter = await p.getBalance(v2), v1Left = await p.getBalance(v1);
       const tokAfter = e.token ? await ro(token, TOKEN_ABI).balanceOf(v2) : 0n;
@@ -196,8 +206,8 @@ async function main() {
       await e.verify(v2);
 
       const note = e.fund ? `${formatEther(natBefore)} PAS conserved` : e.token ? `${formatEther(tokBefore)} DATUM conserved` : "state carried";
-      console.log(`✅ ${note}  (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
-      results.push({ name: e.name, ok: true, note }); pass++;
+      console.log(`✅ ${note}  migrate≈${gMigrate} wt  (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+      results.push({ name: e.name, ok: true, note, freeze: gFreeze, migrate: gMigrate, sweep: gSweep }); pass++;
     } catch (err: any) {
       console.log(`❌ ${err.message.slice(0, 90)}`);
       results.push({ name: e.name, ok: false, note: err.message.slice(0, 90) });
@@ -208,6 +218,17 @@ async function main() {
   console.log(`\n==================== PASEO BUMP-ALL ====================`);
   console.log(`  ${pass}/${entries.length} contracts bumped with no loss on live Paseo`);
   console.log(`  spent: ${formatEther(startBal - endBal)} PAS`);
+  console.log(`\n  MIGRATION COMPUTE COST (eth_estimateGas, weight units)`);
+  console.log(`  ${"contract".padEnd(28)} ${"freeze".padStart(12)} ${"migrate".padStart(14)} ${"fundSweep".padStart(14)}`);
+  let migSum = 0n;
+  for (const r of results) {
+    if (!r.ok) { console.log(`  ${r.name.padEnd(28)}  (failed)`); continue; }
+    migSum += r.migrate ?? 0n;
+    console.log(`  ${r.name.padEnd(28)} ${String(r.freeze ?? 0n).padStart(12)} ${String(r.migrate ?? 0n).padStart(14)} ${String(r.sweep ?? 0n).padStart(14)}`);
+  }
+  const okN = results.filter((r) => r.ok).length || 1;
+  console.log(`  ${"— mean migrate weight —".padEnd(28)} ${"".padStart(12)} ${String(migSum / BigInt(okN)).padStart(14)}`);
+  console.log(`  (weight→fee ≈ weight ÷ 1e6 PAS at the script's 1e12 gasPrice)`);
   console.log(`========================================================`);
   if (pass !== entries.length) process.exit(1);
 }
