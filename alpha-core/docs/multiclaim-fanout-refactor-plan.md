@@ -91,7 +91,13 @@ Expected: Tier 1+2 alone pushes the ceiling from ~1 to several claims; Tier 3 sh
   memory `BatchContext`); the 48-slot delegatecall snapshot gate must keep passing.
 - **Reject reason codes** unchanged (off-chain relays/indexers depend on them).
 - **CEI ordering** (effects — `_lastClaimHash`/`_lastNonce` — before external calls) preserved.
-- **Partial-fill on budget exhaustion** preserved (keep deduct per-claim).
+- **No over-spend** preserved: batch-deduct (the one post-loop `deduct`) still enforces budget
+  (E16) + daily cap (E26) atomically — fail-closed. Trade-off accepted: a batch that overdraws
+  reverts wholesale instead of settling an exact-boundary prefix (relays size batches to budget).
+- **Rate-limit kept per-claim:** Tier 2 (batched `tryConsume`) was implemented then **reverted** —
+  the limiter's atomic consume + per-claim soft-reject (reason 14) don't batch without changing
+  semantics (all-or-nothing) and over-consuming, which broke the reporter-eligibility benchmarks
+  (BM-RPT-1/2/3). Not worth ~1 claim of headroom.
 - All settle paths share `processBatch`, so `settleClaims`, `settleClaimsMulti`, dual-sig and
   attestation all benefit; no per-path changes.
 
@@ -115,21 +121,27 @@ Fine n-scan via `capture-settle-weight-paseo.ts` (fresh deploy each, diana stake
 | **batched vault credit** (commit 3270d24) | **4** | n=4 ✅, n=5 ❌ — matches alpha-3 "~3-claim cap" |
 | **+ Tier 1** (hoist userCap + isAdequatelyStaked) | **6** | n=6 ✅, n=7 ❌ |
 | **+ Tier 3** (batch validation into one validateBatch call) | **7** | n=7 ✅, n=8 ❌ |
+| Tier 2 (batch rate-limit) | — | **reverted** — broke BM-RPT reporter-eligibility; awkward semantics for ~1 claim |
+| **+ batch-deduct** (one post-loop `deduct` instead of per claim) | **11** | n=11 ✅, n=12 ❌ |
 
-**Confirmed model: ≈ +1 claim of headroom per per-claim cross-contract call removed.** Tier 1
-removed 2 calls/claim → +2 (4→6); Tier 3 removed 1 (the validator) → +1 (6→7). The binding
-resource is per-claim cross-contract **call count**. Full suite 1706 passing; layout snapshot intact.
+**Final: per-claim vault transfer ~1 → 11 claims/tx (≈11×).** Read-only call removals gave ≈+1
+claim each (Tier 1: 2 calls → +2 to 6; Tier 3: 1 call → +1 to 7), but **batch-deduct gave +4
+(7→11)** — far more than a read removal, because the per-claim `deduct` did a cross-contract call
+**plus three storage writes** (`remaining`, `dailySpent`, `lastSettlementBlock`) on every claim;
+collapsing it to one removed N−1 calls *and* N−1 storage-write sets. ⇒ the binding resource is
+per-claim cross-contract calls **and** per-claim storage writes; removing repeated storage work
+buys the most.
 
-**⚠️ Diminishing returns — the 50-claim cap is NOT reachable by fan-out reduction alone.** Each
-tier buys ~1 claim. The remaining per-claim cross-contract calls are just **`budgetLedger.deduct`**
-and **`rateLimiter.tryConsume`** (actionType-0). So Tier 2 (batch tryConsume) ≈ 8, and batching
-deduct by actionType ≈ 9 — then the per-claim call count is ~0 and the ceiling is bound by the
-**irreducible per-claim on-chain work** (storage writes: `_userTotalSettled`, `_lastNonce`,
-`_userCampaignSettled`, window events, + the `ClaimSettled` event), which caps this approach at
-**~9–10 claims/tx**. Going materially higher (toward 50) needs a structural change, not more
-call-batching — e.g. off-chain aggregation with a single on-chain commitment, an aggregate
-settlement proof, or collapsing the per-claim storage writes into one batched write.
+**Tier 2 reverted:** the rate limiter's atomic consume + per-claim soft-reject (reason 14) don't
+batch without changing semantics (all-or-nothing) and over-consuming, which broke
+BM-RPT-1/2/3 — not worth ~1 claim. Kept per-claim.
 
-**Practical guidance:** with Tier 1 (+3 landed), relays can safely batch **≤6 claims/tx** on Paseo
-today (≤7 with Tier 3). Set the relay's batch size to the measured safe ceiling for the deployed
-tier; do not rely on the contract's `maxBatchSize=50` on pallet-revive.
+**Toward 50:** the remaining per-claim cost is now storage writes (`_userTotalSettled`,
+`_lastNonce`, `_userCampaignSettled`, optional window-events) + the `ClaimSettled` event. Pushing
+past ~11 means collapsing those per-claim writes into batched/aggregate writes, or a structural
+change (off-chain aggregation + single on-chain commitment / aggregate proof) — not more
+call-batching.
+
+**Practical guidance:** with all landed changes, relays can safely batch **≤10 claims/tx** on
+Paseo (measured ceiling 11; keep one claim of margin). Set the relay batch size to the measured
+safe ceiling for the deployed build; do not rely on the contract's `maxBatchSize=50` on pallet-revive.

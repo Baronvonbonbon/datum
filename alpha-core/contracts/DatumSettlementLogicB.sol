@@ -454,6 +454,9 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
 
             // BM-5: Per-publisher window rate limit (view claims only).
             //       Delegated to DatumSettlementRateLimiter (atomic try-consume).
+            //       Kept PER-CLAIM: the limiter's atomic consume + per-claim soft-reject
+            //       (reason 14) don't batch cleanly (all-or-nothing would change semantics
+            //       and over-consume), and batching it only buys ~1 claim of headroom.
             if (address(_rateLimiter) != address(0) && claim.actionType == 0) {
                 if (!_rateLimiter.tryConsume(claim.publisher, claim.eventCount)) {
                     result.rejectedCount++;
@@ -515,18 +518,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             uint256 userPayment = (rem * uint256(_userShareBps)) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;
 
-            // Deduct from budget ledger (state-only). The aggregate DOT is moved to the
-            // PaymentVault once per batch via transferSettled() below — collapsing N
-            // per-claim native transfers into one (pallet-revive storage-deposit fix).
-            bool exhausted = _budgetLedger.deduct(
-                campaignId, claim.actionType, totalPayment
-            );
-            if (exhausted) {
-                agg.exhausted = true;
-                agg.campaignIdExhausted = campaignId;
-                gapFound = true;
-            }
-
+            // Budget deduction is BATCHED: the loop only accumulates agg.total here;
+            // a single _budgetLedger.deduct(campaignId, batchActionType, agg.total) runs
+            // after the loop (the batch is single-actionType — claims of a different type
+            // are rejected above — so one deduct covers it). This removes the per-claim
+            // deduct cross-contract call. Budget (E16) + daily-cap (E26) are still enforced
+            // atomically by that one deduct, so an over-budget batch fails closed (reverts)
+            // — no over-spend is possible. (Trade-off: a batch that overdraws reverts
+            // wholesale instead of settling an exact-boundary prefix; relays size to budget.)
             agg.total += totalPayment;
             agg.publisherPayment += publisherPayment;
             agg.userPayment += userPayment;
@@ -576,11 +575,17 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!(_cbTotal <= _maxSettlementPerBlock)) revert E80();
         }
 
-        // Aggregate budget→vault transfer + vault credit — one of each per batch.
-        // transferSettled moves the batch's summed DOT (== agg.total == sum of per-claim
-        // deduct amounts) to the vault in a single native transfer; creditSettlement then
-        // books the per-party split (which sums to agg.total).
+        // Aggregate budget deduction + vault transfer + vault credit — one of each per
+        // batch (single actionType). deduct enforces budget (E16) and daily cap (E26)
+        // atomically on the batch total — fail-closed, so no over-spend; transferSettled
+        // then moves that exact total to the vault in one native transfer and
+        // creditSettlement books the per-party split (which sums to agg.total).
         if (agg.total > 0) {
+            bool exhausted = _budgetLedger.deduct(campaignId, batchActionType, agg.total);
+            if (exhausted) {
+                agg.exhausted = true;
+                agg.campaignIdExhausted = campaignId;
+            }
             _budgetLedger.transferSettled(address(_paymentVault), agg.total);
             _paymentVault.creditSettlement(
                 agg.publisher, agg.publisherPayment, user, agg.userPayment, agg.protocolFee
