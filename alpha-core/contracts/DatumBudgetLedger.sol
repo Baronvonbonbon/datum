@@ -223,6 +223,51 @@ contract DatumBudgetLedger is IDatumBudgetLedger, PaseoSafeSender, DatumFundMigr
         _send(recipient, amount);
     }
 
+    /// @inheritdoc IDatumBudgetLedger
+    /// @dev State-only twin of `deductAndTransfer` — identical pot accounting and daily-cap
+    ///      enforcement, but performs NO native transfer. The batch's summed amount is moved
+    ///      once via `transferSettled`, so a multi-claim settle makes a single transfer instead
+    ///      of N (pallet-revive storage-deposit fix). No nonReentrant needed: no external call.
+    function deduct(
+        uint256 campaignId,
+        uint8   actionType,
+        uint256 amount
+    ) external returns (bool exhausted) {
+        require(msg.sender == settlement, "E25");
+        require(actionType <= 2, "E88");
+
+        Budget storage b = _budgets[campaignId][actionType];
+        require(amount <= b.remaining, "E16");
+
+        // Daily cap reset on new day
+        uint256 today = block.timestamp / 86400;
+        if (today != b.lastSpendDay) {
+            b.dailySpent = 0;
+            b.lastSpendDay = today;
+        }
+
+        require(b.dailySpent + amount <= b.dailyCap, "E26");
+
+        b.dailySpent += amount;
+        b.remaining -= amount;
+        lastSettlementBlock[campaignId] = block.number;
+
+        emit BudgetDeducted(campaignId, actionType, amount, b.remaining);
+
+        exhausted = (b.remaining == 0);
+    }
+
+    /// @inheritdoc IDatumBudgetLedger
+    /// @dev One aggregate transfer of already-`deduct`-ed funds to the PaymentVault per batch.
+    ///      `amount` must equal the sum of the batch's `deduct` amounts (Settlement guarantees
+    ///      this); the pots' `remaining` were already reduced and the escrowed DOT is pooled in
+    ///      this contract, so the transfer is always backed.
+    function transferSettled(address recipient, uint256 amount) external nonReentrant {
+        require(msg.sender == settlement, "E25");
+        if (amount == 0) return;
+        _send(recipient, amount);
+    }
+
     // -------------------------------------------------------------------------
     // Budget drain (Lifecycle only — loops all pots internally)
     // -------------------------------------------------------------------------

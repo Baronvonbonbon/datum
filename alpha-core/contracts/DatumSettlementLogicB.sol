@@ -493,9 +493,11 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             uint256 userPayment = (rem * uint256(_userShareBps)) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;
 
-            // Deduct from budget ledger and transfer DOT to payment vault
-            bool exhausted = _budgetLedger.deductAndTransfer(
-                campaignId, claim.actionType, totalPayment, address(_paymentVault)
+            // Deduct from budget ledger (state-only). The aggregate DOT is moved to the
+            // PaymentVault once per batch via transferSettled() below — collapsing N
+            // per-claim native transfers into one (pallet-revive storage-deposit fix).
+            bool exhausted = _budgetLedger.deduct(
+                campaignId, claim.actionType, totalPayment
             );
             if (exhausted) {
                 agg.exhausted = true;
@@ -552,8 +554,12 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!(_cbTotal <= _maxSettlementPerBlock)) revert E80();
         }
 
-        // Aggregate paymentVault credit
+        // Aggregate budget→vault transfer + vault credit — one of each per batch.
+        // transferSettled moves the batch's summed DOT (== agg.total == sum of per-claim
+        // deduct amounts) to the vault in a single native transfer; creditSettlement then
+        // books the per-party split (which sums to agg.total).
         if (agg.total > 0) {
+            _budgetLedger.transferSettled(address(_paymentVault), agg.total);
             _paymentVault.creditSettlement(
                 agg.publisher, agg.publisherPayment, user, agg.userPayment, agg.protocolFee
             );

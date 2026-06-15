@@ -1,0 +1,41 @@
+Alpha-Core — live Paseo settle-weight capture + multi-claim finding (2026-06-15)
+chainId 420420417. Tooling: scripts/capture-settle-weight-paseo.ts (SLIM-correct, PoW-mining + tx-retry).
+
+=== HEADLINE: multi-claim settleClaims REVERTS on Paseo (pallet-revive runtime bug) ===
+Confirmed via a FULL FRESH REDEPLOY (deploy.ts, 49 contracts, 2026-06-15) then a clean capture
+as a properly-staked publisher (diana staked 1 DOT) with PoW disabled, fresh campaign per batch:
+
+  n=1  x100imp : SETTLED  (lastNonce 0->1)  weight=77,592  (0.0776 PAS)   [full-feature deploy]
+  n=5  x100imp : REVERTED (status=0, empty 0x, 0 logs)     gasUsed=44,354 (revert-path, NOT settle)
+  n=10 x100imp : REVERTED (status=0, empty 0x, 0 logs)     gasUsed=49,974 (revert-path, NOT settle)
+
+Deploy-state hypothesis REFUTED: brand-new deploy + staked publisher + PoW off + fresh campaign
+still reverts on n>=2. Single-claim settles on the same path/format. Local EVM settles 1..200 fine
+(stress-test §5.1). => pallet-revive-specific divergence in the multi-claim path; empty 0x (no
+selector) on the 2nd+ claim points at runtime, not Solidity. Suspects: Settlement->LogicA->LogicB
+DELEGATECALL chain, a precompile on the chain-continuation path, or per-claim-loop weight metering.
+PRODUCTION IMPACT: on-chain claim aggregation does not work on Paseo; relays limited to 1 claim/tx.
+Recommend repro on a local pallet-revive (kitchensink) node + contract trace.
+
+=== Verified single-claim Paseo settle weight ===
+  full-feature deploy (stake+reputation+nullifier+ratelimiter gates active): 77,592 weight ~ 0.078 PAS
+  leaner live deploy: 24,167 warm / 42,826 cold weight ~ 0.024-0.043 PAS
+Multi-claim cost proxy (local EVM, since Paseo can't execute): 5=512,296 / 10=670,989 gas; ~31,836 gas/claim.
+
+=== Other per-function real Paseo weights (gas-costs.ts) ===
+  vote 40,153 ; registerSdkVersion 4,444 ; withdrawProtocol 1,759 ; withdrawPublisher 1,598.
+  Paseo weight != EVM gas (non-constant ratio: vote 4.7x, settle ~13-16x, withdraw ~22x smaller).
+
+=== Settle gates / thresholds discovered (Paseo) ===
+  reason 15 = publisher under-staked (must stake baseStakeWei = 1 DOT before settling).
+  minimumCpmFloor = 1e15 wei (0.001 DOT); createCampaign below reverts E27 (0xce1ffe13).
+  BM-10 _minClaimInterval: 2nd settle same (user,campaign) in-window rejects reason 18.
+  Transient code-1010 "Invalid Transaction"/"could not coalesce" gateway errors -> need tx retries.
+  benchmark-paseo.ts is STALE (old flat claim format) -> its settle rows all reject; needs SLIM fix.
+
+=== Deploy notes ===
+  deploy.ts is idempotent (reuses deployed-addresses.json, resumes wiring after transient crash).
+  Fresh deploy's final validation failed only on ClaimValidator.zkVerifier unset (WIRE_ZK_PREDICATE=1
+  not passed) — irrelevant to non-ZK CPM settle. Live canonical addresses RESTORED post-measurement
+  (deployed-addresses.json -> original 0x477B... deploy); fresh-deploy addresses saved to
+  deployed-addresses.bench-fresh-2026-06-15.json. Backups: deployed-addresses.prebench-2026-06-15.json.
