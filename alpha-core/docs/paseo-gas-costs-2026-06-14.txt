@@ -1,0 +1,182 @@
+◇ injected env (14) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+◇ injected env (0) from .env // tip: ⌘ multiple files { path: ['.env.local', '.env'] }
+
+Datum Alpha-4 — Gas Cost Estimation
+Network: https://eth-rpc-testnet.polkadot.io/
+Collecting estimates (this may take ~60 s)…
+
+
+══════════════════════════════════════════════════════════════════════════
+  STATE-CHANGING FUNCTIONS — Gas (weight units)
+══════════════════════════════════════════════════════════════════════════
+    Function                                        Gas    PAS fee    $5/DOT   $10/DOT   $20/DOT
+    ──────────────────────────────────────────────────────────────────────────────────────────────
+
+  ── PauseRegistry ──
+    pause                                        18,380   0.018380   $0.0919   $0.1838   $0.3676
+    unpause                                           —          —  REVERTED (0x3f4ba83a…)
+
+  ── Publishers ──
+    registerPublisher                                 —          —  REVERTED: Already registered
+    updateTakeRate                                    —          —  REVERTED: Take rate out of range
+    applyTakeRateUpdate                               —          —  REVERTED: No pending update
+    blockAddress                                      —          —  REVERTED (0xad2bb1b30000000000…)
+    unblockAddress                                    —          —  REVERTED (0x186d9d880000000000…)
+    setAllowlistEnabled                           1,895   0.001895   $0.0095   $0.0190   $0.0379
+    setAllowedAdvertiser                         13,346   0.013346   $0.0667   $0.1335   $0.2669
+    registerSdkVersion                            4,444   0.004444   $0.0222   $0.0444   $0.0889
+    setRelaySigner                                2,076   0.002076   $0.0104   $0.0208   $0.0415
+    setProfile                                    4,444   0.004444   $0.0222   $0.0444   $0.0889
+    transferOwnership                             1,470   0.001470   $0.0073   $0.0147   $0.0294
+
+  ── Campaigns ──
+    setPublisherTags                                  —          —  REVERTED (0x96ee029c0000000000…)
+    setPublisherTags                                  —          —  REVERTED (0x96ee029c0000000000…)
+    createCampaign                                    —          —  REVERTED: 
+    createCampaign                                    —          —  REVERTED (0xac9a860f0000000000…)
+    createCampaign                                    —          —  REVERTED (0xac9a860f0000000000…)
+    setMetadata                                       —          —  REVERTED (0x3151609e0000000000…)
+    togglePause                                       —          —  REVERTED (0xbf68d221…)
+    togglePause                                       —          —  REVERTED (0xbf68d221…)
+    activateCampaign                                  —          —  REVERTED (0xa97809f5…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportAd                                          —          —  REVERTED (0x750977100000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+    reportPage                                        —          —  REVERTED (0x5360b8320000000000…)
+
+  ── GovernanceV2 ──
+    vote                                         40,153   0.040153   $0.2008   $0.4015   $0.8031  [100 DOT conviction-0 vote on campaign 2]
+    vote                                         40,153   0.040153   $0.2008   $0.4015   $0.8031  [100 DOT conviction-0 vote on campaign 1]
+    evaluateCampaign                                  —          —  REVERTED: E46
+    withdraw                                          —          —  REVERTED: E44
+    finalizeSlash                                     —          —  REVERTED: E60
+    claimSlashReward                                  —          —  REVERTED: E54
+    sweepSlashPool                                    —          —  REVERTED: E54
+
+  ── CampaignLifecycle ──
+    completeCampaign                             13,905   0.013905   $0.0695   $0.1391   $0.2781  [only callable by GovernanceV2]
+    terminateCampaign                                 —          —  REVERTED: E19
+    expireInactiveCampaign                            —          —  REVERTED: E64
+
+  ── BudgetLedger ──
+    initializeBudget                                  —          —  REVERTED (0x854b73d70000000000…)
+    sweepDust                                         —          —  REVERTED: E14
+
+  ── PaymentVault ──
+    withdrawPublisher                             1,598   0.001598   $0.0080   $0.0160   $0.0320  [withdraws accrued publisher balance]
+    withdrawUser                                      —          —  REVERTED: E03
+    withdrawProtocol                              1,759   0.001759   $0.0088   $0.0176   $0.0352
+    creditSettlement                                  —          —  REVERTED: E25
+
+  ── Settlement ──
+    setClaimValidator                             1,528   0.001528   $0.0076   $0.0153   $0.0306
+    setAttestationVerifier                        1,528   0.001528   $0.0076   $0.0153   $0.0306
+    setPublishers                                 1,528   0.001528   $0.0076   $0.0153   $0.0306
+    setRateLimits                                     —          —  REVERTED (0x1e69d1ce0000000000…)
+
+  ── ClaimValidator ──
+    setCampaigns                                  1,525   0.001525   $0.0076   $0.0153   $0.0305
+    setPublishers                                 1,525   0.001525   $0.0076   $0.0153   $0.0305
+    setZKVerifier                                 1,525   0.001525   $0.0076   $0.0153   $0.0305
+
+  ── ZKVerifier ──
+    verify                                            —          —  REVERTED (0x6b4063410000000000…)
+    verify                                            —          —  REVERTED: 
+
+  ── Timelock ──
+    propose                                           —          —  REVERTED (0x9d4818480000000000…)
+    execute                                           —          —  REVERTED (0x61461954…)
+    cancel                                            —          —  REVERTED (0xea8a1af0…)
+
+  ── Relay ──
+    settleClaimsFor                                   —          —  requires valid signed ClaimBatch[] — see settlement gas
+
+  ── AttestationVerifier ──
+    settleClaimsAttested                              —          —  requires valid AttestedBatch[] — see settlement gas
+
+  18 functions estimated, 42 skipped/reverted
+
+══════════════════════════════════════════════════════════════════════════
+  TOP 15 MOST EXPENSIVE (state-changing)
+══════════════════════════════════════════════════════════════════════════
+    Function                                                       Gas    PAS fee    $5/DOT   $10/DOT   $20/DOT
+    GovernanceV2.vote                                           40,153   0.040153   $0.2008   $0.4015   $0.8031
+    GovernanceV2.vote                                           40,153   0.040153   $0.2008   $0.4015   $0.8031
+    PauseRegistry.pause                                         18,380   0.018380   $0.0919   $0.1838   $0.3676
+    CampaignLifecycle.completeCampaign                          13,905   0.013905   $0.0695   $0.1391   $0.2781
+    Publishers.setAllowedAdvertiser                             13,346   0.013346   $0.0667   $0.1335   $0.2669
+    Publishers.setProfile                                        4,444   0.004444   $0.0222   $0.0444   $0.0889
+    Publishers.registerSdkVersion                                4,444   0.004444   $0.0222   $0.0444   $0.0889
+    Publishers.setRelaySigner                                    2,076   0.002076   $0.0104   $0.0208   $0.0415
+    Publishers.setAllowlistEnabled                               1,895   0.001895   $0.0095   $0.0190   $0.0379
+    PaymentVault.withdrawProtocol                                1,759   0.001759   $0.0088   $0.0176   $0.0352
+    PaymentVault.withdrawPublisher                               1,598   0.001598   $0.0080   $0.0160   $0.0320
+    Settlement.setPublishers                                     1,528   0.001528   $0.0076   $0.0153   $0.0306
+    Settlement.setAttestationVerifier                            1,528   0.001528   $0.0076   $0.0153   $0.0306
+    Settlement.setClaimValidator                                 1,528   0.001528   $0.0076   $0.0153   $0.0306
+    ClaimValidator.setZKVerifier                                 1,525   0.001525   $0.0076   $0.0153   $0.0305
+
+══════════════════════════════════════════════════════════════════════════
+  VIEW FUNCTIONS (free — no gas to caller)
+══════════════════════════════════════════════════════════════════════════
+
+  ── PauseRegistry ──
+    paused() → bool
+
+  ── Publishers ──
+    getPublisher(address) → Publisher
+    isRegisteredWithRate(address) → (bool, uint16)
+    isBlocked(address) → bool
+    isAllowedAdvertiser(address, address) → bool
+    getSdkVersion(address) → bytes32
+
+  ── Campaigns ──
+    getPublisherTags2(address) → bytes32[]
+    hasAllTags(address, bytes32[]) → bool
+    getCampaignStatus(uint256) → CampaignStatus
+    getCampaignAdvertiser(uint256) → address
+    getCampaignPublisher(uint256) → address
+    getCampaignTags(uint256) → bytes32[]
+    getCampaignRelaySigner(uint256) → address
+    getCampaignPublisherTags(uint256) → bytes32[]
+    getCampaignRequiresZkProof(uint256) → bool
+    getCampaignForSettlement(uint256) → (uint8,address,uint256,uint16)
+
+  ── GovernanceV2 ──
+    getVote(uint256, address) → (uint8,uint256,uint8,uint256)
+    convictionWeight(uint8) → uint256
+    getClaimable(uint256, address) → uint256
+
+  ── BudgetLedger ──
+    getRemainingBudget(uint256) → uint256
+    getDailyCap(uint256) → uint256
+
+  ── ZKVerifier ──
+    getVK() → VerifyingKey
+    vkSet() → bool
+
+  ── Settlement ──
+    rlWindowBlocks() → uint256
+    rlMaxEventsPerWindow() → uint256
+    currentWindowUsage(address) → (uint256,uint256,uint256)
+
+  ── PublisherReputation ──
+    getReputationScore(address) → uint16
+    isAnomaly(address, uint256) → bool
+    getPublisherStats(address) → (uint256,uint256)
+
+══════════════════════════════════════════════════════════════════════════
+  NOTES
+══════════════════════════════════════════════════════════════════════════
+  Unit mapping (confirmed by eth_getBalance): 1 ETH = 1 PAS = 10^10 planck.
+  fee_PAS = gas × gasPrice / 10^18  (standard Ethereum formula).
+  Paseo gasPrice = 10^12 wei/gas  →  fee_PAS = gas / 1,000,000.
+  BN254 ecPairing (verify) is ~51–88× cheaper than Ethereum mainnet.
+  settleClaims: not directly estimatable without signed batch; see benchmark.
+  View function RPC latency: 200–700 ms (no fee to caller).
+  '—' = reverted (needs specific live state) or restricted to internal callers.
+

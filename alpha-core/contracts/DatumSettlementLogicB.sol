@@ -347,6 +347,32 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
+        // Tier-1 fan-out reduction: hoist the two batch-invariant per-claim reads out
+        // of the loop. The campaign user-cap is campaignId-invariant; publisher stake
+        // adequacy is publisher-invariant (E34) and constant until recordImpressions
+        // runs post-loop — so reading each once is equivalent to per-claim, and cuts
+        // two cross-contract calls per claim on pallet-revive.
+        uint32 capMaxHoisted;
+        uint32 capWinHoisted;
+        if (address(_campaigns) != address(0)) {
+            (, capMaxHoisted, capWinHoisted) = _campaigns.getCampaignUserCapSafe(campaignId);
+        }
+        bool publisherStakedHoisted =
+            address(_publisherStake) == address(0) || _publisherStake.isAdequatelyStaked(batchPublisher);
+
+        // Tier-3 fan-out reduction: validate the whole chain in ONE cross-contract call
+        // instead of one per claim. The validator threads the sequential nonce/prevHash
+        // from the current chain head and aborts on the first failure (reason 1 for the
+        // rest), mirroring the gapFound abort below — so the per-claim results it returns
+        // line up with what this loop would have computed call-by-call.
+        (bool[] memory vOks, uint8[] memory vReasons, bytes32[] memory vHashes) =
+            _claimValidator.validateBatch(
+                claims, user, campaignId,
+                _lastNonce[user][campaignId][batchActionType] + 1,
+                _lastClaimHash[user][campaignId][batchActionType],
+                ctx
+            );
+
         for (uint256 i = 0; i < claims.length; i++) {
             IDatumSettlement.Claim calldata claim = claims[i];
 
@@ -356,7 +382,6 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // settle, and emitted in events. A rejected claim does not consume
             // the nonce, so the next claim reuses it (the chain stays linear).
             uint256 assignedNonce = _lastNonce[user][campaignId][batchActionType] + 1;
-            bytes32 prevHash      = _lastClaimHash[user][campaignId][batchActionType];
 
             // HOIST (#1): single-actionType invariant. ctx (pot rate, ZK/PoW
             // flags) was resolved for batchActionType; a claim with a
@@ -380,11 +405,12 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // across the batch (E34), so both gates run once before the loop
             // instead of once per claim.
 
-            // Delegate per-claim validation to ClaimValidator satellite (SE-1),
-            // threading the once-per-batch ctx + derived campaignId/nonce/prevHash
-            // so no campaign/publisher staticcalls run here.
-            (bool ok, uint8 reasonCode, bytes32 computedHash) =
-                _claimValidator.validateClaimWithContext(claim, user, campaignId, assignedNonce, prevHash, ctx);
+            // Per-claim validation result from the single batched validateBatch call
+            // above (Tier 3) — no per-claim cross-contract validator call here. For the
+            // settled prefix the validator's nonce (startNonce+i) equals assignedNonce,
+            // so vHashes[i] is the canonical hash to store; once any claim is rejected,
+            // gapFound short-circuits subsequent claims before these are read.
+            (bool ok, uint8 reasonCode, bytes32 computedHash) = (vOks[i], vReasons[i], vHashes[i]);
 
             if (!ok) {
                 // SLIM (#2): any validation failure aborts the remainder. With
@@ -412,25 +438,25 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             //     max, win) when known; (ok=false, 0, 0) when unknown.
             //     Both branches treat "no cap" identically (skip the block),
             //     so we just check max > 0 after the safe call.
-            if (address(_campaigns) != address(0)) {
-                (, uint32 capMax, uint32 capWin) = _campaigns.getCampaignUserCapSafe(campaignId);
-                if (capMax > 0) {
-                    if (capWin > 0) {
-                        uint256 wid = block.number / uint256(capWin);
-                        uint256 cur = _userCampaignWindowEvents[user][campaignId][claim.actionType][wid];
-                        if (cur + claim.eventCount > uint256(capMax)) {
-                            result.rejectedCount++;
-                            emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 29);
-                            gapFound = true;
-                            continue;
-                        }
-                        _userCampaignWindowEvents[user][campaignId][claim.actionType][wid] = cur + claim.eventCount;
-                    }
+            // Uses hoisted capMaxHoisted/capWinHoisted (read once above). The per-claim
+            // window-event accumulation stays here — it's in-storage, not a cross-contract call.
+            if (capMaxHoisted > 0 && capWinHoisted > 0) {
+                uint256 wid = block.number / uint256(capWinHoisted);
+                uint256 cur = _userCampaignWindowEvents[user][campaignId][claim.actionType][wid];
+                if (cur + claim.eventCount > uint256(capMaxHoisted)) {
+                    result.rejectedCount++;
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 29);
+                    gapFound = true;
+                    continue;
                 }
+                _userCampaignWindowEvents[user][campaignId][claim.actionType][wid] = cur + claim.eventCount;
             }
 
             // BM-5: Per-publisher window rate limit (view claims only).
             //       Delegated to DatumSettlementRateLimiter (atomic try-consume).
+            //       Kept PER-CLAIM: the limiter's atomic consume + per-claim soft-reject
+            //       (reason 14) don't batch cleanly (all-or-nothing would change semantics
+            //       and over-consume), and batching it only buys ~1 claim of headroom.
             if (address(_rateLimiter) != address(0) && claim.actionType == 0) {
                 if (!_rateLimiter.tryConsume(claim.publisher, claim.eventCount)) {
                     result.rejectedCount++;
@@ -440,14 +466,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 }
             }
 
-            // FP-1: Publisher stake adequacy check (optional)
-            if (address(_publisherStake) != address(0)) {
-                if (!_publisherStake.isAdequatelyStaked(claim.publisher)) {
-                    result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 15);
-                    gapFound = true;
-                    continue;
-                }
+            // FP-1: Publisher stake adequacy (uses publisherStakedHoisted, read once above;
+            // publisher is E34-invariant so per-claim == per-batch).
+            if (!publisherStakedHoisted) {
+                result.rejectedCount++;
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 15);
+                gapFound = true;
+                continue;
             }
 
             // SLIM (#2b): nullifier + clickSessionHash live in the optional
@@ -493,16 +518,14 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             uint256 userPayment = (rem * uint256(_userShareBps)) / BPS_DENOMINATOR;
             uint256 protocolFee = rem - userPayment;
 
-            // Deduct from budget ledger and transfer DOT to payment vault
-            bool exhausted = _budgetLedger.deductAndTransfer(
-                campaignId, claim.actionType, totalPayment, address(_paymentVault)
-            );
-            if (exhausted) {
-                agg.exhausted = true;
-                agg.campaignIdExhausted = campaignId;
-                gapFound = true;
-            }
-
+            // Budget deduction is BATCHED: the loop only accumulates agg.total here;
+            // a single _budgetLedger.deduct(campaignId, batchActionType, agg.total) runs
+            // after the loop (the batch is single-actionType — claims of a different type
+            // are rejected above — so one deduct covers it). This removes the per-claim
+            // deduct cross-contract call. Budget (E16) + daily-cap (E26) are still enforced
+            // atomically by that one deduct, so an over-budget batch fails closed (reverts)
+            // — no over-spend is possible. (Trade-off: a batch that overdraws reverts
+            // wholesale instead of settling an exact-boundary prefix; relays size to budget.)
             agg.total += totalPayment;
             agg.publisherPayment += publisherPayment;
             agg.userPayment += userPayment;
@@ -552,8 +575,18 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             if (!(_cbTotal <= _maxSettlementPerBlock)) revert E80();
         }
 
-        // Aggregate paymentVault credit
+        // Aggregate budget deduction + vault transfer + vault credit — one of each per
+        // batch (single actionType). deduct enforces budget (E16) and daily cap (E26)
+        // atomically on the batch total — fail-closed, so no over-spend; transferSettled
+        // then moves that exact total to the vault in one native transfer and
+        // creditSettlement books the per-party split (which sums to agg.total).
         if (agg.total > 0) {
+            bool exhausted = _budgetLedger.deduct(campaignId, batchActionType, agg.total);
+            if (exhausted) {
+                agg.exhausted = true;
+                agg.campaignIdExhausted = campaignId;
+            }
+            _budgetLedger.transferSettled(address(_paymentVault), agg.total);
             _paymentVault.creditSettlement(
                 agg.publisher, agg.publisherPayment, user, agg.userPayment, agg.protocolFee
             );

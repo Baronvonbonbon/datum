@@ -594,6 +594,43 @@ contract DatumClaimValidator is IDatumClaimValidator, DatumPlumbingLockable {
     }
 
     /// @inheritdoc IDatumClaimValidator
+    /// @dev Tier-3 fan-out reduction: one cross-contract call validates the whole
+    ///      chain instead of one per claim. Reuses validateClaimWithContext verbatim
+    ///      (no logic divergence); only the sequential nonce/prevHash threading +
+    ///      abort-on-first-failure live here, matching LogicB's gapFound semantics.
+    function validateBatch(
+        IDatumSettlement.Claim[] calldata claims,
+        address user,
+        uint256 campaignId,
+        uint256 startNonce,
+        bytes32 startPrevHash,
+        IDatumClaimValidator.BatchContext memory ctx
+    ) external view override returns (bool[] memory oks, uint8[] memory reasons, bytes32[] memory computedHashes) {
+        uint256 n = claims.length;
+        oks = new bool[](n);
+        reasons = new uint8[](n);
+        computedHashes = new bytes32[](n);
+        bytes32 prevHash = startPrevHash;
+        bool gap = false;
+        for (uint256 i = 0; i < n; i++) {
+            if (gap) {
+                // An earlier claim failed; the chain head didn't advance, so the
+                // rest are rejected regardless (reason 1) — don't bother validating.
+                reasons[i] = 1;
+                continue;
+            }
+            // Before the first failure every prior claim validated OK, so the chain
+            // advanced i times ⇒ this claim's nonce is startNonce + i.
+            (bool ok, uint8 r, bytes32 h) =
+                validateClaimWithContext(claims[i], user, campaignId, startNonce + i, prevHash, ctx);
+            oks[i] = ok;
+            reasons[i] = r;
+            computedHashes[i] = h;
+            if (ok) { prevHash = h; } else { gap = true; }
+        }
+    }
+
+    /// @inheritdoc IDatumClaimValidator
     /// @dev Back-compat monolithic entry: resolveBatchContext +
     ///      validateClaimWithContext composed for a single claim. Behaviour is
     ///      identical to the pre-hoist validateClaim for direct callers/tests.

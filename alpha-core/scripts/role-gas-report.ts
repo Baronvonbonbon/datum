@@ -43,6 +43,7 @@ import { ethers } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
 import { fundSigners, mineBlocks } from "../test/helpers/mine";
 import { wireSettlementLogic } from "../test/helpers/settlementLogic";
+import { mkProof, contentHashClaims } from "../test/helpers/slimClaim";
 import fs from "fs";
 import path from "path";
 
@@ -347,7 +348,7 @@ const TAKE_RATE_DELAY = 20n;
 const PENDING_TIMEOUT = 50n;
 const INACTIVITY_TIMEOUT = 432000n;
 
-async function deployAll() {
+export async function deployAll() {
   await fundSigners(20);
   const [owner, advertiser, publisher, publisher2, user, voter, relay, councilA, councilB, councilC, councilGuardian, reporter2, curator, challenger] = await ethers.getSigners();
 
@@ -565,7 +566,7 @@ function computeClaimHash(c: any): string {
   ));
 }
 
-function buildClaim(args: {
+export function buildClaim(args: {
   cid: bigint;
   publisher: string;
   user: string;
@@ -578,22 +579,25 @@ function buildClaim(args: {
   /// Required when actionType=1; computed via _sessionHash(user, cid, nonce).
   clickSessionHash?: string;
 }) {
+  const actionType = args.actionType ?? 0;
+  const clickSessionHash = args.clickSessionHash ?? ethers.ZeroHash;
   const c: any = {
-    campaignId: args.cid,
+    // ── SLIM (#2b) on-chain wire fields: { publisher, eventCount, rateWei, actionType, proof[] } ──
     publisher: args.publisher,
-    user: args.user,
     eventCount: args.events,
     rateWei: args.rate,
-    actionType: args.actionType ?? 0,
-    clickSessionHash: args.clickSessionHash ?? ethers.ZeroHash,
+    actionType,
+    // Plain CPM view claim → empty sidecar. CPC carries the click session hash.
+    // CPA's actionSig is filled in by the caller after signing (see signCpaClaim).
+    proof: actionType === 1 ? mkProof({ clickSessionHash }) : [],
+    // ── JS-only bookkeeping (ignored by the ABI encoder; used for hashing/signing) ──
+    campaignId: args.cid,
+    user: args.user,
+    clickSessionHash,
     nonce: args.nonce,
     previousClaimHash: args.prev,
-    claimHash: ethers.ZeroHash,
-    zkProof: ZERO_PROOF(),
-    nullifier: ethers.ZeroHash,
     stakeRootUsed: ethers.ZeroHash,
-    actionSig: ZERO_ACTION(),
-    powNonce: ethers.ZeroHash,
+    claimHash: ethers.ZeroHash,
   };
   c.claimHash = computeClaimHash(c);
   return c;
@@ -613,7 +617,7 @@ async function signCpaClaim(claim: any, signer: any): Promise<string[]> {
   return [r, s, vAsBytes32];
 }
 
-function buildClaimChain(cid: bigint, pub: string, user: string, rate: bigint, count: number, events: bigint, startNonce: bigint = 1n) {
+export function buildClaimChain(cid: bigint, pub: string, user: string, rate: bigint, count: number, events: bigint, startNonce: bigint = 1n) {
   const claims = [];
   let prev = ethers.ZeroHash;
   for (let i = 0; i < count; i++) {
@@ -626,7 +630,7 @@ function buildClaimChain(cid: bigint, pub: string, user: string, rate: bigint, c
 
 interface PotSpec { actionType: 0 | 1 | 2; budget: bigint; dailyCap: bigint; rate: bigint; actionVerifier?: string }
 
-async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigint> {
+export async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigint> {
   const totalBudget = pots.reduce((s, p) => s + p.budget, 0n);
   const potArray = pots.map((p) => ({
     actionType: p.actionType,
@@ -648,7 +652,7 @@ async function activateCampaignWithPots(ctx: any, pots: PotSpec[]): Promise<bigi
   return cid;
 }
 
-async function activateCampaign(ctx: any, budget: bigint, dailyCap: bigint, cpm: bigint): Promise<bigint> {
+export async function activateCampaign(ctx: any, budget: bigint, dailyCap: bigint, cpm: bigint): Promise<bigint> {
   const tx = await ctx.campaigns.connect(ctx.advertiser).createCampaign(
     ctx.publisher.address,
     [{ actionType: 0, budgetWei: budget, dailyCapWei: dailyCap, rateWei: cpm, actionVerifier: ethers.ZeroAddress }],
@@ -783,7 +787,7 @@ async function measureAll(ctx: any) {
       rate: CPA_RATE, events: 1n, nonce: 1n, prev: ethers.ZeroHash,
       actionType: 2,
     });
-    cpaClaim.actionSig = await signCpaClaim(cpaClaim, actionSigner);
+    cpaClaim.proof = mkProof({ actionSig: await signCpaClaim(cpaClaim, actionSigner) });
     await measure("Relay", "settleClaims (1 CPA action)",
       ctx.settlement.connect(ctx.user).settleClaims([{ user: ctx.user.address, campaignId: cidCPA, claims: [cpaClaim] }]));
   } catch (e: any) {
@@ -801,18 +805,21 @@ async function measureAll(ctx: any) {
     const cidDS = await activateCampaignWithPots(ctx, [{ actionType: 0, budget: BUDGET, dailyCap: DAILY, rate: CPM }]);
     const net = await ethers.provider.getNetwork();
     const dsClaim = buildClaim({ cid: cidDS, publisher: ctx.publisher.address, user: dsUser.address, rate: CPM, events: 100n, nonce: 1n, prev: ethers.ZeroHash });
-    const claimsHash = ethers.keccak256(ethers.solidityPacked(["bytes32"], [dsClaim.claimHash]));
+    // SLIM (#2): firstNonce added; claimsHash binds to keccak(abi.encode(slimClaim)) per claim.
+    const claimsHash = contentHashClaims([dsClaim]);
+    const firstNonce = (dsClaim as any).nonce;
     const deadlineBlock = BigInt(await ethers.provider.getBlockNumber()) + 1000n;
     const dsDomain = { name: "DatumSettlement", version: "1", chainId: net.chainId, verifyingContract: await ctx.dualSig.getAddress() };
     const cbTypes = { ClaimBatch: [
-      { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "claimsHash", type: "bytes32" },
-      { name: "deadlineBlock", type: "uint256" }, { name: "expectedRelaySigner", type: "address" }, { name: "expectedAdvertiserRelaySigner", type: "address" },
+      { name: "user", type: "address" }, { name: "campaignId", type: "uint256" }, { name: "firstNonce", type: "uint256" },
+      { name: "claimsHash", type: "bytes32" }, { name: "deadlineBlock", type: "uint256" },
+      { name: "expectedRelaySigner", type: "address" }, { name: "expectedAdvertiserRelaySigner", type: "address" },
     ] };
-    const cbValue = { user: dsUser.address, campaignId: cidDS, claimsHash, deadlineBlock, expectedRelaySigner: ctx.relay.address, expectedAdvertiserRelaySigner: ethers.ZeroAddress };
+    const cbValue = { user: dsUser.address, campaignId: cidDS, firstNonce, claimsHash, deadlineBlock, expectedRelaySigner: ctx.relay.address, expectedAdvertiserRelaySigner: ethers.ZeroAddress };
     const publisherSig = await ctx.relay.signTypedData(dsDomain, cbTypes, cbValue);      // publisher's relaySigner == relay
     const advertiserSig = await ctx.advertiser.signTypedData(dsDomain, cbTypes, cbValue); // advertiser self-signs
     const batch = {
-      user: dsUser.address, campaignId: cidDS, claims: [dsClaim], deadlineBlock,
+      user: dsUser.address, campaignId: cidDS, firstNonce, claims: [dsClaim], deadlineBlock,
       expectedRelaySigner: ctx.relay.address, expectedAdvertiserRelaySigner: ethers.ZeroAddress,
       userSig: "0x", publisherSig, advertiserSig,
     };
@@ -2182,4 +2189,9 @@ async function main() {
   console.log(`Total measurements: ${rows.length}, skipped: ${rows.filter((r) => r.gas === 0n).length}`);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Only auto-run when invoked directly (e.g. `hardhat run scripts/role-gas-report.ts`).
+// When imported by another script (e.g. the stress harness) for its deploy/claim
+// helpers, the importer drives its own flow.
+if (require.main === module) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}

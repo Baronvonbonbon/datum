@@ -25,12 +25,30 @@ interface IDatumBudgetLedger {
 
     /// @notice Deduct from a specific pot and transfer DOT to recipient. Called by Settlement.
     /// @dev Enforces daily cap for the pot. Returns true if this pot is now exhausted.
+    /// @dev DEPRECATED for the batch settle path (one native transfer per claim exhausts
+    ///      pallet-revive's storage-deposit allowance on multi-claim batches). Settlement now
+    ///      uses `deduct` per claim + a single `transferSettled` per batch. Retained for compat.
     function deductAndTransfer(
         uint256 campaignId,
         uint8   actionType,
         uint256 amount,
         address recipient
     ) external returns (bool exhausted);
+
+    /// @notice Deduct from a specific pot WITHOUT transferring DOT (state-only). Called by
+    ///         Settlement once per claim; the batch's aggregate is moved once via
+    ///         `transferSettled`. Enforces daily cap. Returns true if the pot is now exhausted.
+    function deduct(
+        uint256 campaignId,
+        uint8   actionType,
+        uint256 amount
+    ) external returns (bool exhausted);
+
+    /// @notice Transfer a previously-deducted aggregate of DOT to `recipient` (the PaymentVault).
+    ///         Called once per settle batch by Settlement, after the per-claim `deduct` calls.
+    /// @dev Collapses N per-claim native transfers into one, so a multi-claim batch has the
+    ///      storage-deposit footprint of a single claim (pallet-revive multi-claim fix).
+    function transferSettled(address recipient, uint256 amount) external;
 
     /// @notice Queue all remaining budget across all pots as an advertiser refund.
     ///         M-1 (pull pattern): records into `pendingAdvertiserRefund[advertiser]`.

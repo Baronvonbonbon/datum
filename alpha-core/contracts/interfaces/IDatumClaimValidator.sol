@@ -64,6 +64,26 @@ interface IDatumClaimValidator {
         BatchContext memory ctx
     ) external view returns (bool valid, uint8 reasonCode, bytes32 computedHash);
 
+    /// @notice Validate a whole claim chain in ONE cross-contract call (hot-path
+    ///         fan-out reduction — Tier 3). Loops `validateClaimWithContext`
+    ///         internally, deriving the sequential chain: nonce = startNonce + i,
+    ///         prevHash threads each computed hash. Aborts on the first failure
+    ///         (subsequent entries → reason 1), mirroring LogicB's gapFound abort,
+    ///         so a settle either fills a prefix or rejects from the failure on.
+    /// @param startNonce     lastNonce + 1 for the (user, campaign, actionType) chain head.
+    /// @param startPrevHash  lastClaimHash for that chain head.
+    /// @return oks            per-claim pass/fail
+    /// @return reasons        per-claim reject reason (0 = valid)
+    /// @return computedHashes per-claim canonical hash (stored on settle)
+    function validateBatch(
+        IDatumSettlement.Claim[] calldata claims,
+        address user,
+        uint256 campaignId,
+        uint256 startNonce,
+        bytes32 startPrevHash,
+        BatchContext memory ctx
+    ) external view returns (bool[] memory oks, uint8[] memory reasons, bytes32[] memory computedHashes);
+
     /// @notice Validate a single claim against on-chain state. Back-compat
     ///         monolithic entry: resolveBatchContext + validateClaimWithContext
     ///         in one call. Used by direct callers/tests; the settle hot path
