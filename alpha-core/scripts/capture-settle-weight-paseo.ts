@@ -15,7 +15,9 @@ import fs from "fs";
 import path from "path";
 
 const RPC = process.env.TESTNET_RPC ?? "https://eth-rpc-testnet.polkadot.io/";
-const A = (() => { const j = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployed-addresses.json"), "utf8")); return j.addresses || j; })();
+const ADDR_FILE = process.env.ADDR_FILE ?? "deployed-addresses.json";
+const A = (() => { const j = JSON.parse(fs.readFileSync(path.join(__dirname, "..", ADDR_FILE), "utf8")); return j.addresses || j; })();
+const N_LIST = (process.env.N_LIST ?? "1,5,10").split(",").map((s) => parseInt(s.trim(), 10));
 const TX = { gasLimit: 500_000_000n as bigint };
 
 const PROOF_T = "(bytes32 clickSessionHash,bytes32 stakeRootUsed,bytes32 nullifier,bytes32 powNonce,bytes32[8] zkProof,bytes32[3] actionSig)";
@@ -180,7 +182,7 @@ async function main() {
   const out: Array<{ n: number; gas: bigint }> = [];
   try {
     console.log("\nReal settles by seeded account bob on the fresh campaign:");
-    for (const n of [1, 5, 10]) {
+    for (const n of N_LIST) {
       try { const { gas, settled } = await measureSettle(n); if (settled) out.push({ n, gas }); }
       catch (e) { console.log(`  n=${n} failed: ${String((e as any)?.shortMessage ?? (e as any)?.message ?? e).slice(0, 80)}`); }
     }

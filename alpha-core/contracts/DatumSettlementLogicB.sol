@@ -347,6 +347,19 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             }
         }
 
+        // Tier-1 fan-out reduction: hoist the two batch-invariant per-claim reads out
+        // of the loop. The campaign user-cap is campaignId-invariant; publisher stake
+        // adequacy is publisher-invariant (E34) and constant until recordImpressions
+        // runs post-loop — so reading each once is equivalent to per-claim, and cuts
+        // two cross-contract calls per claim on pallet-revive.
+        uint32 capMaxHoisted;
+        uint32 capWinHoisted;
+        if (address(_campaigns) != address(0)) {
+            (, capMaxHoisted, capWinHoisted) = _campaigns.getCampaignUserCapSafe(campaignId);
+        }
+        bool publisherStakedHoisted =
+            address(_publisherStake) == address(0) || _publisherStake.isAdequatelyStaked(batchPublisher);
+
         for (uint256 i = 0; i < claims.length; i++) {
             IDatumSettlement.Claim calldata claim = claims[i];
 
@@ -412,21 +425,18 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             //     max, win) when known; (ok=false, 0, 0) when unknown.
             //     Both branches treat "no cap" identically (skip the block),
             //     so we just check max > 0 after the safe call.
-            if (address(_campaigns) != address(0)) {
-                (, uint32 capMax, uint32 capWin) = _campaigns.getCampaignUserCapSafe(campaignId);
-                if (capMax > 0) {
-                    if (capWin > 0) {
-                        uint256 wid = block.number / uint256(capWin);
-                        uint256 cur = _userCampaignWindowEvents[user][campaignId][claim.actionType][wid];
-                        if (cur + claim.eventCount > uint256(capMax)) {
-                            result.rejectedCount++;
-                            emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 29);
-                            gapFound = true;
-                            continue;
-                        }
-                        _userCampaignWindowEvents[user][campaignId][claim.actionType][wid] = cur + claim.eventCount;
-                    }
+            // Uses hoisted capMaxHoisted/capWinHoisted (read once above). The per-claim
+            // window-event accumulation stays here — it's in-storage, not a cross-contract call.
+            if (capMaxHoisted > 0 && capWinHoisted > 0) {
+                uint256 wid = block.number / uint256(capWinHoisted);
+                uint256 cur = _userCampaignWindowEvents[user][campaignId][claim.actionType][wid];
+                if (cur + claim.eventCount > uint256(capMaxHoisted)) {
+                    result.rejectedCount++;
+                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 29);
+                    gapFound = true;
+                    continue;
                 }
+                _userCampaignWindowEvents[user][campaignId][claim.actionType][wid] = cur + claim.eventCount;
             }
 
             // BM-5: Per-publisher window rate limit (view claims only).
@@ -440,14 +450,13 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
                 }
             }
 
-            // FP-1: Publisher stake adequacy check (optional)
-            if (address(_publisherStake) != address(0)) {
-                if (!_publisherStake.isAdequatelyStaked(claim.publisher)) {
-                    result.rejectedCount++;
-                    emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 15);
-                    gapFound = true;
-                    continue;
-                }
+            // FP-1: Publisher stake adequacy (uses publisherStakedHoisted, read once above;
+            // publisher is E34-invariant so per-claim == per-batch).
+            if (!publisherStakedHoisted) {
+                result.rejectedCount++;
+                emit IDatumSettlement.ClaimRejected(campaignId, user, assignedNonce, 15);
+                gapFound = true;
+                continue;
             }
 
             // SLIM (#2b): nullifier + clickSessionHash live in the optional
