@@ -114,10 +114,22 @@ Fine n-scan via `capture-settle-weight-paseo.ts` (fresh deploy each, diana stake
 | original (per-claim vault transfer) | ~1 | creditSettlement OOG at n≥2 |
 | **batched vault credit** (commit 3270d24) | **4** | n=4 ✅, n=5 ❌ — matches alpha-3 "~3-claim cap" |
 | **+ Tier 1** (hoist userCap + isAdequatelyStaked) | **6** | n=6 ✅, n=7 ❌ |
+| **+ Tier 3** (batch validation into one validateBatch call) | **7** | n=7 ✅, n=8 ❌ |
 
-**Tier 1: ceiling 4 → 6 (+2 claims).** This is exactly the predicted "≈ +1 claim of headroom per
-cross-contract call removed per claim" (Tier 1 removed 2 calls/claim) — confirming the binding
-resource is per-claim cross-contract **call count** (ref_time), and that the refactor thesis holds.
-Extrapolating: Tier 2 (−1 call/claim) ≈ 7; Tier 3 (batch validation removes the heaviest per-claim
-call, the validator) is the lever that should jump the ceiling toward the 50-claim contract cap.
-Full suite 1706 passing; storage-layout snapshot intact.
+**Confirmed model: ≈ +1 claim of headroom per per-claim cross-contract call removed.** Tier 1
+removed 2 calls/claim → +2 (4→6); Tier 3 removed 1 (the validator) → +1 (6→7). The binding
+resource is per-claim cross-contract **call count**. Full suite 1706 passing; layout snapshot intact.
+
+**⚠️ Diminishing returns — the 50-claim cap is NOT reachable by fan-out reduction alone.** Each
+tier buys ~1 claim. The remaining per-claim cross-contract calls are just **`budgetLedger.deduct`**
+and **`rateLimiter.tryConsume`** (actionType-0). So Tier 2 (batch tryConsume) ≈ 8, and batching
+deduct by actionType ≈ 9 — then the per-claim call count is ~0 and the ceiling is bound by the
+**irreducible per-claim on-chain work** (storage writes: `_userTotalSettled`, `_lastNonce`,
+`_userCampaignSettled`, window events, + the `ClaimSettled` event), which caps this approach at
+**~9–10 claims/tx**. Going materially higher (toward 50) needs a structural change, not more
+call-batching — e.g. off-chain aggregation with a single on-chain commitment, an aggregate
+settlement proof, or collapsing the per-claim storage writes into one batched write.
+
+**Practical guidance:** with Tier 1 (+3 landed), relays can safely batch **≤6 claims/tx** on Paseo
+today (≤7 with Tier 3). Set the relay's batch size to the measured safe ceiling for the deployed
+tier; do not rely on the contract's `maxBatchSize=50` on pallet-revive.

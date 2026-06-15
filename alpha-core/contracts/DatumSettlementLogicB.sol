@@ -360,6 +360,19 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
         bool publisherStakedHoisted =
             address(_publisherStake) == address(0) || _publisherStake.isAdequatelyStaked(batchPublisher);
 
+        // Tier-3 fan-out reduction: validate the whole chain in ONE cross-contract call
+        // instead of one per claim. The validator threads the sequential nonce/prevHash
+        // from the current chain head and aborts on the first failure (reason 1 for the
+        // rest), mirroring the gapFound abort below — so the per-claim results it returns
+        // line up with what this loop would have computed call-by-call.
+        (bool[] memory vOks, uint8[] memory vReasons, bytes32[] memory vHashes) =
+            _claimValidator.validateBatch(
+                claims, user, campaignId,
+                _lastNonce[user][campaignId][batchActionType] + 1,
+                _lastClaimHash[user][campaignId][batchActionType],
+                ctx
+            );
+
         for (uint256 i = 0; i < claims.length; i++) {
             IDatumSettlement.Claim calldata claim = claims[i];
 
@@ -369,7 +382,6 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // settle, and emitted in events. A rejected claim does not consume
             // the nonce, so the next claim reuses it (the chain stays linear).
             uint256 assignedNonce = _lastNonce[user][campaignId][batchActionType] + 1;
-            bytes32 prevHash      = _lastClaimHash[user][campaignId][batchActionType];
 
             // HOIST (#1): single-actionType invariant. ctx (pot rate, ZK/PoW
             // flags) was resolved for batchActionType; a claim with a
@@ -393,11 +405,12 @@ contract DatumSettlementLogicB is DatumSettlementStorage {
             // across the batch (E34), so both gates run once before the loop
             // instead of once per claim.
 
-            // Delegate per-claim validation to ClaimValidator satellite (SE-1),
-            // threading the once-per-batch ctx + derived campaignId/nonce/prevHash
-            // so no campaign/publisher staticcalls run here.
-            (bool ok, uint8 reasonCode, bytes32 computedHash) =
-                _claimValidator.validateClaimWithContext(claim, user, campaignId, assignedNonce, prevHash, ctx);
+            // Per-claim validation result from the single batched validateBatch call
+            // above (Tier 3) — no per-claim cross-contract validator call here. For the
+            // settled prefix the validator's nonce (startNonce+i) equals assignedNonce,
+            // so vHashes[i] is the canonical hash to store; once any claim is rejected,
+            // gapFound short-circuits subsequent claims before these are read.
+            (bool ok, uint8 reasonCode, bytes32 computedHash) = (vOks[i], vReasons[i], vHashes[i]);
 
             if (!ok) {
                 // SLIM (#2): any validation failure aborts the remainder. With
