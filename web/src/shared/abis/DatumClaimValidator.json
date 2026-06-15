@@ -934,6 +934,156 @@
             "type": "tuple[]"
           }
         ],
+        "internalType": "struct IDatumSettlement.Claim[]",
+        "name": "claims",
+        "type": "tuple[]"
+      },
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "campaignId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "startNonce",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "startPrevHash",
+        "type": "bytes32"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "ok",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "reasonCode",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "takeRate",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint256",
+            "name": "potRate",
+            "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "potActionVerifier",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "requiresZk",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "enforcePow",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct IDatumClaimValidator.BatchContext",
+        "name": "ctx",
+        "type": "tuple"
+      }
+    ],
+    "name": "validateBatch",
+    "outputs": [
+      {
+        "internalType": "bool[]",
+        "name": "oks",
+        "type": "bool[]"
+      },
+      {
+        "internalType": "uint8[]",
+        "name": "reasons",
+        "type": "uint8[]"
+      },
+      {
+        "internalType": "bytes32[]",
+        "name": "computedHashes",
+        "type": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "publisher",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "eventCount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rateWei",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "actionType",
+            "type": "uint8"
+          },
+          {
+            "components": [
+              {
+                "internalType": "bytes32",
+                "name": "clickSessionHash",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "stakeRootUsed",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "nullifier",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32",
+                "name": "powNonce",
+                "type": "bytes32"
+              },
+              {
+                "internalType": "bytes32[8]",
+                "name": "zkProof",
+                "type": "bytes32[8]"
+              },
+              {
+                "internalType": "bytes32[3]",
+                "name": "actionSig",
+                "type": "bytes32[3]"
+              }
+            ],
+            "internalType": "struct IDatumSettlement.ClaimProof[]",
+            "name": "proof",
+            "type": "tuple[]"
+          }
+        ],
         "internalType": "struct IDatumSettlement.Claim",
         "name": "claim",
         "type": "tuple"
