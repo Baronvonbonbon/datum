@@ -18,6 +18,10 @@ export default mergeConfig(
         "node_modules",
         "dist",
         "../alpha-core/**",
+        // Playwright E2E specs (e.g. e2e/live-settlement.spec.ts) import
+        // @playwright/test and run under Playwright, not vitest — excluding
+        // them stops vitest from trying (and failing) to resolve that import.
+        "e2e/**",
       ],
       // The webapp's modules don't share state across tests; reset
       // the in-memory module cache between test files so singletons
