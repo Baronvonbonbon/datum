@@ -9,3 +9,6 @@ cache-mainnet/
 # deploy (Paseo).
 deployed-addresses.*.json
 extension/deployed-addresses.*.json
+
+# Upgrade-run crash-recovery scratch (per-run, not source)
+*-upgrade-state.json

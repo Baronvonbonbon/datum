@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-13T-dualsig-v2-independence";
+export const DEPLOY_VERSION = "2026-06-15T-multiclaim-fanout-v2";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -76,11 +76,11 @@ const ALPHA_5_PASEO: ContractAddresses = {
   timelock:             "0xF0F3111A9217950A336E2DBf7310aC6A79cE6eC6",
   zkVerifier:           "0x2C2613c0838f8a0065A3e497a56068875605Bf24",
   // Satellites
-  budgetLedger:         "0x1E4Ed63Af3E0561D6c51F231f6BF14404Be0B858",
+  budgetLedger:         "0x6B37a9B6D97a4d6e0d506De060064d5D606beF92",  // v2: multi-claim fan-out + paginated migrate (escrow migrated), 2026-06-15
   paymentVault:         "0xD489173e75289608ef766b8F8857D734982bad31",
   lifecycle:            "0x54197f23C63A774391Fa27CD25470e63dF3FE2c0",  // JSON: campaignLifecycle
   attestationVerifier:  "0xCCA37672489D0b023B3aaDb338E3474E3E4D4fd4",
-  claimValidator:       "0x2988fA3E3c9D42d7FB641e287419Dc2974511FD4",
+  claimValidator:       "0x217e895B222a754Ff0d8eD388Fe4088520502017",  // v2: validateBatch (multi-claim fan-out), 2026-06-15
   tokenRewardVault:     "0x6D371368806F4795ADAe8b1e1F403c75086Ed4e1",  // v2: asset gate hardened (no decimals() req), 2026-06-12
   // Fraud prevention
   publisherStake:       "0xC4b9dA10d78cB1b4482c020fd3917b52B8B9D55A",
@@ -117,7 +117,7 @@ const ALPHA_5_PASEO: ContractAddresses = {
   peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
   peopleChainBondedReporter: "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7",
   settlementLogicA:     "0x0014DFb6564C3BA281f97AeDD4CB8B173266e642",
-  settlementLogicB:     "0xCCEd48AD37405188f6ff00a3b029D03f40336F40",
+  settlementLogicB:     "0xAF43CEcAe1E0C07ee1e1ea7c57AE025BA0F58f4B",  // v2: batched deduct/transferSettled settle path, 2026-06-15
   relayStake:           "0xc4Ea887E850FC56Af70A8a048eee16211B415408",
   relayGovernance:      "0x7AD25683f625eF1C9db4f164aB1937B93AB503d1",
   // Token plane (deployed in the 2026-06-11 full redeploy)
