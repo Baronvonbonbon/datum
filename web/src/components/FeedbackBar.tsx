@@ -45,12 +45,17 @@ export function FeedbackBar() {
       if (inner && inner.scrollHeight - inner.clientHeight > 4) return inner;
       return (document.scrollingElement || document.documentElement) as HTMLElement;
     };
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
     const compute = (e?: Event) => {
       if (openRef.current) { setVisible(true); return; }
       const el = getScroller(e);
       const atTop = el.scrollTop <= 8;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-      setVisible(atTop || atBottom);
+      const atExtreme = atTop || atBottom;
+      setVisible(atExtreme);
+      // Mid-page it hides while scrolling, then re-raises after 6s of stillness.
+      if (idleTimer) clearTimeout(idleTimer);
+      if (!atExtreme) idleTimer = setTimeout(() => setVisible(true), 6000);
     };
     compute();
     const opts = { passive: true, capture: true } as const;
@@ -59,6 +64,7 @@ export function FeedbackBar() {
     return () => {
       window.removeEventListener("scroll", compute, opts);
       window.removeEventListener("resize", compute);
+      if (idleTimer) clearTimeout(idleTimer);
     };
   }, []);
 
@@ -105,7 +111,10 @@ export function FeedbackBar() {
         style={{
           pointerEvents: "auto", width: "100%", maxWidth: 520,
           padding: type ? "14px 16px" : "8px 12px",
-          boxShadow: "0 6px 24px rgba(0,0,0,0.18)",
+          // nano-card is transparent by design (cards inherit the page bg); a
+          // floating bar needs a solid surface or it reads as a ghost.
+          background: "var(--bg-surface)",
+          boxShadow: "0 8px 28px rgba(0,0,0,0.40)",
         }}
       >
         {type === null ? (
