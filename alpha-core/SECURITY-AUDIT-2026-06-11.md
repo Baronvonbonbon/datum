@@ -3,7 +3,7 @@
 - **Date:** 2026-06-11
 - **Reviewer:** Internal (Claude, focused pass)
 - **Scope:** `alpha-core/contracts/*.sol`. Emphasis on code that changed since
-  the prior deep audit (`SECURITY-AUDIT-2026-05-20.md`, 39 findings, 31 closed):
+  the prior deep audit (`archive/alpha-core-docs/SECURITY-AUDIT-2026-05-20.md`, 39 findings, 31 closed):
   the 2026-06 denomination migration (`62fb488`, `756522b`), the U3 gas-paginated
   migration (`832b8b8`), and the alpha-5 → alpha-core rename (`78069ae`). Plus an
   independent re-read of the settlement money path and the contracts the prior
