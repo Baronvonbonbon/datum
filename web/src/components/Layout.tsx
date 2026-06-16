@@ -12,6 +12,7 @@ import { AddressDisplay } from "./AddressDisplay";
 import { WalletConnect } from "./WalletConnect";
 import { PrivacyBanner } from "./PrivacyBanner";
 import { Footer } from "./Footer";
+import { FeedbackBar } from "./FeedbackBar";
 import { BrandMark } from "./BrandMark";
 import { PineStatusChip } from "./PineStatusChip";
 import { RpcToggleChip } from "./RpcToggleChip";
@@ -454,7 +455,7 @@ export function Layout() {
         </nav>
 
         {/* ── Main content ─────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
+        <div id="app-scroll" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "auto" }}>
           <main ref={mainRef} style={{ flex: 1, padding: "28px 32px", maxWidth: "none" }}>
             {/* Route-level feature gate: direct navigation to a feature that is
                 not deployed / not in the required phase shows an unavailable
@@ -476,6 +477,7 @@ export function Layout() {
       </div>
 
       {showConnect && <WalletConnect onClose={() => setShowConnect(false)} />}
+      <FeedbackBar />
       <PrivacyBanner />
     </div>
   );

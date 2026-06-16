@@ -8,6 +8,7 @@ import { queryFilterAll } from "@shared/eventQuery";
 import { humanizeError } from "@shared/errorCodes";
 import { formatDotWei } from "@shared/dot";
 import { StatCardSkeleton } from "../../components/Skeleton";
+import { RegisterInterest } from "../../components/RegisterInterest";
 import { useToast } from "../../context/ToastContext";
 
 interface Stats {
@@ -145,7 +146,22 @@ export function Overview() {
           in your browser via the pine light client.{" "}
           <Link to="/how-it-works">How it works →</Link>
         </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+          <Link
+            to="/demo"
+            className="nano-btn nano-btn-primary"
+            style={{ fontSize: 14, padding: "9px 18px", textDecoration: "none" }}
+          >
+            ▶ Try the in-browser demo
+          </Link>
+          <Link to="/how-it-works" className="nano-btn" style={{ fontSize: 13, padding: "9px 16px", textDecoration: "none" }}>
+            How it works →
+          </Link>
+        </div>
       </div>
+
+      {/* Register interest */}
+      <RegisterInterest source="landing" />
 
       {/* Status banner — always rendered, content swaps */}
       <div className="nano-fade" style={{ marginBottom: 22 }}>
