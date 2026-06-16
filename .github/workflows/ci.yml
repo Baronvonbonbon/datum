@@ -66,6 +66,14 @@ jobs:
             exit 1
           fi
 
+      # ── Publisher SDK drift check ─────────────────────────────────────────
+      # The SDK is served from four places (sdk/, web/public, docs/, WP plugin).
+      # Fail if any copy diverges from the canonical sdk/datum-sdk.js — the drift
+      # that left production a feature version behind the source.
+      - name: Fail on SDK drift
+        working-directory: .
+        run: node web/scripts/sync-sdk.mjs --check
+
   secrets:
     # Secret scan (RUNBOOK Phase 6). Scans the working tree (not history — history
     # is a one-time audit + rotation, not a gate). Not yet a required status check;

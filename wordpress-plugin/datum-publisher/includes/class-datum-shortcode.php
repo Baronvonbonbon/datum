@@ -5,6 +5,7 @@
  * Usage:
  *   [datum_slot format="leaderboard"]
  *   [datum_slot format="medium-rectangle" class="my-ad"]
+ *   [datum_slot format="leaderboard" mode="silent"]   (override the global display mode)
  *
  * @package DatumPublisher
  */
@@ -29,6 +30,9 @@ class Datum_Shortcode {
 		'large-rectangle',
 	);
 
+	/** Valid per-slot display modes (override the global default). */
+	const VALID_MODES = array( 'full', 'minimal', 'silent' );
+
 	public function __construct() {
 		add_shortcode( 'datum_slot', array( $this, 'render' ) );
 	}
@@ -49,6 +53,7 @@ class Datum_Shortcode {
 			array(
 				'format' => 'medium-rectangle',
 				'class'  => '',
+				'mode'   => '',
 			),
 			$atts,
 			'datum_slot'
@@ -64,10 +69,15 @@ class Datum_Shortcode {
 			$class .= ' ' . sanitize_html_class( $atts['class'] );
 		}
 
+		// Optional per-slot display-mode override. Empty = inherit the global mode.
+		$mode      = sanitize_text_field( $atts['mode'] );
+		$mode_attr = in_array( $mode, self::VALID_MODES, true ) ? ' data-datum-mode="' . esc_attr( $mode ) . '"' : '';
+
 		return sprintf(
-			'<div class="%s" data-datum-slot="%s"></div>',
+			'<div class="%s" data-datum-slot="%s"%s></div>',
 			esc_attr( $class ),
-			esc_attr( $format )
+			esc_attr( $format ),
+			$mode_attr
 		);
 	}
 }

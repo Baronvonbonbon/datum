@@ -4,7 +4,7 @@ Tags: advertising, web3, crypto, polkadot, dot, monetization, ads
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -114,6 +114,10 @@ Any campaign that *requires* one of your excluded tags will be blocked from appe
 
 == Changelog ==
 
+= 1.1.0 =
+* Ad-slot display modes: Full (house-ad banner), Minimal (slim placeholder), Silent (collapse). Set a global default in Settings → Display; override per slot on the shortcode (`mode="silent"`), block, and widget.
+* Updated to self-hosted datum-sdk.js v3.5.0 (adds Bulletin Chain creative loader + relay-path hint + the display modes).
+
 = 1.0.0 =
 * Initial release.
 * Shortcode `[datum_slot]`, Gutenberg block, and sidebar widget.
@@ -121,6 +125,9 @@ Any campaign that *requires* one of your excluded tags will be blocked from appe
 * Self-hosted datum-sdk.js v3.2.0 with multi-slot and format-tag support.
 
 == Upgrade Notice ==
+
+= 1.1.0 =
+Adds per-slot display modes (Full / Minimal / Silent) and updates the bundled SDK to v3.5.0.
 
 = 1.0.0 =
 Initial release.
