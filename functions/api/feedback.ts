@@ -10,10 +10,16 @@ interface Env {
   RESEND_API_KEY: string;
 }
 
-const FEEDBACK_TO = "datum@javcon.io";
 // `from` must be on a domain verified in Resend (javcon.io).
 const FROM = "DATUM Feedback <feedback@javcon.io>";
 const TYPES: Record<string, string> = { question: "Question", compliment: "Compliment", complaint: "Complaint" };
+// Route each intent to its own inbox (all currently forward to the same place,
+// but this keeps them pre-categorized and independently re-routable).
+const TO_BY_TYPE: Record<string, string> = {
+  question: "feedback@javcon.io",
+  compliment: "complement@javcon.io",
+  complaint: "complain@javcon.io",
+};
 
 const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 const json = (obj: unknown, status = 200) =>
@@ -55,7 +61,7 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM, to: [FEEDBACK_TO], subject, text, ...(email ? { reply_to: email } : {}) }),
+    body: JSON.stringify({ from: FROM, to: [TO_BY_TYPE[type]], subject, text, ...(email ? { reply_to: email } : {}) }),
   });
   if (!res.ok) return json({ error: "could not send — please email datum@javcon.io directly" }, 502);
   return json({ ok: true });

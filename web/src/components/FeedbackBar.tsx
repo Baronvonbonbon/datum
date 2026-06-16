@@ -32,20 +32,32 @@ export function FeedbackBar() {
   openRef.current = type !== null;
 
   useEffect(() => {
-    const scroller = document.getElementById("app-scroll");
-    const target: HTMLElement | Window = scroller ?? window;
-    const compute = () => {
+    // The app shell isn't height-locked (root is min-height:100vh), so the
+    // page scrolls on the document — but a future layout could scroll an inner
+    // container instead. Resolve the *actual* scroller per event (the scrolling
+    // element if it overflows, else the document), so the bar tracks whatever
+    // moves. A capture-phase scroll listener catches inner scrolls too (scroll
+    // events don't bubble).
+    const getScroller = (e?: Event): HTMLElement => {
+      const t = e?.target;
+      if (t instanceof HTMLElement && t.scrollHeight - t.clientHeight > 4) return t;
+      const inner = document.getElementById("app-scroll");
+      if (inner && inner.scrollHeight - inner.clientHeight > 4) return inner;
+      return (document.scrollingElement || document.documentElement) as HTMLElement;
+    };
+    const compute = (e?: Event) => {
       if (openRef.current) { setVisible(true); return; }
-      const el = (scroller ?? document.scrollingElement ?? document.documentElement) as HTMLElement;
+      const el = getScroller(e);
       const atTop = el.scrollTop <= 8;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
       setVisible(atTop || atBottom);
     };
     compute();
-    target.addEventListener("scroll", compute, { passive: true });
+    const opts = { passive: true, capture: true } as const;
+    window.addEventListener("scroll", compute, opts);
     window.addEventListener("resize", compute);
     return () => {
-      target.removeEventListener("scroll", compute);
+      window.removeEventListener("scroll", compute, opts);
       window.removeEventListener("resize", compute);
     };
   }, []);
