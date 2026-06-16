@@ -464,7 +464,7 @@ datum/
 │   ├── deployed-addresses.v{1..4}-*.json  # Archived prior snapshots
 │   ├── SYSTEM-OVERVIEW.md           # Single-document tour
 │   ├── ECONOMICS.md
-│   ├── SECURITY-AUDIT-2026-05-20.md · SECURITY-AUDIT-2026-06-11.md
+│   ├── SECURITY-AUDIT-2026-06-11.md  # (prior 2026-05-20 audit → archive/alpha-core-docs/)
 │   ├── ALPHA-CORE-BACKLOG.md        # Consolidated backlog + Paseo-launch staging
 │   └── CONTROL-MATRIX-MEMO.md (root) # Per-phase fund-control matrix
 ├── web/                             # React + Vite, 82 page TSX files, alpha-5 addressing
@@ -472,9 +472,10 @@ datum/
 ├── wordpress-plugin/datum-publisher/  # WP plugin wrapping the SDK
 ├── pine/                            # Pine RPC: smoldot light-client eth JSON-RPC bridge
 ├── ipfs-node/                       # Local Kubo daemon + auth upload proxy (gitignored runtime)
-├── docs/                            # Demo page + relay template
-├── relay-bot/                       # Publisher relay (gitignored) — userSig/publisherSig EIP-712
+├── docs/                            # GitHub Pages site (baronvonbonbon.github.io/datum): demo + relay template
+├── relay-bot/                       # In-tree reference relay (gitignored) — NOT the live relay
 ├── relay-bot.example/               # Public reference template
+│   #  ⚠ LIVE relay = ~/Documents/datum-labs/relay (separate repo, dual-sig, /claim, one instance per publisher)
 ├── archive/                         # PoC, alpha-*, old docs; alpha-core-docs/ = superseded backlogs/checklists
 ├── PRIVACY-POLICY.md
 ├── RUNBOOK-CORE-LAUNCH.md           # Mainnet launch phase program
