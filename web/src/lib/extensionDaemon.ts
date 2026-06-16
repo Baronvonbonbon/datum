@@ -50,7 +50,6 @@ async function writeClaimStatus(s: Record<string, unknown> | null): Promise<void
   } catch { /* non-fatal */ }
 }
 
-import { pineRpc, getPineProvider, getPineStatus } from "./provider";
 import { PUBLISHER_ATTESTATION_TYPES } from "@shared/wireFormat";
 import { getSettlementContract, getClaimValidatorContract, getCampaignsContract, getPowEngineContract, getBudgetLedgerContract, getPublisherReputationContract } from "@shared/contracts";
 
@@ -332,16 +331,34 @@ export async function repollCampaigns(): Promise<number> {
 // routeMessage use the same singletons (claimQueue, poller, prefs, interest,
 // contracts) the daemon already imports.
 
+// The demo's Pine reads/writes go through the RPC gateway rather than the
+// page's smoldot light client: a first-time in-page smoldot sync to a finalized
+// block routinely exceeds the popup's 30s read timeout (surfacing as
+// "ChainManager not ready after 30000ms" on AssuranceLevel / recovery reads),
+// and the demo's chosen posture is the gateway anyway (see seedSettings). The
+// gateway can both read and broadcast, so it covers eth_call and
+// eth_sendRawTransaction alike.
+let _demoChainRpc: { url: string; provider: JsonRpcProvider } | null = null;
+async function demoChainRpc(method: string, params: unknown[] = []): Promise<unknown> {
+  const s = (await chrome.storage.local.get("settings")).settings;
+  const url: string = s?.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/";
+  if (!_demoChainRpc || _demoChainRpc.url !== url) {
+    _demoChainRpc = { url, provider: new JsonRpcProvider(url) };
+  }
+  return _demoChainRpc.provider.send(method, params as unknown[]);
+}
+
 const demoEnv: EnvContext = {
   // Contract reads run over the configured RPC. (Pine reads go through
   // pineProvider below; the page provider's PROVIDER_RPC_PROXY uses that.)
   async readProvider(settings) {
     return new JsonRpcProvider(settings.rpcUrl ?? "https://eth-rpc-testnet.polkadot.io/");
   },
-  // The demo has no offscreen smoldot — route pine reads to the page's own
-  // pine instance (the same path the popup's Pine reads use).
+  // The demo has no offscreen smoldot and the in-page light client can't reach
+  // a finalized head within the popup's read timeout — route pine reads through
+  // the RPC gateway instead (the same gateway the campaign poller uses).
   async pineProvider() {
-    return { send: (method: string, params: unknown[]) => pineRpc(method, params) };
+    return { send: (method: string, params: unknown[]) => demoChainRpc(method, params) };
   },
   // No History-tab earnings indexer in the demo (the Earnings tab reads balances
   // via wallet RPC directly).
@@ -416,16 +433,23 @@ async function handleMessage(msg: any): Promise<unknown> {
     // page's own Pine provider so the reads resolve instead of erroring with
     // "missing or malformed reply".
     case "PINE_INIT": {
+      // No in-page smoldot — reads are served by the RPC gateway. Report a
+      // ready status (with the gateway's current head) so the popup's syncing
+      // chip reflects a healthy connection instead of a perpetual "warming".
+      let finalizedHead = 0;
       try {
-        await getPineProvider();
+        finalizedHead = Number(BigInt(String(await demoChainRpc("eth_blockNumber", []))));
       } catch {
-        /* connection errors surface through the status object below */
+        /* head fetch failed — still report ready; reads surface their own errors */
       }
-      return { type: "PINE_STATUS", status: getPineStatus() };
+      return {
+        type: "PINE_STATUS",
+        status: { state: "ready", step: "rpc-gateway", peers: 1, finalizedHead, indexedFromBlock: finalizedHead },
+      };
     }
     case "PINE_RPC_REQUEST": {
       try {
-        const result = await pineRpc(msg.method, msg.params ?? []);
+        const result = await demoChainRpc(msg.method, msg.params ?? []);
         return { type: "PINE_RPC_RESULT", requestId: msg.requestId, result };
       } catch (err: any) {
         const code = typeof err?.code === "number" ? err.code : -32603;
@@ -1164,6 +1188,23 @@ export async function startDaemon(): Promise<void> {
     autoSubmitIntervalMinutes: 60,
   };
 
+  // Force the demo onto the RPC-gateway chain-access posture (and normalize any
+  // stale stored posture). The real extension defaults to usePine=true /
+  // rpcEnabled=false (smoldot is the cypherpunk read path), but the in-page demo
+  // has no offscreen smoldot, and a first-time light-client sync to a *finalized*
+  // block routinely exceeds the popup's 30s read timeout. Two failures stem from
+  // leaving rpcEnabled unset here:
+  //   • the shared router's POLL_CAMPAIGNS reads `rpcEnabled ?? false`, so a
+  //     router-path poll throws "rpc-disabled" even though the daemon's own
+  //     direct poll (which defaults rpcAllowed=true) succeeds — the status bar
+  //     flips to "Sync error: rpc-disabled".
+  //   • wallet reads (AssuranceLevel, recovery) route through pine; without a
+  //     working light client they time out with "ChainManager not ready".
+  // The daemon also routes the popup's Pine reads through the gateway (see the
+  // PINE_* handlers), so this posture is consistent end-to-end.
+  existing.usePine = false;
+  existing.rpcEnabled = true;
+
   // Always refresh contract addresses from deployed-addresses.json so stale
   // localStorage from a previous deployment never blocks the poller.
   try {
@@ -1195,16 +1236,29 @@ export async function startDaemon(): Promise<void> {
     await chrome.storage.local.set({ settings: existing });
   }
 
-  // Seed Diana's publisher relay domain so ClaimQueue relay submission works
-  // automatically without manual configuration. RELAY_URL minus protocol/trailing slash.
-  // Hardcode Diana's address — do NOT derive from loadOrCreateRelayWallet() which
-  // could return a stale key if localStorage held a previous value.
-  const DIANA_PUBLISHER_ADDR = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
+  // Seed each approved relay publisher → the relay domain so ClaimQueue relay
+  // submission resolves an endpoint for whichever publisher the demo serves as.
+  // The relay's /relay/publishers is the source of truth (one relay co-signs for
+  // many publishers); fall back to Diana (the default demo publisher) if the relay
+  // is unreachable or predates the endpoint. Always overwrite so stale domain
+  // entries don't survive re-deploys.
   const RELAY_DOMAIN = "relay.javcon.io";
-  const pubDomainKey = `publisherDomain:${DIANA_PUBLISHER_ADDR.toLowerCase()}`;
-  // Always overwrite so stale domain entries don't survive re-deploys.
-  await chrome.storage.local.set({ [pubDomainKey]: RELAY_DOMAIN });
-  console.log(`[datum-daemon] seeded publisher relay: ${DIANA_PUBLISHER_ADDR.slice(0, 10)}… → ${RELAY_DOMAIN}`);
+  const FALLBACK_PUBLISHER_ADDR = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0"; // Diana
+  let relayPublishers: string[] = [FALLBACK_PUBLISHER_ADDR];
+  try {
+    const resp = await fetch(`https://${RELAY_DOMAIN}/relay/publishers`);
+    if (resp.ok) {
+      const data = await resp.json();
+      const addrs: string[] = Array.isArray(data?.publishers)
+        ? data.publishers.map((p: { address?: string }) => p.address).filter((a: unknown): a is string => typeof a === "string")
+        : [];
+      if (addrs.length > 0) relayPublishers = addrs;
+    }
+  } catch { /* relay offline — keep the fallback */ }
+  for (const addr of relayPublishers) {
+    await chrome.storage.local.set({ [`publisherDomain:${addr.toLowerCase()}`]: RELAY_DOMAIN });
+  }
+  console.log(`[datum-daemon] seeded ${relayPublishers.length} publisher relay domain(s) → ${RELAY_DOMAIN}`);
 
   // Kick off first campaign poll in the background — do NOT await so the daemon
   // resolves immediately and the UI stops showing "Starting extension daemon…".
