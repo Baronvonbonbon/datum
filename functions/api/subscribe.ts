@@ -24,6 +24,11 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
   const email = String(body.email ?? "").trim();
   const name = String(body.name ?? "").trim().slice(0, 120);
   const source = String(body.source ?? "").slice(0, 200);
+  // Roles the signup is interested in (optional, multi-select). Sanitize: strings
+  // only, trimmed, capped in length + count, deduped.
+  const roles = Array.isArray(body.roles)
+    ? [...new Set(body.roles.map((r) => String(r).trim().slice(0, 40)).filter(Boolean))].slice(0, 10)
+    : [];
 
   if (!isEmail(email)) return json({ error: "a valid email is required" }, 400);
   if (!env.RESEND_API_KEY) return json({ error: "signups are not configured" }, 503);
@@ -32,13 +37,18 @@ export const onRequestPost = async ({ request, env }: { request: Request; env: E
     `New interest registration`,
     `Email:  ${email}`,
     name ? `Name:   ${name}` : null,
+    roles.length ? `Roles:  ${roles.join(", ")}` : null,
     source ? `Source: ${source}` : null,
   ].filter(Boolean).join("\n");
+
+  const subject = roles.length
+    ? `[DATUM] New interest (${roles.join(", ")}): ${email}`
+    : `[DATUM] New interest: ${email}`;
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM, to: [LIST_TO], subject: `[DATUM] New interest: ${email}`, text, reply_to: email }),
+    body: JSON.stringify({ from: FROM, to: [LIST_TO], subject, text, reply_to: email }),
   });
   if (!res.ok) return json({ error: "could not register — please email datum@javcon.io directly" }, 502);
   return json({ ok: true });
