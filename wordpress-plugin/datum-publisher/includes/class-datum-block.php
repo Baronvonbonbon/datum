@@ -48,6 +48,10 @@ class Datum_Block {
 						'type'    => 'string',
 						'default' => 'medium-rectangle',
 					),
+					'mode'   => array(
+						'type'    => 'string',
+						'default' => '',
+					),
 				),
 			)
 		);
@@ -80,9 +84,15 @@ class Datum_Block {
 			$format = 'medium-rectangle';
 		}
 
+		$mode      = sanitize_text_field( $attributes['mode'] ?? '' );
+		$mode_attr = in_array( $mode, array( 'full', 'minimal', 'silent' ), true )
+			? ' data-datum-mode="' . esc_attr( $mode ) . '"'
+			: '';
+
 		return sprintf(
-			'<div class="datum-ad-slot" data-datum-slot="%s"></div>',
-			esc_attr( $format )
+			'<div class="datum-ad-slot" data-datum-slot="%s"%s></div>',
+			esc_attr( $format ),
+			$mode_attr
 		);
 	}
 }

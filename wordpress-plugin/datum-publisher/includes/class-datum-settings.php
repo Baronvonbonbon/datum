@@ -122,6 +122,22 @@ class Datum_Settings {
 			self::MENU_SLUG,
 			'datum_targeting'
 		);
+
+		// Section: Display
+		add_settings_section(
+			'datum_display',
+			__( 'Display', 'datum-publisher' ),
+			array( $this, 'render_display_section' ),
+			self::MENU_SLUG
+		);
+
+		add_settings_field(
+			'display_mode',
+			__( 'Ad Slot Display Mode', 'datum-publisher' ),
+			array( $this, 'render_display_mode_field' ),
+			self::MENU_SLUG,
+			'datum_display'
+		);
 	}
 
 	/**
@@ -149,6 +165,9 @@ class Datum_Settings {
 			? sanitize_text_field( $input['excluded_tags'] )
 			: '';
 
+		$mode                  = isset( $input['display_mode'] ) ? sanitize_text_field( $input['display_mode'] ) : 'full';
+		$clean['display_mode'] = in_array( $mode, array( 'full', 'minimal', 'silent' ), true ) ? $mode : 'full';
+
 		return $clean;
 	}
 
@@ -162,6 +181,30 @@ class Datum_Settings {
 
 	public function render_targeting_section() {
 		echo '<p>' . esc_html__( 'Tags describe your site\'s content so advertisers can target relevant campaigns to your audience. Use comma-separated dimension:value strings (e.g. topic:defi,locale:en).', 'datum-publisher' ) . '</p>';
+	}
+
+	public function render_display_section() {
+		echo '<p>' . esc_html__( 'Controls how an ad slot looks when no DATUM extension is present to fill it with a matched ad. A real ad always overrides this. Individual slots can override the default.', 'datum-publisher' ) . '</p>';
+	}
+
+	public function render_display_mode_field() {
+		$settings = datum_publisher_get_settings();
+		$mode     = isset( $settings['display_mode'] ) ? $settings['display_mode'] : 'full';
+		$options  = array(
+			'full'    => __( 'Full — DATUM house-ad banner', 'datum-publisher' ),
+			'minimal' => __( 'Minimal — slim labelled placeholder', 'datum-publisher' ),
+			'silent'  => __( 'Silent — collapse the slot (no footprint)', 'datum-publisher' ),
+		);
+		?>
+		<select id="datum_display_mode" name="<?php echo esc_attr( self::OPTION_NAME ); ?>[display_mode]">
+			<?php foreach ( $options as $val => $label ) : ?>
+				<option value="<?php echo esc_attr( $val ); ?>" <?php selected( $mode, $val ); ?>><?php echo esc_html( $label ); ?></option>
+			<?php endforeach; ?>
+		</select>
+		<p class="description">
+			<?php esc_html_e( 'Default for all slots on your site. Shortcodes, blocks, and widgets can override this per slot.', 'datum-publisher' ); ?>
+		</p>
+		<?php
 	}
 
 	// -------------------------------------------------------------------------

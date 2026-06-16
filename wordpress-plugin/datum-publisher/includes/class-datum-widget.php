@@ -27,6 +27,14 @@ class Datum_Widget extends WP_Widget {
 		'large-rectangle'  => 'Large Rectangle (336×280)',
 	);
 
+	/** Per-slot display-mode override (empty label = inherit the global default). */
+	const VALID_MODES = array(
+		''        => 'Use site default',
+		'full'    => 'Full — house-ad banner',
+		'minimal' => 'Minimal — slim placeholder',
+		'silent'  => 'Silent — collapse',
+	);
+
 	public function __construct() {
 		parent::__construct(
 			'datum_ad_slot',
@@ -64,9 +72,15 @@ class Datum_Widget extends WP_Widget {
 			echo wp_kses_post( $args['before_title'] . $title . $args['after_title'] );
 		}
 
+		$mode      = ! empty( $instance['mode'] ) ? $instance['mode'] : '';
+		$mode_attr = array_key_exists( $mode, self::VALID_MODES ) && '' !== $mode
+			? ' data-datum-mode="' . esc_attr( $mode ) . '"'
+			: '';
+
 		printf(
-			'<div class="datum-ad-slot" data-datum-slot="%s"></div>',
-			esc_attr( $format )
+			'<div class="datum-ad-slot" data-datum-slot="%s"%s></div>',
+			esc_attr( $format ),
+			$mode_attr
 		);
 
 		echo wp_kses_post( $args['after_widget'] );
@@ -80,6 +94,7 @@ class Datum_Widget extends WP_Widget {
 	public function form( $instance ) {
 		$title  = ! empty( $instance['title'] ) ? $instance['title'] : '';
 		$format = ! empty( $instance['format'] ) ? $instance['format'] : 'medium-rectangle';
+		$mode   = ! empty( $instance['mode'] ) ? $instance['mode'] : '';
 		?>
 		<p>
 			<label for="<?php echo esc_attr( $this->get_field_id( 'title' ) ); ?>">
@@ -109,6 +124,22 @@ class Datum_Widget extends WP_Widget {
 				<?php endforeach; ?>
 			</select>
 		</p>
+		<p>
+			<label for="<?php echo esc_attr( $this->get_field_id( 'mode' ) ); ?>">
+				<?php esc_html_e( 'Display Mode:', 'datum-publisher' ); ?>
+			</label>
+			<select
+				class="widefat"
+				id="<?php echo esc_attr( $this->get_field_id( 'mode' ) ); ?>"
+				name="<?php echo esc_attr( $this->get_field_name( 'mode' ) ); ?>"
+			>
+				<?php foreach ( self::VALID_MODES as $value => $label ) : ?>
+					<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $mode, $value ); ?>>
+						<?php echo esc_html( $label ); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
+		</p>
 		<?php
 	}
 
@@ -128,6 +159,9 @@ class Datum_Widget extends WP_Widget {
 		$instance['format'] = array_key_exists( $format, self::VALID_FORMATS )
 			? $format
 			: 'medium-rectangle';
+
+		$mode = sanitize_text_field( $new_instance['mode'] ?? '' );
+		$instance['mode'] = array_key_exists( $mode, self::VALID_MODES ) ? $mode : '';
 
 		return $instance;
 	}

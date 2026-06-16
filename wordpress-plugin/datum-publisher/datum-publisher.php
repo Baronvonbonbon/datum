@@ -3,7 +3,7 @@
  * Plugin Name:       DATUM Publisher
  * Plugin URI:        https://github.com/Baronvonbonbon/datum
  * Description:       Embed the DATUM Publisher SDK on your WordPress site. Place ad slots via shortcode, block, or widget and earn DOT for verified impressions.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            DATUM Network
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'DATUM_PUBLISHER_VERSION', '1.0.0' );
+define( 'DATUM_PUBLISHER_VERSION', '1.1.0' );
 define( 'DATUM_PUBLISHER_FILE', __FILE__ );
 define( 'DATUM_PUBLISHER_DIR', plugin_dir_path( __FILE__ ) );
 define( 'DATUM_PUBLISHER_URL', plugin_dir_url( __FILE__ ) );
@@ -42,6 +42,7 @@ function datum_publisher_get_settings() {
 		'tags'          => '',
 		'excluded_tags' => '',
 		'relay'         => '',
+		'display_mode'  => 'full',
 	);
 	return wp_parse_args( get_option( DATUM_PUBLISHER_OPTION, array() ), $defaults );
 }
@@ -84,6 +85,8 @@ function datum_publisher_script_loader_tag( $tag, $handle ) {
 	$tags      = esc_attr( $settings['tags'] );
 	$excluded  = esc_attr( $settings['excluded_tags'] );
 	$relay     = esc_attr( $settings['relay'] );
+	$mode      = isset( $settings['display_mode'] ) ? $settings['display_mode'] : 'full';
+	$mode      = in_array( $mode, array( 'full', 'minimal', 'silent' ), true ) ? $mode : 'full';
 
 	$attrs = ' data-publisher="' . $publisher . '"';
 	if ( $tags ) {
@@ -95,6 +98,9 @@ function datum_publisher_script_loader_tag( $tag, $handle ) {
 	if ( $relay ) {
 		$attrs .= ' data-relay="' . $relay . '"';
 	}
+	// Global default display mode for all slots (per-slot override via the
+	// shortcode/block/widget `mode` attribute → data-datum-mode).
+	$attrs .= ' data-mode="' . esc_attr( $mode ) . '"';
 
 	// Insert data attributes before the src attribute.
 	return str_replace( ' src=', $attrs . ' src=', $tag );

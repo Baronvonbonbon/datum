@@ -23,6 +23,13 @@
 		{ label: __( 'Large Rectangle (336×280)',    'datum-publisher' ), value: 'large-rectangle'  },
 	];
 
+	var DISPLAY_MODES = [
+		{ label: __( 'Use site default',                 'datum-publisher' ), value: ''        },
+		{ label: __( 'Full — house-ad banner',           'datum-publisher' ), value: 'full'    },
+		{ label: __( 'Minimal — slim placeholder',       'datum-publisher' ), value: 'minimal' },
+		{ label: __( 'Silent — collapse (no footprint)', 'datum-publisher' ), value: 'silent'  },
+	];
+
 	var SLOT_SIZES = {
 		'medium-rectangle': { w: 300, h: 250 },
 		'leaderboard':      { w: 728, h: 90  },
@@ -48,10 +55,15 @@
 				type:    'string',
 				default: 'medium-rectangle',
 			},
+			mode: {
+				type:    'string',
+				default: '',
+			},
 		},
 
 		edit: function ( props ) {
 			var format = props.attributes.format || 'medium-rectangle';
+			var mode   = props.attributes.mode || '';
 			var size   = SLOT_SIZES[ format ] || SLOT_SIZES[ 'medium-rectangle' ];
 			var label  = ( SLOT_FORMATS.find( function ( f ) { return f.value === format; } ) || {} ).label || format;
 
@@ -70,6 +82,15 @@
 						options:  SLOT_FORMATS,
 						onChange: function ( val ) {
 							props.setAttributes( { format: val } );
+						},
+					} ),
+					el( SelectControl, {
+						label:    __( 'Display Mode', 'datum-publisher' ),
+						help:     __( 'How the slot looks with no extension to fill it. Overrides the site default.', 'datum-publisher' ),
+						value:    mode,
+						options:  DISPLAY_MODES,
+						onChange: function ( val ) {
+							props.setAttributes( { mode: val } );
 						},
 					} )
 				)

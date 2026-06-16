@@ -1,5 +1,5 @@
 /**
- * DATUM Publisher SDK v3.4
+ * DATUM Publisher SDK v3.5
  *
  * Lightweight JS tag for publishers to embed on their site.
  * Provides two-party attestation via challenge-response handshake
@@ -16,9 +16,17 @@
  *   - Publisher telemetry on window.DATUM.metrics + optional inline
  *     dev panel via `?datum-dev=1`.
  *
- * No-extension fallback: if no extension responds within 1.5s, each empty
- * slot is filled with an inline DATUM house ad pointing to datum.javcon.io,
- * sized to the IAB format. Publisher does not need to configure anything.
+ * Display modes (data-mode on the <script>, or data-datum-mode per slot):
+ *   "full"    — no-extension fallback fills each empty slot with the inline
+ *               DATUM house ad, sized to the IAB format (default; unchanged).
+ *   "minimal" — each empty slot shows a slim labelled placeholder frame only.
+ *   "silent"  — each empty slot collapses (zero footprint).
+ *   The mode only affects the no-extension state — a real ad from the
+ *   extension always wins. Per-slot data-datum-mode overrides the global mode.
+ *
+ * No-extension fallback: if no extension responds within 1.5s, each empty slot
+ * is rendered per its display mode (above). Publisher need configure nothing
+ * for the default ("full") behaviour.
  *
  * Multi-slot usage (recommended):
  *   <script src="datum-sdk.js" data-tags="topic:crypto-web3,locale:en" data-publisher="0xYOUR_ADDRESS" data-relay="https://relay.example.com"></script>
@@ -48,7 +56,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "3.4.0";
+  var VERSION = "3.5.0";
 
   // Alpha-5 relay-path architecture. Three modes the publisher can opt
   // into via data-relay-mode:
@@ -338,6 +346,23 @@
   var relayUrl = scriptTag ? scriptTag.getAttribute("data-relay") || "" : "";
   var relayMode = scriptTag ? (scriptTag.getAttribute("data-relay-mode") || "publisher").toLowerCase() : "publisher";
   if (!RELAY_MODES[relayMode]) relayMode = "publisher";
+
+  // Display mode — controls a slot's appearance when the DATUM extension is
+  // absent (no one to fill the slot with a real ad). Set globally via
+  // data-mode on the <script> tag; override per slot via data-datum-mode on a
+  // [data-datum-slot] element. Modes:
+  //   "full"    — render the DATUM house-ad banner (default; backward-compatible)
+  //   "minimal" — render a slim labelled placeholder frame (minor visual cue)
+  //   "silent"  — collapse the slot (no footprint)
+  // The mode never overrides a real ad: if the extension fills a slot, that wins.
+  var DISPLAY_MODES = { "full": 1, "minimal": 1, "silent": 1 };
+  var globalMode = scriptTag ? (scriptTag.getAttribute("data-mode") || "full").toLowerCase() : "full";
+  if (!DISPLAY_MODES[globalMode]) globalMode = "full";
+  function slotMode(el) {
+    var m = el && el.getAttribute ? (el.getAttribute("data-datum-mode") || "").toLowerCase() : "";
+    return DISPLAY_MODES[m] ? m : globalMode;
+  }
+
   // Legacy single-slot format (used as fallback if no [data-datum-slot] elements found)
   var legacySlotFormat = scriptTag ? scriptTag.getAttribute("data-slot") || "medium-rectangle" : "medium-rectangle";
 
@@ -562,10 +587,59 @@
     slotEl.appendChild(a);
   }
 
+  // True if a slot already holds an ad (extension light/shadow DOM) — never
+  // overwrite a real ad with a placeholder, in any mode.
+  function slotIsFilled(slotEl) {
+    if (!slotEl) return true;
+    if (slotEl.querySelector("[data-datum-house-ad], [data-datum-placeholder]")) return false; // our own placeholder doesn't count as filled
+    if (slotEl.children.length > 0) return true;
+    if (slotEl.shadowRoot && slotEl.shadowRoot.childNodes.length > 0) return true;
+    return false;
+  }
+
+  // "minimal" mode: a slim, unobtrusive labelled frame at the slot's size — a
+  // minor visual cue that a DATUM slot lives here, with no house-ad creative.
+  function renderMinimalCue(slotEl) {
+    if (!slotEl || slotIsFilled(slotEl)) return;
+    if (slotEl.querySelector("[data-datum-placeholder]")) return;
+    var box = document.createElement("div");
+    box.setAttribute("data-datum-placeholder", "minimal");
+    box.style.cssText =
+      "display:flex;align-items:center;justify-content:center;gap:6px;" +
+      "width:100%;height:100%;box-sizing:border-box;" +
+      "border:1px dashed " + THEME.border + ";border-radius:8px;" +
+      "background:transparent;color:" + THEME.fgFaint + ";" +
+      "font-family:" + THEME.sans + ";font-size:10px;letter-spacing:0.06em;" +
+      "text-transform:uppercase;user-select:none;";
+    box.innerHTML =
+      '<span style="width:5px;height:5px;border-radius:50%;background:' + THEME.accent + ';flex:none;"></span>' +
+      '<span>ad slot · DATUM</span>';
+    slotEl.appendChild(box);
+  }
+
+  // "silent" mode: collapse the slot entirely — zero footprint when no real ad
+  // is served. The original size is stashed so a later challenge can restore it.
+  function collapseSlot(slotEl) {
+    if (!slotEl || slotIsFilled(slotEl)) return;
+    if (slotEl.getAttribute("data-datum-collapsed") === "1") return;
+    slotEl.setAttribute("data-datum-collapsed", "1");
+    slotEl.setAttribute("data-datum-prev-display", slotEl.style.display || "");
+    slotEl.style.display = "none";
+  }
+
+  // Restore a collapsed slot (extension showed up after the silent collapse).
+  function restoreSlot(slotEl) {
+    if (!slotEl || slotEl.getAttribute("data-datum-collapsed") !== "1") return;
+    slotEl.style.display = slotEl.getAttribute("data-datum-prev-display") || "";
+    slotEl.removeAttribute("data-datum-collapsed");
+    slotEl.removeAttribute("data-datum-prev-display");
+  }
+
   /**
    * Schedule the fallback check. If no `datum:challenge` event arrives within
-   * FALLBACK_DELAY_MS, the extension is assumed absent and every empty slot
-   * gets a house ad. The first challenge cancels the timer.
+   * FALLBACK_DELAY_MS, the extension is assumed absent and every empty slot is
+   * rendered per its display mode (full → house ad, minimal → cue, silent →
+   * collapse). The first challenge cancels the timer.
    */
   function scheduleFallback() {
     if (fallbackTimerId) return;
@@ -574,7 +648,10 @@
       if (extensionDetected) return;
       var slots = document.querySelectorAll("[data-datum-slot], #datum-ad-slot");
       for (var i = 0; i < slots.length; i++) {
-        renderHouseAd(slots[i]);
+        var mode = slotMode(slots[i]);
+        if (mode === "silent") collapseSlot(slots[i]);
+        else if (mode === "minimal") renderMinimalCue(slots[i]);
+        else renderHouseAd(slots[i]);
       }
     }, FALLBACK_DELAY_MS);
   }
@@ -631,9 +708,16 @@
       clearTimeout(fallbackTimerId);
       fallbackTimerId = null;
     }
-    var existing = document.querySelectorAll("[data-datum-house-ad]");
+    // Tear down any placeholders that rendered during a slow extension boot
+    // (house ads + minimal cues) and un-collapse any silent slots, so the
+    // extension can fill each slot with a real ad.
+    var existing = document.querySelectorAll("[data-datum-house-ad], [data-datum-placeholder]");
     for (var k = 0; k < existing.length; k++) {
       if (existing[k].parentNode) existing[k].parentNode.removeChild(existing[k]);
+    }
+    var collapsed = document.querySelectorAll("[data-datum-collapsed]");
+    for (var c = 0; c < collapsed.length; c++) {
+      restoreSlot(collapsed[c]);
     }
 
     var detail = e.detail || {};
