@@ -21,11 +21,12 @@ import {
 const MAX_BODY_BYTES = 16 * 1024; // 16 KB is plenty for a click/claim envelope
 
 export class HttpServer {
-  constructor({ cfg, provider, claimQueue, clickBatch, bulletinGateway }) {
+  constructor({ cfg, provider, claimQueue, clickBatch, health, bulletinGateway }) {
     this.cfg = cfg;
     this.provider = provider;
     this.claimQueue = claimQueue;
     this.clickBatch = clickBatch;
+    this.health = health;
     this.bulletinGateway = bulletinGateway;
     this._server = null;
   }
@@ -76,15 +77,19 @@ export class HttpServer {
 
   async _health(res) {
     const snap = snapshot();
+    // settlement health: mis-wired / mid-migration → relay gates settlement.
+    const settlement = this.health?.status() ?? { healthy: true };
     const ok =
       snap.pine.connected &&
       snap.pine.finalizedBlock > 0 &&
-      snap.pine.peers >= 2;
+      snap.pine.peers >= 2 &&
+      settlement.healthy !== false;
     sendJson(res, ok ? 200 : 503, {
       ok,
       pine: snap.pine,
       signer: snap.signer,
       ready: this.provider?.ready ?? false,
+      settlement, // { healthy, configOk, midMigration, reason }
     });
   }
 
@@ -113,6 +118,11 @@ export class HttpServer {
     if (!body.ok) return sendJson(res, 400, { error: body.reason });
     if (!this.claimQueue) {
       return sendJson(res, 503, { error: "claim-queue-unavailable" });
+    }
+    // Refuse claims while Settlement is mis-wired / mid-migration: settling now
+    // would act on an unsafe system. The publisher retries once health recovers.
+    if (this.health && this.health.healthy === false) {
+      return sendJson(res, 503, { error: "settlement-unhealthy", settlement: this.health.status() });
     }
     const result = this.claimQueue.enqueue(body.json);
     sendJson(res, result.ok ? 202 : 400, result);

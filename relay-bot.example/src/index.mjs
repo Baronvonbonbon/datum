@@ -26,6 +26,7 @@ import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
 import { HttpServer } from "./http.mjs";
 import { ClickBatch } from "./submit/clickRegistry.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
+import { HealthGate } from "./health.mjs";
 
 async function main() {
   let cfg;
@@ -57,6 +58,16 @@ async function main() {
   const provider = new RelayProvider(cfg);
   await provider.start();
 
+  // Health gate — the relay refuses to submit settlements while Settlement is
+  // mis-wired (validateConfiguration == false) or mid-migration. Submit
+  // pipelines below MUST consult `health.healthy` before sending. Fails closed.
+  const health = new HealthGate({ provider, cfg, log });
+  await health.checkOnce();
+  if (!health.healthy) {
+    log.warn("settlement unhealthy at boot — settlement submission gated until it recovers", health.status());
+  }
+  health.start();
+
   const campaignPoll = new CampaignPoll(provider, cfg);
   await campaignPoll.start();
 
@@ -82,6 +93,7 @@ async function main() {
     provider,
     claimQueue,
     clickBatch,
+    health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });
   http.start();
@@ -103,6 +115,7 @@ async function main() {
       clickBatch.stop();
       identityPoll.stop();
       campaignPoll.stop();
+      health.stop();
       await provider.stop();
     } catch (e) {
       log.warn("shutdown cleanup error", { err: String(e?.message ?? e) });
