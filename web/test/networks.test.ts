@@ -7,20 +7,20 @@ import {
   getNetworkDisplayName,
 } from "../src/shared/networks";
 
-// Snapshot of the alpha-core Paseo full redeploy of 2026-06-11. If a re-deploy
-// changes these, the failing test is the signal to update both networks.ts
-// (incl. DEPLOY_VERSION) and this snapshot at the same time — keeps the source
-// of truth aligned with the addresses the UI ships.
+// Snapshot of the live alpha-core Paseo deploy (ALPHA_5_PASEO in networks.ts).
+// If a re-deploy changes these, the failing test is the signal to update both
+// networks.ts (incl. DEPLOY_VERSION) and this snapshot at the same time — keeps
+// the source of truth aligned with the addresses the UI ships.
 const ALPHA_5_KEY_ADDRESSES = {
-  campaigns:           "0xC781D6d4Ce0567466A31c6ec50E336df42b2D346",
-  publishers:          "0xBc161945d7bdBCbfa419ee70956f7Fe67A1940CD",
-  settlement:          "0x477B92F0e938326Fa4D0F8533C6F7F6D7B0D70ee",
-  pauseRegistry:       "0xC9871944fabbb182602B1d2f626Fde868a155065",
-  governanceRouter:    "0xAb22653cDcA7214636708721AeDAc289E8635e80",
-  council:             "0x239e8c0bEbb5Fb5BC38da72dD51eac3f6e3b1b59",
-  identityVerifier:    "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
-  mintCoordinator:     "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",
-  peopleChainIdentity: "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
+  campaigns:           "0xE0C1C18af2532af8b36E8DfB7A67A78744BdB07F",
+  publishers:          "0x86776018850b61c1e9202d73F031993818c33173",
+  settlement:          "0x7832E3c00643992d0811dd866d543A84Cff7Eb9f",
+  pauseRegistry:       "0x36e4Ae11e7c3D3b19795Af191ec72FF8567E2eC3",
+  governanceRouter:    "0xCcaE1A080D24e62962d7e830Db61709C1967F6D0",
+  council:             "0xe2EDCbb22D04B283Df571f9478AF80A610892f60",
+  identityVerifier:    "0xA8EF5A85fAe0F5B6a4D8077DA68e2bd4153e9697",
+  mintCoordinator:     "0x648B0329Dc5e50ab6A73bEcE8F6F2C8F14C4F98D",
+  peopleChainIdentity: "0xd6d3dEf54E359E8E828876C8b95B3062908F998d",
 };
 
 describe("networks: polkadotTestnet addresses", () => {
