@@ -2,6 +2,9 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { DatumSettlementRateLimiter } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
+import { mineBlocks } from "./helpers/mine";
+
+const WINDOW = 10n; // rate-limit window, in blocks
 
 // Aggregate (protocol-wide) circuit breaker on DatumSettlementRateLimiter.
 // `settlement` is wired to a plain signer so we can drive tryConsume directly.
@@ -16,8 +19,18 @@ describe("DatumSettlementRateLimiter — aggregate circuit breaker", function ()
     [owner, settler, operator, other] = await ethers.getSigners();
     rl = await (await ethers.getContractFactory("DatumSettlementRateLimiter")).deploy();
     await rl.setSettlement(settler.address);
-    await rl.setRateLimits(10, 1_000_000n); // window=10 blocks, per-pub cap high
-    await rl.setGlobalRateLimit(100n);       // protocol-wide cap = 100 events/window
+    await rl.setRateLimits(WINDOW, 1_000_000n); // per-pub cap high
+    await rl.setGlobalRateLimit(100n);          // protocol-wide cap = 100 events/window
+
+    // Align to a window boundary so every tryConsume in a test lands in the
+    // SAME window. windowId = block.number / WINDOW, and each settle mines a
+    // new block; if two settles straddle a boundary the global accumulator
+    // resets and the breaker never trips — a ~1-in-WINDOW flake that depends
+    // on the absolute block height when this suite runs (green solo, red in
+    // the full CI suite). Starting at a boundary leaves WINDOW-1 blocks of
+    // headroom, more than any single test consumes.
+    const into = BigInt(await ethers.provider.getBlockNumber()) % WINDOW;
+    if (into !== 0n) await mineBlocks(WINDOW - into);
   });
 
   it("CB-1: settles under the global cap; latches open on breach", async function () {

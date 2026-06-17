@@ -9,6 +9,7 @@ import { useMidMigration } from "../hooks/useMidMigration";
 import { getCurrencySymbol, getNetworkDisplayName } from "@shared/networks";
 import { formatDOT, weiToPlanck } from "@shared/dot";
 import { AddressDisplay } from "./AddressDisplay";
+import { LowBalanceNag } from "./LowBalanceNag";
 import { WalletConnect } from "./WalletConnect";
 import { PrivacyBanner } from "./PrivacyBanner";
 import { Footer } from "./Footer";
@@ -308,6 +309,14 @@ export function Layout() {
   const location = useLocation();
   const sym = getCurrencySymbol(settings.network);
 
+  // Surfaces that need gas: registration + transaction-submitting sections.
+  // Read-only surfaces (home, explorer, about, settings, demo) are left alone.
+  const path = location.pathname;
+  const onActionRoute =
+    ["/advertiser", "/publisher", "/governance", "/protocol", "/admin", "/token", "/identity", "/me"]
+      .some((p) => path === p || path.startsWith(p + "/")) ||
+    /^\/(explorer\/)?campaigns\/[^/]+$/.test(path); // campaign detail (report / cosign)
+
   // Feature-gate the nav: omit any section/child whose feature is not deployed
   // (its contract address is unset) or not in the required governance phase.
   // livePhase is Phase 0 (Admin) today — when the governance ladder advances,
@@ -477,6 +486,10 @@ export function Layout() {
       </div>
 
       {showConnect && <WalletConnect onClose={() => setShowConnect(false)} />}
+
+      {address && onActionRoute && (
+        <LowBalanceNag address={address} balancePlanck={balance} sym={sym} />
+      )}
       <FeedbackBar />
       <PrivacyBanner />
     </div>
