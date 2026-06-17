@@ -1,8 +1,16 @@
 # Alpha-Core — Production Benchmark Report
 
-**Generated:** 2026-06-14 · **Author:** automated benchmark + stress harness
+**Generated:** 2026-06-14 · **Updated:** 2026-06-17 (post key-rotation redeploy) · **Author:** automated benchmark + stress harness
 **Contract line:** alpha-core (EVM-only, solc 0.8.24, viaIR, optimizer 200)
-**Deployment under cost-validation:** Paseo testnet `polkadotTestnet` (chainId 420420417), deploy `2026-06-11T20:12Z`, 57 wired contracts.
+**Deployment under cost-validation:** Paseo testnet `polkadotTestnet` (chainId 420420417), fresh redeploy `2026-06-17Z` under rotated deployer `0x26194fE2…` (49 core contracts, validation 91/0).
+
+> **2026-06-17 update:** Re-validated on the post-rotation redeploy. **The
+> multi-claim batch-settlement blocker below is RESOLVED** — the multiclaim-fan-out
+> work (`SettlementLogicB` batched credits + `BudgetLedger` v2) ships in this
+> deploy and multi-claim `settleClaims` n=2/5/10 now settle on pallet-revive.
+> Full refreshed numbers (per-role, all settlement paths, token plane, the 1→10
+> batch cost curve): **`docs/paseo-gas-costs-2026-06-17.md`** + regenerated
+> `docs/gas-by-role.md`.
 
 This report consolidates four workstreams into one production-readiness picture:
 
@@ -21,7 +29,7 @@ Two environments were used, per the agreed plan: **local Hardhat EVM** for stres
 |---|---|
 | Does the system settle correctly across price points? | **Yes** — 56/56 economic-benchmark assertions pass (3-way split exact at DOT@$2/$5/$10, CPM honoured, ERC-20 sidecar, multi-campaign). |
 | What does a settlement cost? | **~31,836 gas/claim** steady-state (EVM) on top of a ~345k per-batch fixed cost. On **live Paseo**, a verified 1-claim settle = **77,592 weight (≈0.078 PAS)** on a full-feature deploy (24,167 warm on a leaner deploy). |
-| ⚠️ Does batch settlement work on Paseo? | **No — multi-claim (n ≥ 2) `settleClaims` reverts on pallet-revive** (single claim settles; local EVM settles 1→200). **Root-caused** (§6): `OutOfGas` on `PaymentVault.creditSettlement` — pallet-revive **storage-deposit** exhaustion from N per-claim value transfers. Fix = batch the per-claim vault credits into one. Blocks on-chain aggregation until fixed. |
+| ✅ Does batch settlement work on Paseo? | **YES — RESOLVED 2026-06-17.** The fix (batch the per-claim vault credits: `SettlementLogicB` batched deduct/transferSettled + `BudgetLedger` v2) shipped. Live re-validation: `settleClaims` n=1/2/5/10 all settle on pallet-revive (78,324 cold / 42,848 / 50,824 / 64,118 weight). Warm marginal ≈ **2,659 weight/claim (≈0.00266 PAS)**; 10-batch ≈ 0.0064 PAS/claim amortized. *(Was: multi-claim n≥2 reverted — OutOfGas storage-deposit exhaustion.)* See `docs/paseo-gas-costs-2026-06-17.md`. |
 | What's the settlement batch ceiling? | Governable `maxBatchSize` default **50**, hard ceiling **200** (E28). A single tx could hold ~930 claims at a 30M-gas budget — the protocol cap binds first. |
 | Does anything scale O(n) with state? | **No hidden O(n).** createCampaign is flat across 500 campaigns; vote and evaluateCampaign are O(1) regardless of voter count. |
 | Is the system live and callable on Paseo? | **Yes** — vote/withdraw/register estimate and execute cleanly; real weights captured below. |
