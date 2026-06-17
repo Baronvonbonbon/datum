@@ -52,9 +52,57 @@ Funds are valueless (Paseo), so immediate risk is low, **but**:
   branch protection once a clean run confirms no false positives.
 
 ## Remaining (operator / follow-on)
-- [ ] **Rotate the Pinata credential** (🔴 above) — do this first.
+- [ ] **Rotate the Pinata credential** (🔴 above) — do this first. STILL OPEN
+      (dashboard action; see 2026-06-16 addendum §3).
 - [ ] Consider a **history scrub** (`git filter-repo`) for `TESTNET-KEYS.md`; at
       minimum, treat every key/credential ever committed as burned.
-- [ ] Move the ~10 scripts' hardcoded testnet keys to `.env` before any
-      open-source release or mainnet work.
+- [x] Move the scripts' hardcoded testnet keys to `.env` — done for the redeploy
+      path (`setup-testnet.ts`, `deploy.ts` guardians) in the 2026-06-16 rotation.
+      ~13 diagnostic/demo scripts still carry the OLD (now burned + defunded)
+      literals; harmless, but should be migrated before open-source release
+      (see addendum §4).
 - [ ] Promote the `secrets` CI job to a required status check.
+
+---
+
+# Addendum — key rotation executed 2026-06-16
+
+The 🟠 HIGH finding above (deployer/benchmark keys committed → burned) was
+remediated by a full **fresh redeploy under a new keyset**, not an in-place
+ownership transfer (Paseo testnet; valueless PAS; old keys git-burned). The old
+deployer EOA (`0x94CC36…`, priv git-committed) was the root of both control
+planes (router governor/adminGovernor + `DatumTimelock` owner per
+`CONTROL-MATRIX-MEMO.md`); the redeploy reparents all 49 core contracts under a
+fresh key.
+
+### 1. New keyset
+- New deployer/Alice = `0x26194fE2e00A837b2a3f4e92A09E835AbB3DCEE3`; new
+  Bob/Charlie/Diana/…/Jack + 20 `TESTNET_ACCOUNTS` regenerated.
+- Private keys live ONLY in gitignored `alpha-core/.env` and the gitignored
+  scratch map `alpha-core/.key-rotation-2026-06-16.json` (old+new, for the
+  sweep/audit). Neither is tracked; `.gitleaks.toml` allowlists only the OLD
+  burned keys, so any new key in a tracked file fails CI.
+- Pause guardians (`deploy.ts`) + relay signer (`relay-bot/.env`,
+  `PUBLISHER_KEY` = new Diana) rotated to the new set.
+
+### 2. PAS recovery
+- Swept ~35,709 PAS from the 7 funded old accounts → new deployer
+  (`scripts/sweep-old-keys.mjs`). Old accounts left with sub-reserve dust;
+  abandoned.
+
+### 3. Pinata — STILL THE OPEN ITEM (operator only)
+The Pinata JWT/API key/secret (🔴 above) is the only **valuable** leaked
+credential and CANNOT be rotated from the repo. Revoke + reissue in the Pinata
+dashboard and update `PINATA_*` in `alpha-core/.env`.
+
+### 4. Residual
+- ~13 diagnostic/demo scripts (`benchmark-paseo.ts`, `check-testnet.ts`,
+  `diag-*.ts`, `seed-*.mjs`, etc.) still embed the OLD burned literals. They are
+  now defunded and not owners of the new contracts, so re-running them simply
+  fails — no new exposure. Migrate to `.env` as a follow-up.
+- New live addresses: `alpha-core/deployed-addresses.json` (deployedAt
+  2026-06-17Z). Old deploy preserved at
+  `deployed-addresses.pre-keyrotation-2026-06-16.json`.
+- DATUM token plane (`deploy-token.ts`: mintAuthority/wrapper/vesting/feeShare)
+  and the brand layer were NOT part of this core redeploy and remain under the
+  old key — rotate separately if/when those planes go live.

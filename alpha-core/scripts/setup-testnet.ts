@@ -31,29 +31,42 @@ import * as fs from "fs";
 import * as crypto from "crypto";
 
 // ── Test accounts ────────────────────────────────────────────────────────────
-// Keys stored in gitignored DEPLOY-TESTNET.md.
-// Testnet only — NEVER use these on mainnet.
+// Keys loaded from gitignored alpha-core/.env (dotenv.config() runs in
+// hardhat.config.ts before this module). Testnet only — NEVER use on mainnet.
+// No key literals in tracked sources (gitleaks gate) — rotated 2026-06-16.
+function envKey(name: string): string {
+  const k = process.env[name];
+  if (!k) throw new Error(`Missing ${name} in alpha-core/.env (see .env.example)`);
+  return k;
+}
 const ACCOUNTS = {
-  alice:   { key: "0x6eda5379102df818a7b24bc99f005d3bcb7c12eaa6303c01bb8a40ba4ec64ac8", role: "Deployer" },
-  bob:     { key: "0x8a4dee9fc3885e92f76305592570259afa4a1f91999c891734e7427f9e41fd52", role: "Advertiser 1" },
-  charlie: { key: "0x1560b7b8d38c812b182b08e8ef739bb88c806d7ba36bd7b01c9177b3536654c1", role: "Advertiser 2" },
-  diana:   { key: "0x40d6fab8165a332c4319f25682c480748a01bb1e06808ffe8fd34e8cd56230d0", role: "Publisher 1" },
-  eve:     { key: "0x22adcf911646ca05279aa42b03dcabae2610417af459be43c2ba37f869c15914", role: "Publisher 2" },
-  frank:   { key: "0xd8947fdc847ae7e902cf126b449cb8d9e7a9becdd0816397eaeb3b046d77986c", role: "Voter (Aye)" },
-  grace:   { key: "0xdfafb7d12292bad165e40ba13bd2254f91123b656f991e3f308e5ccbcfc6a235", role: "Voter (Nay)" },
+  alice:   { key: envKey("DEPLOYER_PRIVATE_KEY"), role: "Deployer" },
+  bob:     { key: envKey("BOB_PRIVATE_KEY"),      role: "Advertiser 1" },
+  charlie: { key: envKey("CHARLIE_PRIVATE_KEY"),  role: "Advertiser 2" },
+  diana:   { key: envKey("DIANA_PRIVATE_KEY"),    role: "Publisher 1" },
+  eve:     { key: envKey("EVE_PRIVATE_KEY"),      role: "Publisher 2" },
+  frank:   { key: envKey("FRANK_PRIVATE_KEY"),    role: "Voter (Aye)" },
+  grace:   { key: envKey("GRACE_PRIVATE_KEY"),    role: "Voter (Nay)" },
 };
 
 const TO_FUND = ["bob", "charlie", "diana", "eve", "frank", "grace"] as const;
 
 // Per-account funding amounts. Bob/Charlie each create 50 campaigns (1 PAS each + gas).
 // Frank votes on all 100 campaigns (100 PAS stake each to meet quorum, conviction 0 = no lockup).
+// NOTE: Paseo's eth-rpc validates balance >= gasLimit*gasPrice (the pinned
+// TX_OPTS reserve = 5e8 * 1e12 = 500 PAS) BEFORE every tx, even though the
+// weight-based fee actually charged is only a few PAS. So every funded account
+// must hold >= ~500 PAS at all times or its tx is rejected 1010 Invalid
+// Transaction. Fresh (post-rotation) accounts start at 0, so these amounts
+// clear the reserve + operational spend. (Pre-rotation seeds "worked" only
+// because the old accounts were already rich from prior runs.)
 const FUND_AMOUNTS: Record<string, bigint> = {
-  bob:     parseDOT("150"),   // 50 campaigns × 1 PAS budget + gas
-  charlie: parseDOT("150"),   // 50 campaigns × 1 PAS budget + gas
-  diana:   parseDOT("50"),
-  eve:     parseDOT("50"),
-  frank:   parseDOT("10500"), // 100 votes × 100 PAS stake (quorum) + 500 gas buffer
-  grace:   parseDOT("50"),
+  bob:     parseDOT("700"),   // 500 reserve + 50 campaigns × 1 PAS budget + gas
+  charlie: parseDOT("700"),   // 500 reserve + 50 campaigns × 1 PAS budget + gas
+  diana:   parseDOT("600"),   // 500 reserve + register/relaySigner/stake + gas
+  eve:     parseDOT("600"),
+  frank:   parseDOT("11000"), // 500 reserve + 100 votes × 100 PAS stake (quorum) + gas
+  grace:   parseDOT("600"),
 };
 
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];

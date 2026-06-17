@@ -44,7 +44,7 @@ const EMPTY_ADDRESSES: ContractAddresses = {
 // mismatch it flushes any cached contractAddresses from localStorage so a
 // returning browser can't keep pointing at a previous deploy's (now-dead)
 // contracts. Bump this whenever the address block below is re-synced.
-export const DEPLOY_VERSION = "2026-06-15T-multiclaim-fanout-v2";
+export const DEPLOY_VERSION = "2026-06-16T-keyrotation";
 //
 // Source of truth: alpha-core/deployed-addresses.json. When that file
 // changes (re-deploy), this block AND DEPLOY_VERSION must be updated
@@ -67,59 +67,59 @@ export const DEPLOY_VERSION = "2026-06-15T-multiclaim-fanout-v2";
 // first-render reads hit dead bytecode and revert.
 const ALPHA_5_PASEO: ContractAddresses = {
   // Core
-  campaigns:            "0xC781D6d4Ce0567466A31c6ec50E336df42b2D346",
-  publishers:           "0xBc161945d7bdBCbfa419ee70956f7Fe67A1940CD",
-  governanceV2:         "0x750F20ceAec68c8405B29D7b4a28d58Ac217bfDE",
-  settlement:           "0x477B92F0e938326Fa4D0F8533C6F7F6D7B0D70ee",
-  relay:                "0x05eDD6c97cca1111169B19174cfE4987939EeE08",
-  pauseRegistry:        "0xC9871944fabbb182602B1d2f626Fde868a155065",
-  timelock:             "0xF0F3111A9217950A336E2DBf7310aC6A79cE6eC6",
-  zkVerifier:           "0x2C2613c0838f8a0065A3e497a56068875605Bf24",
+  campaigns:            "0x94c3284FbBc9e91eA5e73425D84bD8B8f1970B11",
+  publishers:           "0x1891f95d98e648CF79D399eff8b40bdF21DfFf13",
+  governanceV2:         "0xf2c046033a5CCef53E240Fc152ee0649E0d3a9e4",
+  settlement:           "0x49Ec79a1d077be11Ef672EB94453162902B8C6b8",
+  relay:                "0x50A5FE0AB993fD28d0D0ADA069Db819d1061D376",
+  pauseRegistry:        "0xd5b91aa3cb2e6AB1633690F88064ce9C8Fb8dd5b",
+  timelock:             "0xA057933434826F1C808c7fC0DD635032D05F282d",
+  zkVerifier:           "0x960b5CA1abb31138345a1De97Dfb354b5845cFC2",
   // Satellites
-  budgetLedger:         "0x6B37a9B6D97a4d6e0d506De060064d5D606beF92",  // v2: multi-claim fan-out + paginated migrate (escrow migrated), 2026-06-15
-  paymentVault:         "0xD489173e75289608ef766b8F8857D734982bad31",
-  lifecycle:            "0x54197f23C63A774391Fa27CD25470e63dF3FE2c0",  // JSON: campaignLifecycle
-  attestationVerifier:  "0xCCA37672489D0b023B3aaDb338E3474E3E4D4fd4",
-  claimValidator:       "0x217e895B222a754Ff0d8eD388Fe4088520502017",  // v2: validateBatch (multi-claim fan-out), 2026-06-15
-  tokenRewardVault:     "0x6D371368806F4795ADAe8b1e1F403c75086Ed4e1",  // v2: asset gate hardened (no decimals() req), 2026-06-12
+  budgetLedger:         "0xdF756eB5Eb437de31D9535230d2fa33CB2C61D69",  // v2: multi-claim fan-out + paginated migrate (escrow migrated), 2026-06-15
+  paymentVault:         "0x92e83Eb79BC3c8e8cF905012478717450C937684",
+  lifecycle:            "0x2290d75D0Fa1081214DDfA5CB96ebAa50511DbEA",  // JSON: campaignLifecycle
+  attestationVerifier:  "0xe6E6Cd7b78290BD0568449Df1b3d412627ce7f12",
+  claimValidator:       "0x3ED80c86A583ea1a64d1aDE059BEEBD049F01081",  // v2: validateBatch (multi-claim fan-out), 2026-06-15
+  tokenRewardVault:     "0xC3609a4239C6e2c4AF0B26D80248189Db1855932",  // v2: asset gate hardened (no decimals() req), 2026-06-12
   // Fraud prevention
-  publisherStake:       "0xC4b9dA10d78cB1b4482c020fd3917b52B8B9D55A",
-  challengeBonds:       "0x7320FfA3d0A83a48DA96d9639d032E7Ee1191f06",
-  publisherGovernance:  "0x08cB4533C102cF771eb859E5a9d3f6A29Dd2258D",
-  advertiserStake:      "0xB4C976a1075B6F2C555a784A0741dF1B26Ce4d60",
-  advertiserGovernance: "0xA783e692ad9A83D895d8533A082a178631c21506",
-  interestCommitments:  "0x1eD029c142Ba8181E242599feB495b4EA7aFD020",
-  tagCurator:           "0xCB24fAF5bb383e5E4Fba9EaB8e3251f3453A42CD",
-  parameterGovernance:  "0xa831cc422DA225E3B0c5Cb4148ED36507Aa25697",
-  clickRegistry:        "0xc83ab97cCFfFB3Ec4201300470efeae4E5D8Fc80",
+  publisherStake:       "0x689dc2f359e41709cBC84E6B0f893B6e6a9EebC0",
+  challengeBonds:       "0x7dbCb2D7E5B8C95E351f82A33eA49e5dd53A0774",
+  publisherGovernance:  "0x71e83f4991F3cD4C459aF4Be7316A2B4Ed0e7cDb",
+  advertiserStake:      "0x582C88A0c6eD9d3a10299235F42daE653EEC161E",
+  advertiserGovernance: "0xdd56F4cd7C387A0F18FCe7B569153B478731Ab2B",
+  interestCommitments:  "0xe7Bb4D88e4c6419386B87Eda7F918C8f3A9d81e3",
+  tagCurator:           "0x5dB3340fBBEF00ceD15cbCC6E3DA6E7eEc586A01",
+  parameterGovernance:  "0xa98B8E441F8E6d5E2512Ae5A83A3049049215527",
+  clickRegistry:        "0xa7D0C073bFB8d4FDcb63D0A721B516f8B4a6D7B6",
   // Governance ladder
-  governanceRouter:     "0xAb22653cDcA7214636708721AeDAc289E8635e80",
-  council:              "0x239e8c0bEbb5Fb5BC38da72dD51eac3f6e3b1b59",
+  governanceRouter:     "0x1ff92C9E46e33e99aB20c42bC2590361bA02ECB1",
+  council:              "0x9fFf37c34ed5D2D7E45245d62c3B02286992cFca",
   // Carve-outs (alpha-4 EIP-170)
-  powEngine:            "0x378D1C3e856fdEC596680A86b4A73ff9215CFa82",
-  publisherReputation:  "0xA180c851025A139abA1D2197F345548121825434",
-  nullifierRegistry:    "0x9485Ac29018E259a0691526381f5ab756525f96c",
-  settlementRateLimiter:"0x8e83F4B3cf5317A66A93d0ea90549b39ca3f627f",
-  campaignCreative:     "0xC25091c039747120797724FFf1401f892eF6157e",
-  reports:              "0xA7aDb0411E9faD09Ad8Ad4C01dCeE19b39E725b1",
-  campaignAllowlist:    "0x08f3ef697f49a21a04F71793dc993e314bf697EE",
-  tagSystem:            "0x78c9404fEAc5885Ba9B1fa01Cc39e617047ea569",
-  blocklistCurator:     "0xdcAD33da87EE4007e57d03e95AC13bEEcdB69B0b",
-  councilBlocklistCurator: "0xdcAD33da87EE4007e57d03e95AC13bEEcdB69B0b",  // alpha-4 alias
-  activationBonds:      "0x8609C948cd70BBd7f49395CfBAeb215F81028044",
-  stakeRoot:            "0xd51E85c519A3E9F288434bDD6CD4B34248B3f8F9",
-  stakeRootV2:          "0xb5d3a08735C4D47BE03866eA020fa66A2bBCB7d3",
-  identityVerifier:     "0x26F5719e21Af2F9a5130b353438fD25Fc69064C8",
-  emissionEngine:       "0xff7336D7846A57425461E426839564956f5d78b7",  // v2: emission on/off switch (2026-06-12)
-  mintCoordinator:      "0x561E47cEB7F3D42a96D468b94F6e3F2B25eA07cC",  // original (immutably-authorized minter); Settlement routes here
-  dualSig:              "0x4731799d15C629b354fF809171751F3bC92d988e",
-  peopleChainIdentity:  "0x317e14E122DC93349b5eCEAB9F073410d66165e6",
-  peopleChainXcmBridge: "0xF26d3a2FB051e87E822FD041c73feab3276BECfd",
-  peopleChainBondedReporter: "0x0834FC89F115f23548DfFcE6c77414A3300d2cf7",
-  settlementLogicA:     "0x0014DFb6564C3BA281f97AeDD4CB8B173266e642",
-  settlementLogicB:     "0xAF43CEcAe1E0C07ee1e1ea7c57AE025BA0F58f4B",  // v2: batched deduct/transferSettled settle path, 2026-06-15
-  relayStake:           "0xc4Ea887E850FC56Af70A8a048eee16211B415408",
-  relayGovernance:      "0x7AD25683f625eF1C9db4f164aB1937B93AB503d1",
+  powEngine:            "0x161C3A44bB0661a7eF9C8Ba89437C8D2892D331D",
+  publisherReputation:  "0xA0fB1C49558FAd19682280790a50F0AD1b065774",
+  nullifierRegistry:    "0x8A94862ac06d309E7cb38e5b919f84E334b0623B",
+  settlementRateLimiter:"0x42370E5f0698810e9dBD85e12ddAE2767DD88A7D",
+  campaignCreative:     "0x88Dd31f46447B8b37EcdD20D7CD343B378034f2b",
+  reports:              "0xB8dcF4Fe6fCcc295daC60332Ba902614c29Cd69d",
+  campaignAllowlist:    "0x20D2f6Ae98C58750cA74902a3B93244208a9Bb93",
+  tagSystem:            "0xDdF6f1d8256D2cE82d5E437CC921e46D6b2E2b3c",
+  blocklistCurator:     "0x8E208Fe44021826c88c4Ba93393f4792C4Ce1289",
+  councilBlocklistCurator: "0x8E208Fe44021826c88c4Ba93393f4792C4Ce1289",  // alpha-4 alias
+  activationBonds:      "0x4010212f4E354Dce47576A633Bf1706Ea32A9a56",
+  stakeRoot:            "0x7A4Fccca7c49973A086e79162024E2c802641118",
+  stakeRootV2:          "0x7146B5eEe2cd0371338f91A1de845eC5C6D6BF54",
+  identityVerifier:     "0x6d6b5443a1b624b959369B307dDe66bB2002c136",
+  emissionEngine:       "0x81D449B244552Fe3EC6Da505Cd9AAC6D39509eC2",  // v2: emission on/off switch (2026-06-12)
+  mintCoordinator:      "0x2A007ae092Ce6a4a5878e3FAD68893ab1a48bF65",  // original (immutably-authorized minter); Settlement routes here
+  dualSig:              "0x9371192181d0f7a2e72Ef70151208dE28e9dc05B",
+  peopleChainIdentity:  "0x67572878aa44b4bc9e012C49228FeE3022B4485D",
+  peopleChainXcmBridge: "0xCb322EC5e19462f166a99AF22E7432fF0475f765",
+  peopleChainBondedReporter: "0xA16Cb1C90F5c6De6b7965B5B3C53d4ccAa919C88",
+  settlementLogicA:     "0xd1D42050f63DBC3d9bfB04D76b726ceD38F22Ce0",
+  settlementLogicB:     "0x3Bd9A120c3913090E32eecb18B8F49F4c279993a",  // v2: batched deduct/transferSettled settle path, 2026-06-15
+  relayStake:           "0x87d888E2a7B13eA1EB02Ab6260F6E3b9a3082662",
+  relayGovernance:      "0x47ac504e4C31112B08AC6958BE4d1567Da8695FA",
   // Token plane (deployed in the 2026-06-11 full redeploy)
   wrapper:              "0xb867f7b0Ee4b528e447b17ad57a72a1aa6fB07a5",
   mintAuthority:        "0xE278117D8ec09159D2736266d3b308D2A24c5B02",
