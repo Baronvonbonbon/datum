@@ -683,6 +683,33 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // 2.6b. AUTHORIZE DIANA AS A RELAYER (DatumRelay)
+  // DatumRelay.settleClaimsFor gates on authorizedRelayers OR relayStake OR a
+  // liveness fallback. Without this, the demo relay (Diana) only settles via the
+  // emergency liveness path. Authorize her so settles take the intended path.
+  // onlyOwner of DatumRelay = deployer at setup time (relay is not transferred to
+  // the Timelock in deploy.ts PHASE 3). Idempotent.
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (addrs.relay) {
+    log("2.6b", "--- Authorizing Diana as relayer (DatumRelay) ---");
+    const relayIface = new Interface([
+      "function authorizedRelayers(address) view returns (bool)",
+      "function setRelayerAuthorized(address relayer, bool authorized)",
+    ]);
+    try {
+      const cur = await readCall(rawProvider, addrs.relay, relayIface, "authorizedRelayers", [diana.address]);
+      if (relayIface.decodeFunctionResult("authorizedRelayers", cur)[0]) {
+        log("2.6b", "  diana already authorized -- skipping");
+      } else {
+        await sendCall(alice, rawProvider, addrs.relay, relayIface, "setRelayerAuthorized", [diana.address, true]);
+        log("2.6b", `  diana authorized as relayer on ${addrs.relay}`);
+      }
+    } catch (err) {
+      log("2.6b", `  setRelayerAuthorized failed: ${String(err).slice(0, 100)}`);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 2.7. SET PUBLISHER PROFILE HASH FOR DIANA
   // ═══════════════════════════════════════════════════════════════════════════
   log("2.7", "--- Setting publisher profile hash ---");
