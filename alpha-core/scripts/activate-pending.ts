@@ -16,7 +16,11 @@ const TX_OPTS = {
   gasPrice: 1000000000000n,
 };
 
-const ALICE_KEY = "0x6eda5379102df818a7b24bc99f005d3bcb7c12eaa6303c01bb8a40ba4ec64ac8";
+// Deployer = adminGovernor (Phase-0). Loaded from gitignored .env (rotated
+// 2026-06-16; no key literals in tracked sources). dotenv.config() runs via
+// hardhat.config.ts before this module loads.
+const ALICE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
+if (!ALICE_KEY) throw new Error("set DEPLOYER_PRIVATE_KEY in alpha-core/.env");
 const STATUS_NAMES = ["Pending", "Active", "Paused", "Completed", "Terminated", "Expired"];
 
 async function waitForNonce(
