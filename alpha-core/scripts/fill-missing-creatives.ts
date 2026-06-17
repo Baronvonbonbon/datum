@@ -19,12 +19,17 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 
-// Same hardcoded dev keys used by setup-testnet.ts (testnet only — these
-// are well-known and committed in setup-testnet.ts).
+// Keys loaded from gitignored .env (rotated 2026-06-16; no literals in tracked
+// sources). dotenv.config() runs in hardhat.config.ts before this module.
+function envKey(name: string): string {
+  const k = process.env[name];
+  if (!k) throw new Error(`set ${name} in alpha-core/.env`);
+  return k;
+}
 const ACCOUNTS = {
-  alice:   "0x6eda5379102df818a7b24bc99f005d3bcb7c12eaa6303c01bb8a40ba4ec64ac8",
-  bob:     "0x8a4dee9fc3885e92f76305592570259afa4a1f91999c891734e7427f9e41fd52",
-  charlie: "0x1560b7b8d38c812b182b08e8ef739bb88c806d7ba36bd7b01c9177b3536654c1",
+  alice:   envKey("DEPLOYER_PRIVATE_KEY"),
+  bob:     envKey("BOB_PRIVATE_KEY"),
+  charlie: envKey("CHARLIE_PRIVATE_KEY"),
 };
 
 const _IS_PASEO = (network.name === "polkadotTestnet");
