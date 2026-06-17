@@ -267,6 +267,37 @@ contract DatumCampaignLifecycle is IDatumCampaignLifecycle, ReentrancyGuard, Dat
     }
 
     /// @inheritdoc IDatumCampaignLifecycle
+    /// @dev Fault-free admin/operator termination. Identical to terminateCampaign
+    ///      EXCEPT it does NOT slash — the full remaining budget refunds to the
+    ///      advertiser. The 10% slash is reserved for the adjudicated governance/
+    ///      challenge path; an operator killing a campaign for spam/safety must not
+    ///      be able to skim escrow (G-M1 hardening). Gated to the governance
+    ///      contract (router admin path, itself onlyOwner + onlyAdminPhase).
+    function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode) external nonReentrant whenNotFrozen {
+        require(!pauseRegistry.pausedSettlement(), "P");
+        require(msg.sender == governanceContract, "E19");
+
+        address advertiser = campaigns.getCampaignAdvertiser(campaignId);
+        require(advertiser != address(0), "E01");
+
+        IDatumCampaigns.CampaignStatus status = campaigns.getCampaignStatus(campaignId);
+        require(
+            status == IDatumCampaigns.CampaignStatus.Active  ||
+            status == IDatumCampaigns.CampaignStatus.Paused  ||
+            status == IDatumCampaigns.CampaignStatus.Pending,
+            "E14"
+        );
+
+        campaigns.setTerminationBlock(campaignId, block.number);
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Terminated);
+
+        // FULL refund to advertiser — no slash.
+        budgetLedger.drainToAdvertiser(campaignId, advertiser);
+
+        emit CampaignAdminTerminated(campaignId, reasonCode, block.number);
+    }
+
+    /// @inheritdoc IDatumCampaignLifecycle
     /// @dev Callable by anyone once pendingExpiryBlock has passed.
     function expirePendingCampaign(uint256 campaignId) external nonReentrant whenNotPaused whenNotFrozen {
         address advertiser = campaigns.getCampaignAdvertiser(campaignId);

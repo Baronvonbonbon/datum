@@ -510,7 +510,7 @@ describe("Audit fixes", function () {
         router.connect(owner).adminActivateCampaign(1n)
       ).to.be.revertedWith("E19");
       await expect(
-        router.connect(owner).adminTerminateCampaign(1n)
+        router.connect(owner).adminTerminateCampaign(1n, 0)
       ).to.be.revertedWith("E19");
       await expect(
         router.connect(owner).adminDemoteCampaign(1n)

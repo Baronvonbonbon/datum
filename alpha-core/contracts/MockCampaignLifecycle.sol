@@ -34,4 +34,13 @@ contract MockCampaignLifecycle {
         campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Terminated);
         emit CampaignTerminated(campaignId, block.number);
     }
+
+    event CampaignAdminTerminated(uint256 indexed campaignId, uint16 reasonCode, uint256 terminationBlock);
+
+    function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode) external {
+        require(msg.sender == governanceContract, "E19");
+        campaigns.setTerminationBlock(campaignId, block.number);
+        campaigns.setCampaignStatus(campaignId, IDatumCampaigns.CampaignStatus.Terminated);
+        emit CampaignAdminTerminated(campaignId, reasonCode, block.number);
+    }
 }

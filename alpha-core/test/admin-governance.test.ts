@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { ethers } from "hardhat";
 import {
   DatumGovernanceRouter,
@@ -69,8 +70,9 @@ describe("DatumGovernanceRouter (admin functions)", function () {
     expect(c.status).to.equal(1n); // Active
   });
 
-  it("R2: adminTerminateCampaign — owner can terminate", async function () {
-    await router.connect(owner).adminTerminateCampaign(2);
+  it("R2: adminTerminateCampaign — owner can terminate (no-slash, reason-coded)", async function () {
+    await expect(router.connect(owner).adminTerminateCampaign(2, 7))
+      .to.emit(mockLifecycle, "CampaignAdminTerminated").withArgs(2, 7, anyValue);
     const c = await mock.campaigns(2);
     expect(c.status).to.equal(4n); // Terminated
   });
@@ -84,7 +86,7 @@ describe("DatumGovernanceRouter (admin functions)", function () {
   it("R4: non-owner reverts on all admin actions", async function () {
     await mock.setCampaign(4, owner.address, other.address, 1_000_000_000n, 500, 0);
     await expect(router.connect(other).adminActivateCampaign(4)).to.be.revertedWith("E18");
-    await expect(router.connect(other).adminTerminateCampaign(4)).to.be.revertedWith("E18");
+    await expect(router.connect(other).adminTerminateCampaign(4, 0)).to.be.revertedWith("E18");
     await expect(router.connect(other).adminDemoteCampaign(4)).to.be.revertedWith("E18");
   });
 
