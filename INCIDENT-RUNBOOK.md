@@ -153,7 +153,7 @@ per `CONTROL-MATRIX-MEMO.md` §5/§7).
 | **StakeRoot divergence breaker** (`DatumStakeRootV2`) | freezes stake-gated settlement (`isRecent`→false) when the off-chain `watch-stakeRoot-divergence.ts` detects a bad root | `tripDivergenceBreaker()` — `breakerOperator`/owner | `resetDivergenceBreaker()` | keep |
 | **No-slash admin terminate** (`GovernanceRouter.adminTerminateCampaign(id,reason)`) | operator kills a spam/unsafe campaign — **full refund, no slash**, reason-coded | deployer, `onlyAdminPhase` | n/a | **auto-sunsets at Phase 1** (`onlyAdminPhase`) |
 | **Admin activate / demote** (`adminActivateCampaign` / `adminDemoteCampaign`) | Phase-0 campaign lifecycle shortcuts | deployer, `onlyAdminPhase` | n/a | **auto-sunsets at Phase 1** |
-| **Per-campaign budget cap + high tier** (`DatumCampaigns`) | bounds custodied escrow per campaign; vetted advertisers allowlisted | `setMaxCampaignBudget` / `setHighTierAdvertiser` (owner; 0=off) | n/a | relax/disable at OpenGov |
+| **Per-campaign budget cap** (`DatumCampaigns`) | bounds custodied escrow per campaign | `setMaxCampaignBudget` (owner; 0=off) | n/a | relax/disable at OpenGov |
 | **Relay health gate** (relay) | relay refuses to settle while Settlement is mis-wired / mid-migration | automatic (`/claim`→503) | automatic on recovery | keep |
 | **Stakes & bonds** (`*Stake`, `ActivationBonds`, `ChallengeBonds`) | skin-in-the-game; slashing is **adjudicated** (gov/challenge), never unilateral admin | per-contract gov | per-contract | keep; never add `adminSlash` |
 

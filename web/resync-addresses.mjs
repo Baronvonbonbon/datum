@@ -8,7 +8,7 @@ import path from "path";
 const CORE = "../alpha-core/deployed-addresses.json";
 const NETWORKS = "src/shared/networks.ts";
 const PUBLIC = "public/deployed-addresses.json";
-const NEW_VERSION = "2026-06-16T-keyrotation";
+const NEW_VERSION = "2026-06-17T-launch-controls";
 
 // networks.ts key -> deployed-addresses.json key (only where they differ)
 const RENAME = { lifecycle: "campaignLifecycle", councilBlocklistCurator: "blocklistCurator" };

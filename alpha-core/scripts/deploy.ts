@@ -188,6 +188,17 @@ const REQUIRED_KEYS = [
 const RATE_LIMITER_WINDOW_BLOCKS = 100n;              // ~10 minutes at 6s/block
 const RATE_LIMITER_MAX_IMPRESSIONS = 500_000n;        // 500K impressions per publisher per window
 
+// ── Launch controls (training wheels; see INCIDENT-RUNBOOK.md §7) ───────────
+// Aggregate circuit breaker: protocol-wide view-event ceiling per window. Set
+// generously (≈50× the per-publisher cap) so it only latches on an anomaly.
+const RATE_LIMITER_GLOBAL_MAX = 25_000_000n;          // 0 = disabled
+// Fast trip/reset key for both breakers (a guardian); owner (Timelock) is the
+// fallback. Distinct-from-deployer hardware keys recommended for mainnet.
+const BREAKER_OPERATOR = PAUSE_GUARDIAN_0;
+// Per-campaign escrow cap bounding custodied value at launch (high-tier
+// advertisers bypass via setHighTierAdvertiser). 0 = disabled.
+const LAUNCH_MAX_CAMPAIGN_BUDGET = parseDOT("1000");
+
 // FP-5 nullifier window (inline in Settlement)
 const NULLIFIER_WINDOW_BLOCKS = 14400n;              // ~24h at 6s/block (Polkadot Hub)
 
@@ -1656,6 +1667,46 @@ async function main() {
     } else {
       console.log(`  OK (already set): RateLimiter window/cap`);
     }
+  }
+
+  // ── Launch controls (INCIDENT-RUNBOOK.md §7) ────────────────────────────────
+  // Owner-gated setters wired here, BEFORE PHASE 3 transfers campaigns/stakeRootV2
+  // to the Timelock (the rate limiter stays deployer-owned). Idempotent.
+  logStep("Wiring launch controls (circuit breakers + budget cap)");
+  const decodeAddr = (ret: string) => ethers.AbiCoder.defaultAbiCoder().decode(["address"], ret)[0] as string;
+  if (addresses.settlementRateLimiter) {
+    const rlI = new ethers.Interface([
+      "function maxGlobalEventsPerWindow() view returns (uint256)",
+      "function setGlobalRateLimit(uint256)",
+      "function breakerOperator() view returns (address)",
+      "function setBreakerOperator(address)",
+    ]);
+    const curGlobal = BigInt(await rawProvider.call({ to: addresses.settlementRateLimiter, data: rlI.encodeFunctionData("maxGlobalEventsPerWindow") }));
+    if (curGlobal !== RATE_LIMITER_GLOBAL_MAX) {
+      await sendCall(addresses.settlementRateLimiter, ["function setGlobalRateLimit(uint256)"], "setGlobalRateLimit", [RATE_LIMITER_GLOBAL_MAX]);
+      console.log(`  SET: RateLimiter.setGlobalRateLimit(${RATE_LIMITER_GLOBAL_MAX})`);
+    } else { console.log("  OK (already): RateLimiter global cap"); }
+    const rlOp = decodeAddr(await rawProvider.call({ to: addresses.settlementRateLimiter, data: rlI.encodeFunctionData("breakerOperator") })).toLowerCase();
+    if (rlOp !== BREAKER_OPERATOR.toLowerCase()) {
+      await sendCall(addresses.settlementRateLimiter, ["function setBreakerOperator(address)"], "setBreakerOperator", [BREAKER_OPERATOR]);
+      console.log(`  SET: RateLimiter.setBreakerOperator(${BREAKER_OPERATOR})`);
+    } else { console.log("  OK (already): RateLimiter breaker operator"); }
+  }
+  if (addresses.stakeRootV2) {
+    const srI = new ethers.Interface(["function breakerOperator() view returns (address)", "function setBreakerOperator(address)"]);
+    const srOp = decodeAddr(await rawProvider.call({ to: addresses.stakeRootV2, data: srI.encodeFunctionData("breakerOperator") })).toLowerCase();
+    if (srOp !== BREAKER_OPERATOR.toLowerCase()) {
+      await sendCall(addresses.stakeRootV2, ["function setBreakerOperator(address)"], "setBreakerOperator", [BREAKER_OPERATOR]);
+      console.log(`  SET: StakeRootV2.setBreakerOperator(${BREAKER_OPERATOR})`);
+    } else { console.log("  OK (already): StakeRootV2 breaker operator"); }
+  }
+  if (addresses.campaigns && LAUNCH_MAX_CAMPAIGN_BUDGET > 0n) {
+    const cI = new ethers.Interface(["function maxCampaignBudget() view returns (uint256)", "function setMaxCampaignBudget(uint256)"]);
+    const cur = BigInt(await rawProvider.call({ to: addresses.campaigns, data: cI.encodeFunctionData("maxCampaignBudget") }));
+    if (cur !== LAUNCH_MAX_CAMPAIGN_BUDGET) {
+      await sendCall(addresses.campaigns, ["function setMaxCampaignBudget(uint256)"], "setMaxCampaignBudget", [LAUNCH_MAX_CAMPAIGN_BUDGET]);
+      console.log(`  SET: Campaigns.setMaxCampaignBudget(${LAUNCH_MAX_CAMPAIGN_BUDGET})`);
+    } else { console.log("  OK (already): Campaigns max budget"); }
   }
 
   // Rate limiter window/cap + nullifier window are configured on the carved-out
