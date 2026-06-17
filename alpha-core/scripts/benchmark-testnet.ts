@@ -5,13 +5,12 @@
  * Measures weight (gas units) and DOT cost for key operations, then runs
  * batch-scaling tests from 1 to 10 claims (inner cap = 50 claims/batch).
  *
- * Usage:
- *   DEPLOYER_PRIVATE_KEY="0x6eda..." \
- *   TESTNET_ACCOUNTS="0x8a4d...(bob),0x40d6...(diana),0xd894...(frank),0x5a59...(hank)" \
+ * Usage (keys loaded from gitignored .env — DEPLOYER/BOB/DIANA/FRANK/HANK_PRIVATE_KEY):
  *   npx hardhat run scripts/benchmark-testnet.ts --network polkadotTestnet
  *
- * Accounts needed (in TESTNET_ACCOUNTS order):
- *   Bob (advertiser), Diana (publisher), Frank (voter), Hank (user)
+ * Roles: Alice (deployer/adminGovernor), Bob (advertiser), Diana (publisher,
+ * must be registered + staked via setup-testnet.ts), Frank (voter), Hank (user).
+ * Activation uses adminActivateCampaign (Phase-0 admin path), not gov vote.
  *
  * Paseo receipt workaround: eth_getTransactionReceipt returns null for confirmed txs.
  * Gas measurements use eth_estimateGas (static call) against live contract state.
@@ -20,38 +19,26 @@
 import { ethers, network } from "hardhat";
 import { JsonRpcProvider, Wallet, Interface } from "ethers";
 import { parseDOT } from "../test/helpers/dot";
-import { ethersKeccakAbi } from "../test/helpers/hash";
 import * as fs from "fs";
 
-// ---------------------------------------------------------------------------
-// Claim hash (keccak256)
-// ---------------------------------------------------------------------------
-function computeClaimHash(
-  campaignId: bigint, publisher: string, user: string,
-  impressionCount: bigint, clearingCpmWei: bigint,
-  nonce: bigint, previousClaimHash: string
-): string {
-  return ethersKeccakAbi(
-    ["uint256", "address", "address", "uint256", "uint256", "uint256", "bytes32"],
-    [campaignId, publisher, user, impressionCount, clearingCpmWei, nonce, previousClaimHash],
-  );
-}
 
+// SLIM (#2b) nested-proof claim: { publisher, eventCount, rateWei, actionType,
+// ClaimProof[] proof }. campaignId rides at the batch level; nonce/prevHash/
+// claimHash are derived on-chain. Plain CPM view claim → empty proof sidecar.
+// Matches scripts/capture-settle-weight-paseo.ts.
 function buildClaimChain(
-  campaignId: bigint, publisher: string, user: string,
+  _campaignId: bigint, publisher: string, _user: string,
   count: number, cpm: bigint, impressions: bigint
 ) {
   const claims = [];
-  let prevHash = ethers.ZeroHash;
-  for (let i = 1; i <= count; i++) {
-    const nonce = BigInt(i);
-    const claimHash = computeClaimHash(campaignId, publisher, user, impressions, cpm, nonce, prevHash);
+  for (let i = 0; i < count; i++) {
     claims.push({
-      campaignId, publisher, impressionCount: impressions,
-      clearingCpmWei: cpm, nonce, previousClaimHash: prevHash,
-      claimHash, zkProof: "0x",
+      publisher,
+      eventCount: impressions,
+      rateWei: cpm,
+      actionType: 0,
+      proof: [] as any[],
     });
-    prevHash = claimHash;
   }
   return claims;
 }
@@ -135,21 +122,27 @@ async function main() {
   const rawProvider = new JsonRpcProvider(rpcUrl);
   const accounts = (network.config as any).accounts || [];
 
-  const deployerKey = accounts[0] || process.env.DEPLOYER_PRIVATE_KEY;
+  const deployerKey = process.env.DEPLOYER_PRIVATE_KEY || accounts[0];
   if (!deployerKey) throw new Error("No deployer key — set DEPLOYER_PRIVATE_KEY");
 
+  // Prefer the named .env keys (post key-rotation; matches setup-testnet.ts).
+  // Falls back to positional TESTNET_ACCOUNTS=bob,diana,frank,hank for old setups.
   const testnetKeys = (process.env.TESTNET_ACCOUNTS || "").split(",").filter(Boolean);
-  if (testnetKeys.length < 4) {
-    console.error("Need TESTNET_ACCOUNTS=bob_key,diana_key,frank_key,hank_key");
+  const bobKey   = process.env.BOB_PRIVATE_KEY   ?? testnetKeys[0];
+  const dianaKey = process.env.DIANA_PRIVATE_KEY ?? testnetKeys[1];
+  const frankKey = process.env.FRANK_PRIVATE_KEY ?? testnetKeys[2];
+  const hankKey  = process.env.HANK_PRIVATE_KEY  ?? testnetKeys[3];
+  if (!bobKey || !dianaKey || !frankKey || !hankKey) {
+    console.error("Set BOB/DIANA/FRANK/HANK_PRIVATE_KEY in .env (or TESTNET_ACCOUNTS=bob,diana,frank,hank)");
     process.exitCode = 1;
     return;
   }
 
   const alice = new Wallet(deployerKey, rawProvider);
-  const bob   = new Wallet(testnetKeys[0], rawProvider);
-  const diana = new Wallet(testnetKeys[1], rawProvider);
-  const frank = new Wallet(testnetKeys[2], rawProvider);
-  const hank  = new Wallet(testnetKeys[3], rawProvider);
+  const bob   = new Wallet(bobKey, rawProvider);
+  const diana = new Wallet(dianaKey, rawProvider);
+  const frank = new Wallet(frankKey, rawProvider);
+  const hank  = new Wallet(hankKey, rawProvider);
 
   console.log(`Alice   (deployer):   ${alice.address}`);
   console.log(`Bob     (advertiser): ${bob.address}`);
@@ -180,6 +173,22 @@ async function main() {
   const govAddr        = addrs.governanceV2;
   const settlementAddr = addrs.settlement;
   const vaultAddr      = addrs.paymentVault;
+  const routerAddr     = addrs.governanceRouter;
+  // Activation is now the admin path (onlyAdminGovernor on the router; alice =
+  // Phase-0 adminGovernor). GovernanceV2.evaluateCampaign is no longer the
+  // activation trigger. Mirrors scripts/capture-settle-weight-paseo.ts.
+  const adminIface     = new Interface(["function adminActivateCampaign(uint256)"]);
+
+  // Current createCampaign takes a pots[] array + ZK/reward/bond args.
+  const mkCreateArgs = (budget: bigint) => [
+    diana.address,
+    [{ actionType: 0, budgetWei: budget, dailyCapWei: budget, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }],
+    [],            // requiredTags
+    false,         // requireZkProof
+    ethers.ZeroAddress, // rewardToken
+    0n,            // rewardPerImpression
+    0n,            // bondAmount (admin activation path; no ActivationBonds bond)
+  ];
 
   // Read governance quorum (view call)
   const quorumRaw = await rawProvider.call({ to: govAddr, data: govIface.encodeFunctionData("quorumWeighted") });
@@ -203,7 +212,6 @@ async function main() {
 
   const BID_CPM   = parseDOT("0.016");
   const BUDGET    = parseDOT("10");
-  const DAILY_CAP = parseDOT("10");
 
   // Fund Hank if needed — needs ~200 DOT for ~30 benchmark txs at 5M gasLimit × 1T gasPrice
   {
@@ -218,16 +226,31 @@ async function main() {
     }
   }
 
-  // Helper: create + vote aye + evaluate → Active campaign; returns cid
+  // Helper: create (advertiser pays budget) + admin-activate → Active campaign.
   async function createAndActivate(budget = BUDGET): Promise<bigint> {
     const cid = await getNextCampaignId();
     await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
-      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], budget);
-    await sendCall(frank, rawProvider, govAddr, govIface,
-      "vote", [cid, true, 0], STAKE);
-    await sendCall(alice, rawProvider, govAddr, govIface,
-      "evaluateCampaign", [cid]);
+      "createCampaign", mkCreateArgs(budget), budget);
+    await sendCall(alice, rawProvider, routerAddr, adminIface,
+      "adminActivateCampaign", [cid]);
     return cid;
+  }
+
+  // Disable PoW for the run so plain view-claims (empty proof, no powNonce)
+  // SETTLE instead of being rejected by the difficulty gate. Without this the
+  // settle estimateGas reflects the cheap reject path (~17k) not a real settle
+  // (~78k), and withdrawUser reverts E03 (no balance credited). alice = deployer
+  // can toggle it; re-enabled at the end. Mirrors capture-settle-weight-paseo.ts.
+  const powIface = new Interface([
+    "function enforcePow() view returns (bool)",
+    "function setEnforcePow(bool)",
+  ]);
+  let powWas = false;
+  try { powWas = BigInt(await rawProvider.call({ to: addrs.powEngine, data: powIface.encodeFunctionData("enforcePow") })) === 1n; } catch { /* engine absent */ }
+  if (powWas) {
+    console.log("Disabling PoW for the benchmark run...");
+    try { await sendCall(alice, rawProvider, addrs.powEngine, powIface, "setEnforcePow", [false]); }
+    catch (e) { console.warn(`  could not disable PoW (settles may reject): ${String(e).slice(0, 80)}`); }
   }
 
   // =========================================================================
@@ -237,33 +260,36 @@ async function main() {
   // ─── 1. createCampaign ──────────────────────────────────────────────────
   console.log("1. createCampaign");
   {
-    const data = campaignsIface.encodeFunctionData("createCampaign",
-      [diana.address, DAILY_CAP, BID_CPM, 0, []]);
+    const data = campaignsIface.encodeFunctionData("createCampaign", mkCreateArgs(BUDGET));
     await measure("createCampaign",
       await estimateGas(rawProvider, bob.address, campaignsAddr, data, BUDGET));
     // send for real so campaign exists
     await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
-      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], BUDGET);
+      "createCampaign", mkCreateArgs(BUDGET), BUDGET);
   }
 
-  // ─── 2. vote (aye) ─────────────────────────────────────────────────────
-  console.log("2. vote (aye)");
+  // ─── 2. adminActivateCampaign (current activation path) ──────────────────
+  // Activate BEFORE voting: with ActivationBonds wired, a direct vote() on a
+  // Pending campaign reverts E51 ("use commitVote/revealVote"). Direct vote is
+  // allowed on an Active campaign (the demote path), which is what we measure.
+  console.log("2. adminActivateCampaign");
+  const cidVote = await getNextCampaignId();
+  await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
+    "createCampaign", mkCreateArgs(BUDGET), BUDGET);
   {
-    // create a campaign to vote on
-    const cidVote = await getNextCampaignId();
-    await sendCall(bob, rawProvider, campaignsAddr, campaignsIface,
-      "createCampaign", [diana.address, DAILY_CAP, BID_CPM, 0, []], BUDGET);
+    const actData = adminIface.encodeFunctionData("adminActivateCampaign", [cidVote]);
+    await measure("adminActivateCampaign",
+      await estimateGas(rawProvider, alice.address, routerAddr, actData));
+    await sendCall(alice, rawProvider, routerAddr, adminIface, "adminActivateCampaign", [cidVote]);
+  }
+
+  // ─── 3. vote (aye) on the now-Active campaign ────────────────────────────
+  console.log("3. vote (aye)");
+  {
     const voteData = govIface.encodeFunctionData("vote", [cidVote, true, 0]);
     await measure("vote (aye)",
       await estimateGas(rawProvider, frank.address, govAddr, voteData, STAKE));
     await sendCall(frank, rawProvider, govAddr, govIface, "vote", [cidVote, true, 0], STAKE);
-
-    // ─── 3. evaluateCampaign ─────────────────────────────────────────────
-    console.log("3. evaluateCampaign");
-    const evalData = govIface.encodeFunctionData("evaluateCampaign", [cidVote]);
-    await measure("evaluateCampaign (activate)",
-      await estimateGas(rawProvider, alice.address, govAddr, evalData));
-    await sendCall(alice, rawProvider, govAddr, govIface, "evaluateCampaign", [cidVote]);
   }
 
   // ─── 4. settleClaims (1 claim) ─────────────────────────────────────────
@@ -283,7 +309,7 @@ async function main() {
   // ─── 5. settleClaims (5 claims) ────────────────────────────────────────
   console.log("5. settleClaims (5 claims)");
   {
-    const cidSettle5 = await createAndActivate(parseDOT("100"));
+    const cidSettle5 = await createAndActivate(parseDOT("5"));
     console.log(`  Campaign: ${cidSettle5}`);
     const claims5 = buildClaimChain(cidSettle5, diana.address, hank.address, 5, BID_CPM, 1000n);
     const data5 = settlementIface.encodeFunctionData("settleClaims",
@@ -305,7 +331,7 @@ async function main() {
     if (bal < 1n * 10n ** 18n) {
       console.log("  Building balance with extra settlements...");
       for (let i = 0; i < 3; i++) {
-        const cid = await createAndActivate(parseDOT("100"));
+        const cid = await createAndActivate(parseDOT("5"));
         const cls = buildClaimChain(cid, diana.address, hank.address, 5, BID_CPM, 1000n);
         await sendCall(hank, rawProvider, settlementAddr, settlementIface,
           "settleClaims", [[{ user: hank.address, campaignId: cid, claims: cls }]]);
@@ -336,7 +362,7 @@ async function main() {
     if (bal < 1n * 10n ** 18n) {
       console.log("  Building balance with extra settlements...");
       for (let i = 0; i < 3; i++) {
-        const cid = await createAndActivate(parseDOT("100"));
+        const cid = await createAndActivate(parseDOT("5"));
         const cls = buildClaimChain(cid, diana.address, hank.address, 5, BID_CPM, 1000n);
         await sendCall(hank, rawProvider, settlementAddr, settlementIface,
           "settleClaims", [[{ user: hank.address, campaignId: cid, claims: cls }]]);
@@ -388,7 +414,7 @@ async function main() {
 
   const BATCH_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const SCALE_IMPRESSIONS = 100n;
-  const SCALE_BUDGET = parseDOT("500");
+  const SCALE_BUDGET = parseDOT("5"); // settle cost ~0.016 DOT; Bob's budget is finite on testnet
 
   interface ScalingResult {
     size: number; gasUsed: bigint; perClaim: bigint;
@@ -485,6 +511,13 @@ async function main() {
 
   console.log(`\n_Contracts: PauseRegistry · Timelock · ZKVerifier · Publishers · TargetingRegistry · BudgetLedger · PaymentVault · CampaignValidator · Campaigns · ClaimValidator · GovernanceHelper · CampaignLifecycle · Settlement · GovernanceV2 · GovernanceSlash · Relay · AttestationVerifier._`);
   console.log(`_Claim hashing: keccak256. Cost: gas × gasPrice / 10^18 DOT (eth-rpc 18-decimal)._`);
+
+  // Restore PoW enforcement if we disabled it.
+  if (powWas) {
+    console.log("\nRe-enabling PoW...");
+    try { await sendCall(alice, rawProvider, addrs.powEngine, powIface, "setEnforcePow", [true]); }
+    catch (e) { console.warn(`  could not re-enable PoW: ${String(e).slice(0, 80)}`); }
+  }
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });
