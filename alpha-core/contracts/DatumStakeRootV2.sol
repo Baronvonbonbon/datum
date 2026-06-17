@@ -291,6 +291,38 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
         emit CommitmentBondSet(v);
     }
 
+    // ── Divergence circuit breaker ───────────────────────────────────────────
+    // The merkle root is opaque on-chain (proposeRoot carries no comparable
+    // user-stake aggregate), so divergence is DETECTED off-chain by
+    // scripts/watch-stakeRoot-divergence.ts and ENFORCED here: when tripped,
+    // isRecent() returns false for every root, so ClaimValidator rejects all
+    // stake-proof-backed claims (stake-gated settlement freezes) until a
+    // deliberate reset. Guards against a captured/buggy reporter set
+    // systematically mispricing stakes. Plain (non-stake-proof) settlement is
+    // unaffected — the blast radius is exactly the oracle-gated surface.
+    bool public divergenceBreakerTripped;
+    /// @notice Fast trip/reset authority (the off-chain watcher's hot key /
+    ///         a guardian). Owner (Timelock) can always act too.
+    address public breakerOperator;
+    event DivergenceBreakerTripped(address indexed by);
+    event DivergenceBreakerReset(address indexed by);
+    event BreakerOperatorSet(address indexed operator);
+
+    function setBreakerOperator(address op) external onlyOwner {
+        breakerOperator = op;
+        emit BreakerOperatorSet(op);
+    }
+    function tripDivergenceBreaker() external {
+        require(msg.sender == owner() || msg.sender == breakerOperator, "E19");
+        divergenceBreakerTripped = true;
+        emit DivergenceBreakerTripped(msg.sender);
+    }
+    function resetDivergenceBreaker() external {
+        require(msg.sender == owner() || msg.sender == breakerOperator, "E19");
+        divergenceBreakerTripped = false;
+        emit DivergenceBreakerReset(msg.sender);
+    }
+
     /// @notice Wire the ZK identity verifier used by challengeRootBalance.
     ///         Plumbing-gated (not per-call lock-once) so a buggy verifier
     ///         can be swapped before lockPlumbing fires. address(0) re-
@@ -726,6 +758,7 @@ contract DatumStakeRootV2 is IDatumStakeRoot, PaseoSafeSender, DatumUpgradable {
 
     // ── IDatumStakeRoot view: isRecent ───────────────────────────────────────
     function isRecent(bytes32 root) external view override returns (bool) {
+        if (divergenceBreakerTripped) return false; // freeze stake-gated settlement
         if (root == bytes32(0)) return false;
         uint256 start = latestEpoch < LOOKBACK_EPOCHS ? 0 : latestEpoch - LOOKBACK_EPOCHS + 1;
         for (uint256 e = start; e <= latestEpoch; e++) {
