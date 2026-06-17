@@ -178,27 +178,28 @@ let _walletOffscreen: any = null;
 let _lastImpressionResult: { ok: boolean; reason?: string; campaignId?: string; user?: string; ts: number } | null = null;
 
 // ── In-page relay signer ───────────────────────────────────────────────────
-// Uses Diana's testnet key as the demo relay signer so that
-// REQUEST_PUBLISHER_ATTESTATION produces a valid EIP-712 signature for
-// all seeded test campaigns (which have diana.address as their relaySigner).
-// The key is persisted in localStorage under the datum_ext: namespace so
-// an operator can override it at runtime via SET_RELAY_SIGNER_KEY.
+// Demo relay signer. This is a DEDICATED THROWAWAY testnet key (not the deployer
+// or any benchmark account) whose only role is the demo's gasless cosig signer.
+// On-chain it is set as the demo publisher's (Diana's) relaySigner + an authorized
+// DatumRelay relayer, so REQUEST_PUBLISHER_ATTESTATION produces a valid EIP-712
+// signature for the demo campaigns. Intentionally public (zero real value) — keeps
+// the rotated live keys out of source. Rotated 2026-06-17 after the deployer-key
+// rotation; override at runtime via SET_RELAY_SIGNER_KEY (localStorage).
 
 const RELAY_SIGNER_LS_KEY = "datum_ext:relaySignerKey";
 // Paseo testnet chain ID
 const PASEO_CHAIN_ID = 420420417n;
-// Default relay signer: Diana (Publisher 1 on Paseo testnet).
-// All seeded campaigns have diana.address as their on-chain relaySigner.
-const DIANA_RELAY_KEY = "0x40d6fab8165a332c4319f25682c480748a01bb1e06808ffe8fd34e8cd56230d0";
+// Demo relay signer (0xC96435014293396BA7F6dC63687A9432441C4e0e) — Diana's
+// on-chain relaySigner + an authorized DatumRelay relayer on the 2026-06-17 deploy.
+const DEMO_RELAY_KEY = "0xc16b74e5c6702d29c3a651b71e7c3e92845125a4189570e690b6e8a6f643fd97";
 
 let _relayWallet: Wallet | null = null;
 
 function loadOrCreateRelayWallet(): Wallet {
   if (_relayWallet) return _relayWallet;
-  // Always use Diana's testnet key — ignore any previously stored key so
-  // the in-page signer always matches the on-chain relaySigner for all
-  // seeded campaigns. This is a public testnet key, not a secret.
-  _relayWallet = new Wallet(DIANA_RELAY_KEY);
+  // Always use the demo relay key — ignore any previously stored key so the
+  // in-page signer always matches the on-chain relaySigner. Public testnet key.
+  _relayWallet = new Wallet(DEMO_RELAY_KEY);
   localStorage.setItem(RELAY_SIGNER_LS_KEY, _relayWallet.privateKey);
   return _relayWallet;
 }

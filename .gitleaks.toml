@@ -27,6 +27,10 @@ paths = [
   '''\.key-rotation-.*\.json$''',      # gitignored key-rotation scratch maps
 ]
 regexes = [
+  # ── Demo gasless-relay key (throwaway; public by design — it's the in-browser
+  #    demo cosig signer set as the demo publisher's relaySigner; zero real value,
+  #    NOT a rotated live key). web/src/lib/extensionDaemon.ts. ──
+  '''0xc16b74e5c6702d29c3a651b71e7c3e92845125a4189570e690b6e8a6f643fd97''',
   # ── Paseo TESTNET benchmark account keys — public, valueless, never mainnet ──
   '''0x0000000000000000000000000000000000000000000000000000000000000000''',
   '''0x0000000000000000111111111111111122222222222222223333333333330001''',
