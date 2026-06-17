@@ -39,16 +39,21 @@ npx hardhat run scripts/deploy.ts --network polkadotTestnet
 npx hardhat run scripts/setup-testnet.ts --network polkadotTestnet
 #    (or scripts/setup-demo.ts for the lighter demo seed)
 
-# 5. re-point the web app (relay + indexer auto-read the canonical file)
-node scripts/repoint-addresses.mjs
+# 5. re-point the web app (networks.ts + public json + bump DEPLOY_VERSION)
+cd ../web && node resync-addresses.mjs && cd ../alpha-core
 
 # 6. rebuild consumers
-cd ../web && npx vite build && cd ../alpha-5
+cd ../web && npx vite build && cd ../alpha-core
 cd extension && npm run build && cd ..
 
 # 7. restart the relay + indexer so they reload addresses
 #    (datum-labs/relay + datum-labs/indexer read alpha-core/deployed-addresses.json
-#     via DATUM_ADDRESSES; just restart the services)
+#     via DATUM_ADDRESSES; they resolve live from the router — just restart)
+systemctl --user restart datum-relay@diana
+systemctl --user stop    datum-relay@frank   # obsolete in single-publisher demo
+
+# >>> THEN run the mandatory "Demo refresh" checklist below (DEMO_RELAY wiring is
+#     handled on-chain by setup-testnet step 2.6/2.6b; verify /relay/publishers).
 ```
 
 ## Post-deploy verification
@@ -76,24 +81,48 @@ The old contracts remain live on Paseo (nothing is destroyed by a fresh deploy).
 | web `src/shared/networks.ts` | build-time map | `repoint-addresses.mjs` + rebuild |
 | SDK (`sdk/datum-sdk.js`) | addresses passed in by caller | none |
 
-## Demo gasless-relay seeding (2026-06-05 addendum)
-`setup-testnet` creates 100 **open** campaigns (publisher = 0x0, relaySigner = 0x0)
-— settleable only via the user's own wallet. The **gasless relay** (Diana, whose
-publisher address == the relay key) can only settle campaigns whose publisher set
-her as relaySigner, i.e. **closed campaigns under Diana**. Their relaySigner is
-snapshotted immutably at creation, so it can't be retrofitted onto the open ones.
+## Demo refresh — MANDATORY on every redeploy / contract upgrade (2026-06-17)
 
-`setup-demo.ts` is **stale** (alpha-3 — expects merged satellites
-targetingRegistry/reputation/etc. and bails). Until it's ported, seed the Diana
-campaigns with:
+The demo settles under a **single registered publisher (Diana)** whose on-chain
+`relaySigner` is a dedicated **throwaway key, DEMO_RELAY**
+(`0xC96435014293396BA7F6dC63687A9432441C4e0e`). DEMO_RELAY is shared by the browser
+demo daemon (`web/src/lib/extensionDaemon.ts`) and the live relay
+(`datum-labs/relay` `RELAY_PRIVATE_KEY`); its key is public by design (zero value,
+gitleaks-allowlisted) so the rotated live keys stay out of source. Demo campaigns
+are **open** (publisher = 0x0), so the settle path resolves the expected signer to
+the claim's publisher (Diana) → her relaySigner (DEMO_RELAY). After a key rotation
+or fresh redeploy the demo breaks unless **every layer below** is refreshed.
 
+**On-chain — automated by `setup-testnet.ts` steps 2.6/2.6b (runs in step 4 above):**
+- register Diana; `diana.setRelaySigner(DEMO_RELAY)`
+- `relay.setRelayerAuthorized(DEMO_RELAY, true)`; fund DEMO_RELAY (≥ 1000 PAS — it
+  self-submits + pays gas in both the daemon and the live relay)
+- *(For a router `upgradeContract` that does NOT re-run setup-testnet, re-run just
+  these — `npx hardhat run scripts/setup-testnet.ts` is idempotent and skips the rest.)*
+
+**Off-chain — operator, after deploy + setup:**
 ```bash
-node scripts/seed-diana-campaigns.mjs 5     # Bob → Diana, optimistic-activated
+# 1. webapp/extension addresses + DEPLOY_VERSION
+cd web && node resync-addresses.mjs          # networks.ts + public json + bump version
+npx vite build && (cd ../alpha-core/extension && npm run build)
+
+# 2. live relay publisher policy — ONLY changes if Diana's ADDRESS changes (it does
+#    NOT across redeploys that keep the same .env accounts). If it did:
+#      ~/.config/datum-relay/diana.config.json  -> publishers:[diana], publisherMeta
+#      ~/.config/datum-relay/diana.env          -> RELAY_PRIVATE_KEY = DEMO_RELAY key
+
+# 3. restart the live relay (re-resolves contract addresses from the router via
+#    DATUM_ADDRESSES). frank is obsolete in the single-publisher demo.
+systemctl --user restart datum-relay@diana
+systemctl --user stop    datum-relay@frank
+
+# 4. verify
+curl -s localhost:3400/relay/publishers      # -> single Diana (current addr) + CryptoHub meta
+cd ../datum-labs/relay && node scripts/preflight.mjs --campaign <id> --publisher <diana-addr>
+# expect "GO — no blockers" + publisherSig relaySigner == DEMO_RELAY
 ```
 
-Verify with the relay preflight (reads the canonical addresses + on-chain state):
-```bash
-cd ../../datum-labs/relay
-node scripts/preflight.mjs --campaign <id> --publisher 0xcA5668fB864Acab0aC7f4CFa73949174720b58D0
-# expect "GO — no blockers" + publisherSig path relaySigner == relay key
-```
+**Router `upgradeContract` (not a fresh deploy):** addresses behind the router
+change but `deployed-addresses.json` may not — re-run `resync-addresses.mjs` against
+the new/router-resolved addresses, restart the relay (auto-resolves from the
+router), and rebuild consumers. Diana + DEMO_RELAY wiring survives (same accounts).
