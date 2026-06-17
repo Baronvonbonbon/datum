@@ -649,6 +649,11 @@
         "internalType": "uint256",
         "name": "campaignId",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint16",
+        "name": "reasonCode",
+        "type": "uint16"
       }
     ],
     "name": "adminTerminateCampaign",
