@@ -131,11 +131,13 @@ contracts.
   per-role + path matrix and large-N scaling; live Paseo weight is the cost truth
   for settlement. The two diverge most on settle (EVM 1-claim 566k gas vs Paseo
   78k weight) because pallet-revive prices storage/calls differently.
-- **Stale harnesses:** `benchmark-gas.ts` and `benchmark-testnet.ts` build the
-  pre-fan-out *flat* claim and no longer encode against the nested-proof ABI
-  (`Claim{publisher,eventCount,rateWei,actionType,proof[]}`) — both error on
-  `settleClaims`. Current settle harnesses: `role-gas-report.ts` (EVM) and
-  `capture-settle-weight-paseo.ts` (Paseo). `gas-costs.ts` mostly reverts
-  post-rotation (setters are Timelock-owned ⇒ E18 as the deployer).
+- **Harnesses (updated 2026-06-17):** `benchmark-gas.ts` (EVM) and
+  `benchmark-testnet.ts` (Paseo) were stale (pre-fan-out flat claim, errored on
+  `settleClaims`) and have been **repaired** to the SLIM nested-proof ABI +
+  current create/activate flow. `benchmark-testnet.ts`'s batch-scaling marginal
+  (~2,659 weight/claim) now matches `capture-settle-weight-paseo.ts`. Other
+  current harnesses: `role-gas-report.ts` (EVM), `capture-settle-weight-paseo.ts`
+  (Paseo). `gas-costs.ts` mostly reverts post-rotation (setters are
+  Timelock-owned ⇒ E18 as the deployer) — best-effort estimates only.
 - **Cold vs warm:** the first settle on a fresh deploy pays singleton-slot
   initialization (cold). Steady-state cost is the warm marginal.
