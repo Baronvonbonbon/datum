@@ -133,3 +133,56 @@ pauseRegistry.approve(id)                                   # guardian B → 2/2
 3. Deploy the fix; coordinated cluster rotation into v2 (§4.2); re-wire.
 4. Make affected users whole from the migrated/solvent v2 if applicable.
 5. 2-of-3 unpause only after canary verification.
+
+---
+
+## 7. Launch controls (training wheels) + the sunset timeline
+
+Initial-launch safety levers, beyond the guardian pause. **Design principle:**
+prefer permissionless / auto-engaging safety over discretionary admin levers,
+and **every discretionary lever sunsets as the phase ladder advances** — a
+control that never comes off is the failure mode (and the worst MSB posture,
+per `CONTROL-MATRIX-MEMO.md` §5/§7).
+
+### 7.1 The control bits
+
+| Control | What it does | Trip / set | Reset | Sunset |
+|---|---|---|---|---|
+| **Guardian pause** (`DatumPauseRegistry`) | category-scoped fast halt | any guardian, 1-of-N | 2-of-3 `proposeCategoryUnpause`+`approve` | permanent (always available) |
+| **Aggregate circuit breaker** (`DatumSettlementRateLimiter`) | protocol-wide per-window view-settlement ceiling; **latches** on breach → all view settles reject | auto on breach; cap via `setGlobalRateLimit` (owner; 0=off) | `resetGlobalBreaker()` — `breakerOperator` or owner | keep; retune via gov |
+| **StakeRoot divergence breaker** (`DatumStakeRootV2`) | freezes stake-gated settlement (`isRecent`→false) when the off-chain `watch-stakeRoot-divergence.ts` detects a bad root | `tripDivergenceBreaker()` — `breakerOperator`/owner | `resetDivergenceBreaker()` | keep |
+| **No-slash admin terminate** (`GovernanceRouter.adminTerminateCampaign(id,reason)`) | operator kills a spam/unsafe campaign — **full refund, no slash**, reason-coded | deployer, `onlyAdminPhase` | n/a | **auto-sunsets at Phase 1** (`onlyAdminPhase`) |
+| **Admin activate / demote** (`adminActivateCampaign` / `adminDemoteCampaign`) | Phase-0 campaign lifecycle shortcuts | deployer, `onlyAdminPhase` | n/a | **auto-sunsets at Phase 1** |
+| **Per-campaign budget cap** (`DatumCampaigns`) | bounds custodied escrow per campaign | `setMaxCampaignBudget` (owner; 0=off) | n/a | relax/disable at OpenGov |
+| **Relay health gate** (relay) | relay refuses to settle while Settlement is mis-wired / mid-migration | automatic (`/claim`→503) | automatic on recovery | keep |
+| **Stakes & bonds** (`*Stake`, `ActivationBonds`, `ChallengeBonds`) | skin-in-the-game; slashing is **adjudicated** (gov/challenge), never unilateral admin | per-contract gov | per-contract | keep; never add `adminSlash` |
+
+**Breaker operators:** the two breaker operator keys (`SettlementRateLimiter.breakerOperator`, `StakeRootV2.breakerOperator`) should be a guardian / ops hot key — fast trip+reset without the 48h Timelock. Owner (Timelock) is the fallback.
+
+### 7.2 Guardian-set hardening (do before launch)
+
+`PauseRegistry` guardians are 3 hardcoded addresses (`deploy.ts`). For launch
+they MUST be **distinct hardware/multisig keys, none equal to the deployer** —
+otherwise a compromised deployer also holds a pause seat (no defense in depth).
+A drift-guard asserts `guardian0 == deployer`; intentionally relax that only when
+moving guardians off the deployer.
+
+### 7.3 Sunset timeline (commit publicly)
+
+Time in Phase 0 (Admin) is the highest-exposure window. Commit to dates:
+
+1. **Phase 0 → 1 (Council):** `timelock → router.setGovernor(Council)`. The
+   `admin*` campaign shortcuts revert (`onlyAdminPhase`) from here on; campaign
+   lifecycle moves to the Council vote + veto window. Also hand the breaker
+   operator keys to Council-designated guardians.
+2. **Timelock owner → Council:** `scripts/transfer-timelock-to-council.ts`
+   (`adminGovernor`=Council + `timelock.transferOwnership(Council)`). Removes the
+   deployer as the sole admin root (`CONTROL-MATRIX-MEMO.md` §8).
+3. **Phase 1 → 2 (OpenGov):** `router.setGovernor(OpenGov, GovernanceV2)`.
+   Upgrade authority (`adminGovernor`) stays Council (admin/campaign split).
+4. **Fire `lock*()` per-contract** (OpenGov-gated): ratify the cypherpunk
+   commitments — relax the launch caps (budget cap → 0, etc.) deliberately as
+   each lock lands.
+
+Verify after each step: `router.phase()`, `router.adminGovernor()`,
+`timelock.owner()`, and that `adminActivateCampaign` now reverts.

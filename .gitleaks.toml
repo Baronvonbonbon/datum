@@ -23,6 +23,8 @@ paths = [
   '''^archive/''',                     # frozen historical snapshots
   '''gas-by-role\.(md|csv)$''',        # blockscout tx hashes, not keys
   '''\.env\.example$''',
+  '''(^|/)\.env$''',                   # gitignored secrets (never tracked) — incl. alpha-core/.env, relay-bot/.env
+  '''\.key-rotation-.*\.json$''',      # gitignored key-rotation scratch maps
 ]
 regexes = [
   # ── Paseo TESTNET benchmark account keys — public, valueless, never mainnet ──

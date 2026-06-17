@@ -55,7 +55,7 @@ const iCamp = new Interface([
   "function createCampaign(address publisher, tuple(uint8 actionType,uint256 budgetWei,uint256 dailyCapWei,uint256 rateWei,address actionVerifier)[] pots, bytes32[] requiredTags, bool requireZkProof, address rewardToken, uint256 rewardPerImpression, uint256 bondAmount) payable returns (uint256)",
 ]);
 const iRouter = new Interface([
-  "function adminTerminateCampaign(uint256 campaignId)",
+  "function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode)",
   "function adminActivateCampaign(uint256 campaignId)",
 ]);
 const iCreative = new Interface(["function setMetadata(uint256 campaignId, bytes32 metadataHash)"]);
@@ -200,7 +200,7 @@ async function main() {
   for (let round = 0; round < 4 && toKill.length; round++) {
     for (let b = 0; b < toKill.length; b += BATCH) {
       const slice = toKill.slice(b, b + BATCH);
-      await sendMany(alice, slice.map((id) => ({ to: A.governanceRouter, iface: iRouter, fn: "adminTerminateCampaign", args: [id] })));
+      await sendMany(alice, slice.map((id) => ({ to: A.governanceRouter, iface: iRouter, fn: "adminTerminateCampaign", args: [id, 0] })));
       process.stdout.write(`    terminated ${Math.min(b + BATCH, toKill.length)}/${toKill.length}\r`);
     }
     // verify + collect stragglers (silent reverts)

@@ -329,7 +329,7 @@ const reportsAbi = [
 const govRouterAdminAbi = [
   // GovernanceRouter with merged AdminGovernance
   "function adminActivateCampaign(uint256 campaignId)",
-  "function adminTerminateCampaign(uint256 campaignId)",
+  "function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode)",
 ];
 
 const govRouterAbi = [

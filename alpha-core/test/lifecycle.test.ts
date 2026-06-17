@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { ethers } from "hardhat";
 import {
   DatumCampaignLifecycle,
@@ -150,6 +151,40 @@ describe("DatumCampaignLifecycle", function () {
 
     expect(advBalAfter - advBalBefore + claimGas).to.equal(refundAmount);
     expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
+  });
+
+  // LC2b (G-M1): adminTerminateCampaign — FULL refund, NO slash, reason-coded.
+  it("LC2b: admin terminate refunds the full budget with no slash", async function () {
+    const cid = await createAndActivate();
+
+    const govBalBefore = await ethers.provider.getBalance(governance.address);
+
+    await expect(lifecycle.connect(governance).adminTerminateCampaign(cid, 42))
+      .to.emit(lifecycle, "CampaignAdminTerminated").withArgs(cid, 42, anyValue);
+
+    expect(await campaigns.getCampaignStatus(cid)).to.equal(4); // Terminated
+
+    // No slash: governance balance unchanged (modulo its own gas, which it didn't
+    // pay here — the tx sender is `governance`, so account for gas separately).
+    const govBalAfter = await ethers.provider.getBalance(governance.address);
+    expect(govBalAfter).to.be.lte(govBalBefore); // only its own gas, never a credit
+
+    // FULL budget queued for advertiser pull — no 10% skim.
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(BUDGET);
+    expect(await ledger.getRemainingBudget(cid, 0)).to.equal(0n);
+
+    // Advertiser pulls the FULL budget back (vs BUDGET-10% on the slash path).
+    const advBalBefore = await ethers.provider.getBalance(advertiser.address);
+    const claimReceipt = await (await ledger.connect(advertiser).claimAdvertiserRefund()).wait();
+    const advBalAfter = await ethers.provider.getBalance(advertiser.address);
+    expect(advBalAfter - advBalBefore + claimReceipt!.gasUsed * claimReceipt!.gasPrice).to.equal(BUDGET);
+    expect(await ledger.pendingAdvertiserRefund(advertiser.address)).to.equal(0n);
+  });
+
+  // LC2c: only governance (router admin path) can admin-terminate.
+  it("LC2c: non-governance cannot adminTerminateCampaign (E19)", async function () {
+    const cid = await createAndActivate();
+    await expect(lifecycle.connect(other).adminTerminateCampaign(cid, 0)).to.be.revertedWith("E19");
   });
 
   // LC3: expirePendingCampaign after timeout (M-1: pull)

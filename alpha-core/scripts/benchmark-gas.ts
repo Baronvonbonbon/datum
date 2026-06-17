@@ -20,58 +20,35 @@
 import { ethers } from "hardhat";
 import { parseDOT } from "../test/helpers/dot";
 import { fundSigners } from "../test/helpers/mine";
-import { ethersKeccakAbi } from "../test/helpers/hash";
+import { wireSettlementLogic } from "../test/helpers/settlementLogic";
 
 // ---------------------------------------------------------------------------
-// Claim hash builder (keccak256)
+// Claim builder — SLIM (#2b) nested-proof wire format.
 // ---------------------------------------------------------------------------
-
-function computeClaimHash(
-  campaignId: bigint,
-  publisher: string,
-  user: string,
-  eventCount: bigint,
-  rateWei: bigint,
-  actionType: number,
-  clickSessionHash: string,
-  nonce: bigint,
-  previousClaimHash: string
-): string {
-  const types = ["uint256", "address", "address", "uint256", "uint256", "uint8", "bytes32", "uint256", "bytes32"];
-  const values = [campaignId, publisher, user, eventCount, rateWei, actionType, clickSessionHash, nonce, previousClaimHash];
-  return ethersKeccakAbi(types, values);
-}
-
+// The on-chain `Claim` is { publisher, eventCount, rateWei, actionType,
+// ClaimProof[] proof }. `campaignId` is carried once at the batch level; the
+// contract derives nonce / previousClaimHash / claimHash on-chain (SLIM), so
+// they no longer travel in calldata. A plain CPM view claim carries an empty
+// `proof` sidecar; click/CPA/ZK/PoW material would populate proof[0]. Matches
+// scripts/role-gas-report.ts (EVM) and scripts/capture-settle-weight-paseo.ts
+// (Paseo). ethers matches struct fields by name, so only these five are encoded.
 function buildClaimChain(
-  campaignId: bigint,
+  _campaignId: bigint, // batch-level now; kept for call-site compatibility
   publisher: string,
-  user: string,
+  _user: string,
   count: number,
   cpm: bigint,
   impressions: bigint
 ) {
   const claims = [];
-  let prevHash = ethers.ZeroHash;
-  for (let i = 1; i <= count; i++) {
-    const nonce = BigInt(i);
-    const claimHash = computeClaimHash(
-      campaignId, publisher, user, impressions, cpm, 0, ethers.ZeroHash, nonce, prevHash
-    );
+  for (let i = 0; i < count; i++) {
     claims.push({
-      campaignId,
       publisher,
       eventCount: impressions,
       rateWei: cpm,
       actionType: 0,
-      clickSessionHash: ethers.ZeroHash,
-      nonce,
-      previousClaimHash: prevHash,
-      claimHash,
-      zkProof: new Array(8).fill(ethers.ZeroHash),
-      nullifier: ethers.ZeroHash,
-      actionSig: [ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash],
+      proof: [] as any[], // plain view → empty proof sidecar
     });
-    prevHash = claimHash;
   }
   return claims;
 }
@@ -205,9 +182,14 @@ async function main() {
     await relay.getAddress()
   )).wait();
 
+  // Phase 8d-3+: the settle pipeline (_processBatch) runs via DELEGATECALL to
+  // SettlementLogicA/LogicB. Without setLogic, every settleClaims reverts E00.
+  await wireSettlementLogic(settlement);
+
   await (await settlement.setClaimValidator(await claimValidator.getAddress())).wait();
   await (await settlement.setAttestationVerifier(await attestationVerifier.getAddress())).wait();
   await (await settlement.setPublishers(await publishers.getAddress())).wait();
+  await (await settlement.setCampaigns(await campaigns.getAddress())).wait();
 
   // Campaigns: 4 setters
   await (await campaigns.setBudgetLedger(await budgetLedger.getAddress())).wait();
@@ -255,7 +237,9 @@ async function main() {
 
   // Parse campaign ID from CampaignCreated event
   async function createCampaignAndGetId(signer: any, budget = BUDGET): Promise<bigint> {
-    const pots = [{ actionType: 0, budgetWei: budget, dailyCapWei: DAILY_CAP, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }];
+    // dailyCap must be ≤ budget (E12); use the full budget as the cap so the
+    // helper is robust for any budget size (incl. the small SCALE_BUDGET).
+    const pots = [{ actionType: 0, budgetWei: budget, dailyCapWei: budget, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }];
     const tx = await campaigns.connect(signer).createCampaign(
       publisher.address, pots, [], false, ethers.ZeroAddress, 0n, 0n, { value: budget }
     );
@@ -445,7 +429,10 @@ async function main() {
 
   const BATCH_SIZES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const SCALE_IMPRESSIONS = 100n;
-  const SCALE_BUDGET = parseDOT("5000");
+  // Modest per-campaign budget: a 10×100-imp batch costs ~0.016 DOT, and the
+  // scaling/combo sections create ~165 campaigns, so an oversized budget
+  // (was 5000 DOT) bankrupts the advertiser. 10 DOT is plenty for any combo.
+  const SCALE_BUDGET = parseDOT("10");
 
   interface ScalingResult {
     size: number;

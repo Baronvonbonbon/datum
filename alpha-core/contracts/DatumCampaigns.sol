@@ -498,6 +498,14 @@ contract DatumCampaigns is DatumCampaignsStorage {
         emit MaxCampaignBudgetSet(amount);
     }
 
+    // NOTE: a high-tier advertiser allowlist (cap bypass for vetted advertisers)
+    // was prototyped here but does NOT fit under EIP-170 — DatumCampaigns is at
+    // the 24,576-byte ceiling and viaIR doesn't shrink with low optimizer runs.
+    // Deferred to the pre-mainnet EIP-170 remerge (narrative-analysis /
+    // project_eip170_remerge_plan), where carved-out satellites recover room.
+    // Until then, the per-campaign `maxCampaignBudget` cap is the launch control;
+    // raise/lower it via governance as policy requires.
+
     // setMaxPublisherTags / setMaxCampaignTags moved to DatumTagSystem.
     // setMaxAllowedPublishers moved to DatumCampaignAllowlist.
 

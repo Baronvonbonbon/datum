@@ -43,6 +43,10 @@ alpha-core/circuits/identity.sym
 alpha-core/circom
 .env
 
+# Key-rotation scratch maps (old+new keypairs — NEVER commit)
+.key-rotation-*.json
+**/.key-rotation-*.json
+
 # DATUM token deploy outputs (per-network)
 archive/alpha-4/token-addresses-*.json
 alpha-core/token-addresses-*.json

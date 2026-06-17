@@ -297,6 +297,23 @@ describe("DatumCampaigns", function () {
     ).to.be.revertedWith("E00");
   });
 
+  describe("maxCampaignBudget cap", function () {
+    const pot = (b: bigint) => [{ actionType: 0, budgetWei: b, dailyCapWei: b, rateWei: BID_CPM, actionVerifier: ethers.ZeroAddress }];
+
+    it("BC1: campaign over the cap reverts E80; under the cap succeeds", async function () {
+      await campaigns.connect(owner).setMaxCampaignBudget(parseDOT("1"));
+      await expect(
+        campaigns.connect(advertiser).createCampaign(publisher.address, pot(BUDGET), [], false, ethers.ZeroAddress, 0n, 0n, { value: BUDGET })
+      ).to.be.revertedWithCustomError(campaigns, "E80");
+      // under cap (1 DOT) is fine
+      await campaigns.connect(advertiser).createCampaign(publisher.address, pot(parseDOT("1")), [], false, ethers.ZeroAddress, 0n, 0n, { value: parseDOT("1") });
+    });
+
+    it("BC2: cap setter is owner-only", async function () {
+      await expect(campaigns.connect(other).setMaxCampaignBudget(parseDOT("1"))).to.be.reverted;
+    });
+  });
+
   describe("defaultTakeRateBps governance", function () {
     it("default is 5000 bps (50%)", async function () {
       expect(await campaigns.defaultTakeRateBps()).to.equal(5000n);

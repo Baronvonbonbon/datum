@@ -7,6 +7,9 @@ pragma solidity ^0.8.24;
 interface IDatumCampaignLifecycle {
     event CampaignCompleted(uint256 indexed campaignId);
     event CampaignTerminated(uint256 indexed campaignId, uint256 terminationBlock);
+    /// @notice Emitted on a fault-free admin/operator termination (full refund,
+    ///         no slash). `reasonCode` is an off-chain-defined transparency tag.
+    event CampaignAdminTerminated(uint256 indexed campaignId, uint16 reasonCode, uint256 terminationBlock);
     event CampaignExpired(uint256 indexed campaignId);
     /// @notice Emitted when governance demotes Active/Paused → Pending.
     event CampaignDemoted(uint256 indexed campaignId);
@@ -15,9 +18,15 @@ interface IDatumCampaignLifecycle {
     ///         Refunds remaining budget to advertiser via BudgetLedger.
     function completeCampaign(uint256 campaignId) external;
 
-    /// @notice Terminate a campaign via governance nay vote.
+    /// @notice Terminate a campaign via governance nay vote (adjudicated fault).
     ///         10% slash to governance, 90% refund to advertiser via BudgetLedger.
     function terminateCampaign(uint256 campaignId) external;
+
+    /// @notice Fault-free admin/operator termination (Phase-0 spam/safety cleanup).
+    ///         FULL refund to advertiser, NO slash — distinct from the adjudicated
+    ///         `terminateCampaign` path. Emits CampaignAdminTerminated(reasonCode).
+    ///         Only callable by the governance contract (the router's admin path).
+    function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode) external;
 
     /// @notice Expire a Pending campaign past its timeout. Permissionless.
     ///         Full budget refund to advertiser via BudgetLedger.

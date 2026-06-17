@@ -831,5 +831,32 @@ describe("DatumStakeRootV2", function () {
       expect(await v2.isRecent(roots[1])).to.equal(false); // epoch 2
       expect(await v2.isRecent(roots[0])).to.equal(false); // epoch 1
     });
+
+    it("IF-3: divergence breaker freezes isRecent until reset", async function () {
+      await v2.connect(r1).joinReporters({ value: MIN_STAKE });
+      await v2.connect(r2).joinReporters({ value: MIN_STAKE });
+      const root = ethers.id("root-bp");
+      const snap = await recentSnap();
+      await v2.connect(r1).proposeRoot(1, snap, root, { value: PROPOSER_BOND });
+      await v2.connect(r2).approveRoot(1);
+      await mineBlocks(CHALLENGE_WINDOW + 1n);
+      await v2.finalizeRoot(1);
+      expect(await v2.isRecent(root)).to.equal(true);
+
+      // Operator (off-chain watcher key) trips on detected divergence.
+      await v2.connect(owner).setBreakerOperator(r3.address);
+      await expect(v2.connect(r3).tripDivergenceBreaker())
+        .to.emit(v2, "DivergenceBreakerTripped").withArgs(r3.address);
+      expect(await v2.divergenceBreakerTripped()).to.equal(true);
+      expect(await v2.isRecent(root)).to.equal(false); // stake-gated settlement frozen
+
+      // Non-authority cannot trip/reset.
+      await expect(v2.connect(other).tripDivergenceBreaker()).to.be.revertedWith("E19");
+      await expect(v2.connect(other).resetDivergenceBreaker()).to.be.revertedWith("E19");
+
+      // Deliberate reset re-enables.
+      await v2.connect(owner).resetDivergenceBreaker();
+      expect(await v2.isRecent(root)).to.equal(true);
+    });
   });
 });

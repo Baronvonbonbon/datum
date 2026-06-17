@@ -294,9 +294,14 @@ contract DatumGovernanceRouter is DatumOwnable, PaseoSafeSender {
         campaigns.activateCampaign(campaignId);
     }
 
-    /// @notice Owner-only campaign termination (Phase 0 only — see G-M1).
-    function adminTerminateCampaign(uint256 campaignId) external nonReentrant onlyOwner onlyAdminPhase {
-        lifecycle.terminateCampaign(campaignId);
+    /// @notice Owner-only fault-free campaign termination (Phase 0 only — G-M1).
+    /// @dev    Routes through lifecycle.adminTerminateCampaign: FULL refund to the
+    ///         advertiser, NO slash. The 10% slash stays on the adjudicated
+    ///         governor path (terminateCampaign) so an operator cannot skim escrow
+    ///         by killing a campaign for spam/safety. reasonCode is an on-chain
+    ///         transparency tag emitted in CampaignAdminTerminated.
+    function adminTerminateCampaign(uint256 campaignId, uint16 reasonCode) external nonReentrant onlyOwner onlyAdminPhase {
+        lifecycle.adminTerminateCampaign(campaignId, reasonCode);
     }
 
     /// @notice Owner-only campaign demotion (Phase 0 only — see G-M1).
