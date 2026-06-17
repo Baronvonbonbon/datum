@@ -498,6 +498,20 @@ contract DatumCampaigns is DatumCampaignsStorage {
         emit MaxCampaignBudgetSet(amount);
     }
 
+    /// @notice High-tier advertiser allowlist — addresses here bypass the
+    ///         per-campaign `maxCampaignBudget` cap. The cap bounds custodied
+    ///         third-party value during launch; this is the vetted (e.g. KYC'd)
+    ///         escape hatch for large advertisers. onlyOwner = the phased
+    ///         governor (deployer → Council → OpenGov), so granting a high tier
+    ///         is a deliberate, gated act. No effect when maxCampaignBudget == 0.
+    mapping(address => bool) public highTierAdvertiser;
+    event HighTierAdvertiserSet(address indexed advertiser, bool enabled);
+    function setHighTierAdvertiser(address advertiser, bool enabled) external onlyOwner {
+        if (advertiser == address(0)) revert E00();
+        highTierAdvertiser[advertiser] = enabled;
+        emit HighTierAdvertiserSet(advertiser, enabled);
+    }
+
     // setMaxPublisherTags / setMaxCampaignTags moved to DatumTagSystem.
     // setMaxAllowedPublishers moved to DatumCampaignAllowlist.
 
@@ -623,7 +637,7 @@ contract DatumCampaigns is DatumCampaignsStorage {
         if (!(msg.value > p.bondAmount + p.activationBondAmount)) revert E11();
         uint256 budgetValue = msg.value - p.bondAmount - p.activationBondAmount;
         if (!(budgetValue >= MINIMUM_BUDGET_WEI)) revert E11();
-        if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget)) revert E80();
+        if (!(maxCampaignBudget == 0 || budgetValue <= maxCampaignBudget || highTierAdvertiser[msg.sender])) revert E80();
         // requiredTags length check moved to DatumTagSystem.initializeCampaignTags.
         // C1-fix: forbid stranded bonds. If the advertiser passes a non-zero
         // bondAmount while ChallengeBonds isn't wired, the lockBond branch
