@@ -21,7 +21,7 @@ setShimMessageLogger((dir, type, detail) => {
 });
 
 const RELAY_URL = "https://relay.javcon.io";
-const DEFAULT_PUBLISHER = "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0";
+const DEFAULT_PUBLISHER = "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197";
 const PUBLISHER_TAGS = "topic:crypto-web3,topic:defi,topic:computers-electronics,locale:en";
 
 interface DemoSite {
@@ -34,13 +34,13 @@ interface DemoSite {
   description: string;
 }
 
-/** Five seeded demo publishers — addresses match alpha-4/scripts/setup-demo.ts */
+/** Demo sites all serve under the single registered publisher Diana (2026-06-17 deploy); relaySigner = demo-relay 0xC964… */
 const DEMO_SITES: DemoSite[] = [
   {
     id: "cryptohub",
     name: "CryptoHub",
     url: "cryptohub.example",
-    publisher: "0xcA5668fB864Acab0aC7f4CFa73949174720b58D0", // diana
+    publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:crypto-web3", "topic:defi", "topic:computers-electronics", "locale:en"],
     description: "Crypto & DeFi news — campaigns C1–C6 + open fallbacks → Vickrey auction",
   },
@@ -48,7 +48,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "financedaily",
     name: "FinanceDaily",
     url: "financedaily.example",
-    publisher: "0xD633C470d075Af508f4895e21A986183fEf35745", // eve
+    publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:finance", "topic:news", "topic:people-society", "locale:en"],
     description: "Personal finance & markets — campaigns C7–C10 → Vickrey auction",
   },
@@ -56,7 +56,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "techblog",
     name: "TechBlog",
     url: "techblog.example",
-    publisher: "0x92622970Bd48dD26c53bCCd09Aa6a0245dbc7620", // frank
+    publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:computers-electronics", "topic:science", "topic:internet-telecom", "locale:en"],
     description: "Dev & tech — campaigns C11–C14 → Vickrey auction",
   },
@@ -64,7 +64,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "sportzone",
     name: "SportZone",
     url: "sportzone.example",
-    publisher: "0xa9e2bd7Bd5a14E8add0023B4Ab56ed27BeABC92F", // grace
+    publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:sports", "topic:health", "topic:beauty-fitness", "locale:en"],
     allowlistEnabled: true,
     description: "Sports & health — allowlist ON: only Bob's campaigns (C18–C19) eligible → solo auction",
@@ -73,7 +73,7 @@ const DEMO_SITES: DemoSite[] = [
     id: "gamingworld",
     name: "GamingWorld",
     url: "gamingworld.example",
-    publisher: "0x1563915e194D8CfBA1943570603F7606A3115508", // heidi
+    publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:gaming", "topic:arts-entertainment", "topic:hobbies-leisure", "locale:en"],
     description: "Gaming & anime — campaigns C15–C17 → Vickrey auction",
   },
