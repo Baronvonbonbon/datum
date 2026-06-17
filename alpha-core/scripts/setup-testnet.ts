@@ -662,50 +662,59 @@ async function main() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2.6. SET RELAY SIGNER FOR DIANA
-  // IMPORTANT: relaySigner is snapshotted at campaign creation time into the
-  // campaign record. Must be set BEFORE creating campaigns, otherwise
-  // attestation signatures will be checked against publisher address (fallback).
+  // 2.6. SET DIANA'S RELAY SIGNER -> DEMO_RELAY
+  // The demo's gasless cosig signer is a dedicated THROWAWAY key (DEMO_RELAY),
+  // shared by the browser demo daemon (web/src/lib/extensionDaemon.ts) and the
+  // live relay (datum-labs/relay RELAY_PRIVATE_KEY). Diana's on-chain relaySigner
+  // must therefore be DEMO_RELAY (not self) or those cosigs fail E32. Address is
+  // public; the key lives only in the daemon + relay env. Idempotent. Set BEFORE
+  // creating campaigns (relaySigner snapshots for any fixed-publisher campaigns).
   // ═══════════════════════════════════════════════════════════════════════════
-  log("2.6", "--- Setting relay signer (DatumPublishers) ---");
+  const DEMO_RELAY_ADDRESS = "0xC96435014293396BA7F6dC63687A9432441C4e0e";
+  log("2.6", `--- Setting Diana relaySigner -> DEMO_RELAY ${DEMO_RELAY_ADDRESS} ---`);
   try {
     const currentSigner = await readCall(rawProvider, addrs.publishers, pubIface, "relaySigner", [diana.address]);
-    const decoded = pubIface.decodeFunctionResult("relaySigner", currentSigner);
-    const currentSignerAddr: string = decoded[0];
-    if (currentSignerAddr.toLowerCase() === diana.address.toLowerCase()) {
-      log("2.6", `  diana relaySigner already set to self -- skipping`);
+    const currentSignerAddr: string = pubIface.decodeFunctionResult("relaySigner", currentSigner)[0];
+    if (currentSignerAddr.toLowerCase() === DEMO_RELAY_ADDRESS.toLowerCase()) {
+      log("2.6", `  diana relaySigner already DEMO_RELAY -- skipping`);
     } else {
-      await sendCall(diana, rawProvider, addrs.publishers, pubIface, "setRelaySigner", [diana.address]);
-      log("2.6", `  diana relaySigner set to ${diana.address}`);
+      await sendCall(diana, rawProvider, addrs.publishers, pubIface, "setRelaySigner", [DEMO_RELAY_ADDRESS]);
+      log("2.6", `  diana relaySigner set to DEMO_RELAY`);
     }
   } catch (err) {
     log("2.6", `  setRelaySigner failed: ${String(err).slice(0, 100)}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2.6b. AUTHORIZE DIANA AS A RELAYER (DatumRelay)
+  // 2.6b. AUTHORIZE + FUND DEMO_RELAY (DatumRelay)
   // DatumRelay.settleClaimsFor gates on authorizedRelayers OR relayStake OR a
-  // liveness fallback. Without this, the demo relay (Diana) only settles via the
-  // emergency liveness path. Authorize her so settles take the intended path.
-  // onlyOwner of DatumRelay = deployer at setup time (relay is not transferred to
-  // the Timelock in deploy.ts PHASE 3). Idempotent.
+  // liveness fallback — authorize DEMO_RELAY so demo settles take the intended
+  // path. It also self-submits (pays gas) in the browser daemon + live relay, so
+  // keep it funded. onlyOwner of DatumRelay = deployer at setup time. Idempotent.
   // ═══════════════════════════════════════════════════════════════════════════
   if (addrs.relay) {
-    log("2.6b", "--- Authorizing Diana as relayer (DatumRelay) ---");
+    log("2.6b", "--- Authorizing + funding DEMO_RELAY (DatumRelay) ---");
     const relayIface = new Interface([
       "function authorizedRelayers(address) view returns (bool)",
       "function setRelayerAuthorized(address relayer, bool authorized)",
     ]);
     try {
-      const cur = await readCall(rawProvider, addrs.relay, relayIface, "authorizedRelayers", [diana.address]);
+      const cur = await readCall(rawProvider, addrs.relay, relayIface, "authorizedRelayers", [DEMO_RELAY_ADDRESS]);
       if (relayIface.decodeFunctionResult("authorizedRelayers", cur)[0]) {
-        log("2.6b", "  diana already authorized -- skipping");
+        log("2.6b", "  DEMO_RELAY already authorized -- skipping");
       } else {
-        await sendCall(alice, rawProvider, addrs.relay, relayIface, "setRelayerAuthorized", [diana.address, true]);
-        log("2.6b", `  diana authorized as relayer on ${addrs.relay}`);
+        await sendCall(alice, rawProvider, addrs.relay, relayIface, "setRelayerAuthorized", [DEMO_RELAY_ADDRESS, true]);
+        log("2.6b", `  DEMO_RELAY authorized as relayer`);
+      }
+      const bal = await rawProvider.getBalance(DEMO_RELAY_ADDRESS);
+      if (bal < parseDOT("500")) {
+        await sendTransfer(alice, rawProvider, DEMO_RELAY_ADDRESS, parseDOT("1000"));
+        log("2.6b", `  DEMO_RELAY funded -> ${formatDOT(await rawProvider.getBalance(DEMO_RELAY_ADDRESS))} PAS`);
+      } else {
+        log("2.6b", `  DEMO_RELAY balance ${formatDOT(bal)} PAS -- skipping fund`);
       }
     } catch (err) {
-      log("2.6b", `  setRelayerAuthorized failed: ${String(err).slice(0, 100)}`);
+      log("2.6b", `  DEMO_RELAY wiring failed: ${String(err).slice(0, 100)}`);
     }
   }
 
@@ -1121,9 +1130,16 @@ async function main() {
   console.log("  eve tags           : topic:crypto-web3, topic:nfts, topic:daos-governance, locale:en");
 
   console.log("\nUser accounts (fund via faucet for testing):");
-  console.log("  hank     0x615BcbE62B43bB033e65533bB6FcCC8b6FcB5BbD");
-  console.log("  iris     0xC59101dab8d0899F74d19a4f13bb2D9A030065af");
-  console.log("  jack     0x705f35BC60EE574FA5d1D38Ef2CD4784dE9371d3");
+  console.log(`  hank     ${new Wallet(envKey("HANK_PRIVATE_KEY")).address}`);
+  console.log(`  iris     ${new Wallet(envKey("IRIS_PRIVATE_KEY")).address}`);
+  console.log(`  jack     ${new Wallet(envKey("JACK_PRIVATE_KEY")).address}`);
+
+  console.log("\n── Demo refresh (off-chain — DEMO_RELAY on-chain wiring done above in 2.6/2.6b) ──");
+  console.log("  1. cd web && node resync-addresses.mjs   (networks.ts + public json + DEPLOY_VERSION)");
+  console.log("  2. rebuild: web (vite) + alpha-core/extension");
+  console.log("  3. systemctl --user restart datum-relay@diana   (frank obsolete: stop it)");
+  console.log("  4. verify: curl -s localhost:3400/relay/publishers  → single Diana");
+  console.log("  See alpha-core/UPGRADE-REDEPLOY-RUNBOOK.md → 'Demo refresh' for the full checklist.");
 }
 
 main().catch((e) => { console.error(e); process.exitCode = 1; });
