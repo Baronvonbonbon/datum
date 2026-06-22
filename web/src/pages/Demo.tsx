@@ -42,7 +42,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "cryptohub.example",
     publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:crypto-web3", "topic:defi", "topic:computers-electronics", "locale:en"],
-    description: "Crypto & DeFi news — campaigns C1–C6 + open fallbacks → Vickrey auction",
+    description: "Crypto & DeFi news — campaigns C1–C6 + open fallbacks eligible",
   },
   {
     id: "financedaily",
@@ -50,7 +50,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "financedaily.example",
     publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:finance", "topic:news", "topic:people-society", "locale:en"],
-    description: "Personal finance & markets — campaigns C7–C10 → Vickrey auction",
+    description: "Personal finance & markets — campaigns C7–C10 eligible",
   },
   {
     id: "techblog",
@@ -58,7 +58,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "techblog.example",
     publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:computers-electronics", "topic:science", "topic:internet-telecom", "locale:en"],
-    description: "Dev & tech — campaigns C11–C14 → Vickrey auction",
+    description: "Dev & tech — campaigns C11–C14 eligible",
   },
   {
     id: "sportzone",
@@ -67,7 +67,7 @@ const DEMO_SITES: DemoSite[] = [
     publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:sports", "topic:health", "topic:beauty-fitness", "locale:en"],
     allowlistEnabled: true,
-    description: "Sports & health — allowlist ON: only Bob's campaigns (C18–C19) eligible → solo auction",
+    description: "Sports & health — allowlist ON: only Bob's campaigns (C18–C19) eligible",
   },
   {
     id: "gamingworld",
@@ -75,7 +75,7 @@ const DEMO_SITES: DemoSite[] = [
     url: "gamingworld.example",
     publisher: "0xD130982DE7f51f0d17eBCeDb88C9714fa77a0197", // Diana (single demo publisher; rotated 2026-06-17)
     tags: ["topic:gaming", "topic:arts-entertainment", "topic:hobbies-leisure", "locale:en"],
-    description: "Gaming & anime — campaigns C15–C17 → Vickrey auction",
+    description: "Gaming & anime — campaigns C15–C17 eligible",
   },
 ];
 
@@ -843,28 +843,6 @@ export function Demo() {
             Publisher View — Ad Slot
           </div>
 
-          {/* Auction status (simplified) */}
-          {bridgeStatus.step !== "idle" && (
-            <div style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: 6, padding: "8px 12px", fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 14 }}>
-              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: 6 }}>Auction Status</div>
-              {[
-                ["Step", stepLabel(bridgeStatus.step), stepColor(bridgeStatus.step)],
-                ...(bridgeStatus.campaignId ? [["Winner", `Campaign #${bridgeStatus.campaignId}`, "var(--ok)"]] : []),
-                ...(bridgeStatus.mechanism ? [["Mechanism",
-                  bridgeStatus.mechanism === "solo" ? "Solo (uncontested)"
-                  : bridgeStatus.mechanism === "floor" ? "Second-price (floor)"
-                  : "Second-price Vickrey", "var(--text-muted)"]] : []),
-                ...(bridgeStatus.clearingCpmWei ? [["Clearing CPM", formatWei(bridgeStatus.clearingCpmWei), "var(--text-muted)"]] : []),
-                ...(bridgeStatus.error ? [["Error", bridgeStatus.error, "var(--error)"]] : []),
-              ].map(([label, value, color]) => (
-                <div key={label} style={{ display: "flex", gap: 8, padding: "1px 0" }}>
-                  <span style={{ color: "var(--text)", minWidth: 90 }}>{label}</span>
-                  <span style={{ color }}>{value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
           <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
             {/* Ad slot */}
             <div style={{ flex: 1, minWidth: 220 }}>
@@ -1203,6 +1181,7 @@ export function Demo() {
       <Section label="Resources">
         <ul style={{ listStyle: "none", padding: 0 }}>
           {[
+            ["Live Test Pages — see ads serving on real publisher pages", "https://datum.javcon.io/testpages/"],
             ["GitHub Repository", "https://github.com/Baronvonbonbon/datum"],
             ["Publisher Relay Template", "https://github.com/Baronvonbonbon/datum/tree/main/docs/relay-bot-template"],
             ["Paseo Explorer", "https://blockscout-testnet.polkadot.io/"],
@@ -1233,37 +1212,6 @@ function Section({ label, children }: { label: string; children: React.ReactNode
     </div>
   );
 }
-
-function stepLabel(step: string): string {
-  return ({
-    idle: "Idle",
-    detecting: "Detecting SDK...",
-    matching: "Matching campaigns...",
-    auction: "Running auction...",
-    handshake: "Handshaking...",
-    injected: "Ad injected",
-    "house-ad": "House ad (no match)",
-    "no-match": "No campaigns",
-    error: "Error",
-  } as Record<string, string>)[step] ?? step;
-}
-
-function stepColor(step: string): string {
-  if (step === "injected") return "var(--ok)";
-  if (step === "error") return "var(--error)";
-  if (step === "house-ad" || step === "no-match") return "var(--warn)";
-  return "var(--text-muted)";
-}
-
-function formatWei(weiStr: string): string {
-  try {
-    const w = BigInt(weiStr);
-    const whole = w / 10n ** 18n;
-    const frac = (w % 10n ** 18n).toString().padStart(18, "0").slice(0, 4).replace(/0+$/, "");
-    return `${frac ? `${whole}.${frac}` : whole.toString()} PAS`;
-  } catch { return weiStr; }
-}
-
 
 const inputStyle: React.CSSProperties = {
   width: "100%", background: "var(--bg-surface)", border: "1px solid var(--border)",
