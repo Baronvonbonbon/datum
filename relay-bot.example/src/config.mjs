@@ -36,6 +36,11 @@ export function loadConfig() {
     Object.entries(DEFAULTS).map(([k, v]) => [k, process.env[k] ?? v])
   );
   env.RELAY_PRIVATE_KEY = process.env.RELAY_PRIVATE_KEY;
+  // Optional: the actionVerifier EOA key. When set, the relay exposes
+  // POST /action-attest, signing a claim's computedHash so type-2
+  // (remote-action / CPA) claims can settle. Campaigns must be created with
+  // this key's address as the pot actionVerifier. Omit to disable the endpoint.
+  env.ACTION_VERIFIER_KEY = process.env.ACTION_VERIFIER_KEY ?? "";
 
   let addresses;
   try {
@@ -55,6 +60,9 @@ export function loadConfig() {
     stakeRootIntervalBlocks: Number(env.STAKE_ROOT_INTERVAL_BLOCKS),
     logLevel: Number(env.LOG_LEVEL),
     privateKey: env.RELAY_PRIVATE_KEY,
+    actionVerifierKey: env.ACTION_VERIFIER_KEY && !env.ACTION_VERIFIER_KEY.startsWith("0x000")
+      ? env.ACTION_VERIFIER_KEY
+      : null,
     addresses,
     // Pine chain preset — keyed off the network identifier.
     pineChain: env.NETWORK === "polkadotHub" ? "polkadot-asset-hub" : "paseo-asset-hub",

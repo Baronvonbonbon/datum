@@ -65,26 +65,35 @@ export class ClickBatch {
       bumpCounter("clickErrors");
       return { ok: false, reason: "not-our-campaign" };
     }
-    // The SDK doesn't know the user's address — the relay is
-    // expected to map the (publisher, slotId) → user via the
-    // claim queue's prior impression. In the skeleton path we
-    // hash (publisher, slotId, href, ts) into the impression
-    // nonce and use the publisher as a stand-in for user. The
-    // production wiring should join against the impression
-    // record from poll/claims.mjs instead.
-    const nonce = ethers.keccak256(
-      ethers.toUtf8Bytes(`${publisher ?? ""}:${slotId ?? ""}:${href ?? ""}:${Date.now()}`)
-    );
-    const user = typeof publisher === "string" && ethers.isAddress(publisher)
-      ? publisher
-      : ethers.ZeroAddress;
+    // Preferred path: a wallet-aware client (e.g. the Datum Tavern) supplies the
+    // exact `user` and a 32-byte `nonce` so it can reference the same nonce in
+    // its on-chain click claim (clickSessionHash == nonce). The nonce is echoed
+    // back so the client knows what to claim against.
+    let user, nonce;
+    if (typeof claim.user === "string" && ethers.isAddress(claim.user)
+        && typeof claim.nonce === "string" && /^0x[0-9a-fA-F]{64}$/.test(claim.nonce)) {
+      user = ethers.getAddress(claim.user);
+      nonce = claim.nonce;
+    } else {
+      // Skeleton fallback: the SDK doesn't know the user's address — hash
+      // (publisher, slotId, href, ts) into the nonce and use publisher as a
+      // stand-in. Production wiring joins against the impression record instead.
+      nonce = ethers.keccak256(
+        ethers.toUtf8Bytes(`${publisher ?? ""}:${slotId ?? ""}:${href ?? ""}:${Date.now()}`)
+      );
+      user = typeof publisher === "string" && ethers.isAddress(publisher)
+        ? publisher
+        : ethers.ZeroAddress;
+    }
     this.pending.push({ user, campaignId: cid, nonce, receivedAt: Date.now() });
     recordEvent("click-queued", { campaignId: cid.toString(), user });
-    // Flush eagerly if we hit the size threshold.
-    if (this.pending.length >= this.cfg.clickBatchSize) {
-      this._maybeFlush().catch(() => {});
+    // Flush eagerly: at the size threshold, OR immediately for a wallet-aware
+    // click so the client can settle without waiting out the max-age timer.
+    const eager = typeof claim.user === "string" && ethers.isAddress(claim.user);
+    if (eager || this.pending.length >= this.cfg.clickBatchSize) {
+      this._drain().catch(() => {});
     }
-    return { ok: true, queued: true };
+    return { ok: true, queued: true, user, nonce };
   }
 
   async _maybeFlush() {
