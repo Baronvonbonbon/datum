@@ -25,6 +25,7 @@ import { ClaimQueue } from "./poll/claims.mjs";
 import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
 import { HttpServer } from "./http.mjs";
 import { ClickBatch } from "./submit/clickRegistry.mjs";
+import { ActionAttest } from "./submit/actionAttest.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 import { HealthGate } from "./health.mjs";
 
@@ -84,6 +85,9 @@ async function main() {
   const clickBatch = new ClickBatch({ provider, cfg, campaignPoll });
   clickBatch.start();
 
+  // Optional type-2 action attestation signer (enabled when ACTION_VERIFIER_KEY is set).
+  const actionAttest = new ActionAttest({ provider, cfg, campaignPoll });
+
   const stakeRootCron = new StakeRootCron({ provider, cfg });
   stakeRootCron.start();
 
@@ -93,6 +97,7 @@ async function main() {
     provider,
     claimQueue,
     clickBatch,
+    actionAttest,
     health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });

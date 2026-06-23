@@ -21,11 +21,12 @@ import {
 const MAX_BODY_BYTES = 16 * 1024; // 16 KB is plenty for a click/claim envelope
 
 export class HttpServer {
-  constructor({ cfg, provider, claimQueue, clickBatch, health, bulletinGateway }) {
+  constructor({ cfg, provider, claimQueue, clickBatch, actionAttest, health, bulletinGateway }) {
     this.cfg = cfg;
     this.provider = provider;
     this.claimQueue = claimQueue;
     this.clickBatch = clickBatch;
+    this.actionAttest = actionAttest;
     this.health = health;
     this.bulletinGateway = bulletinGateway;
     this._server = null;
@@ -62,6 +63,7 @@ export class HttpServer {
     if (req.method === "GET" && path === "/health") return this._health(res);
     if (req.method === "GET" && path === "/events") return this._events(url, res);
     if (req.method === "POST" && path === "/click") return this._postClick(req, res);
+    if (req.method === "POST" && path === "/action-attest") return this._postActionAttest(req, res);
     if (req.method === "POST" && path === "/claim") return this._postClaim(req, res);
     if (req.method === "GET" && path.startsWith("/bulletin/")) {
       const cid = decodeURIComponent(path.slice("/bulletin/".length));
@@ -111,6 +113,20 @@ export class HttpServer {
     }
     const result = this.clickBatch.enqueue(body.json);
     sendJson(res, result.ok ? 202 : 400, result);
+  }
+
+  async _postActionAttest(req, res) {
+    const body = await readJsonBody(req);
+    if (!body.ok) return sendJson(res, 400, { error: body.reason });
+    if (!this.actionAttest || !this.actionAttest.enabled) {
+      return sendJson(res, 501, { error: "action-attest-disabled" });
+    }
+    try {
+      const result = await this.actionAttest.attest(body.json);
+      sendJson(res, result.ok ? 200 : 400, result);
+    } catch (e) {
+      sendJson(res, 500, { error: "attest-failed", reason: String(e?.message ?? e) });
+    }
   }
 
   async _postClaim(req, res) {
