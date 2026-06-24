@@ -26,6 +26,7 @@ import { IdentityRequestPoll } from "./poll/identityRequests.mjs";
 import { HttpServer } from "./http.mjs";
 import { ClickBatch } from "./submit/clickRegistry.mjs";
 import { ActionAttest } from "./submit/actionAttest.mjs";
+import { Withdraw } from "./submit/withdraw.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 import { HealthGate } from "./health.mjs";
 
@@ -88,6 +89,9 @@ async function main() {
   // Optional type-2 action attestation signer (enabled when ACTION_VERIFIER_KEY is set).
   const actionAttest = new ActionAttest({ provider, cfg, campaignPoll });
 
+  // Gasless withdraw submitter (the relay pays gas for user-signed cash-outs).
+  const withdraw = new Withdraw({ provider, cfg });
+
   const stakeRootCron = new StakeRootCron({ provider, cfg });
   stakeRootCron.start();
 
@@ -98,6 +102,7 @@ async function main() {
     claimQueue,
     clickBatch,
     actionAttest,
+    withdraw,
     health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });
