@@ -21,7 +21,7 @@ import {
 const MAX_BODY_BYTES = 16 * 1024; // 16 KB is plenty for a click/claim envelope
 
 export class HttpServer {
-  constructor({ cfg, provider, claimQueue, clickBatch, actionAttest, withdraw, ascendSpend, ascendRecord, ascendMint, health, bulletinGateway }) {
+  constructor({ cfg, provider, claimQueue, clickBatch, actionAttest, withdraw, ascendSpend, ascendRecord, health, bulletinGateway }) {
     this.cfg = cfg;
     this.provider = provider;
     this.claimQueue = claimQueue;
@@ -30,7 +30,6 @@ export class HttpServer {
     this.withdraw = withdraw;
     this.ascendSpend = ascendSpend;
     this.ascendRecord = ascendRecord;
-    this.ascendMint = ascendMint;
     this.health = health;
     this.bulletinGateway = bulletinGateway;
     this._server = null;
@@ -71,7 +70,6 @@ export class HttpServer {
     if (req.method === "POST" && path === "/withdraw") return this._postWithdraw(req, res);
     if (req.method === "POST" && path === "/ascend/spend") return this._postAscendSpend(req, res);
     if (req.method === "POST" && path === "/ascend/record") return this._postAscendRecord(req, res);
-    if (req.method === "POST" && path === "/ascend/mint") return this._postAscendMint(req, res);
     if (req.method === "POST" && path === "/claim") return this._postClaim(req, res);
     if (req.method === "GET" && path.startsWith("/bulletin/")) {
       const cid = decodeURIComponent(path.slice("/bulletin/".length));
@@ -170,18 +168,6 @@ export class HttpServer {
       sendJson(res, result.ok ? 200 : 400, result);
     } catch (e) {
       sendJson(res, 500, { error: "ascend-record-failed", reason: String(e?.message ?? e) });
-    }
-  }
-
-  async _postAscendMint(req, res) {
-    const body = await readJsonBody(req);
-    if (!body.ok) return sendJson(res, 400, { error: body.reason });
-    if (!this.ascendMint || !this.ascendMint.enabled) return sendJson(res, 501, { error: "ascend-mint-disabled" });
-    try {
-      const result = await this.ascendMint.submit(body.json);
-      sendJson(res, result.ok ? 200 : 400, result);
-    } catch (e) {
-      sendJson(res, 500, { error: "ascend-mint-failed", reason: String(e?.message ?? e) });
     }
   }
 

@@ -29,7 +29,6 @@ import { ActionAttest } from "./submit/actionAttest.mjs";
 import { Withdraw } from "./submit/withdraw.mjs";
 import { AscendSpend } from "./submit/ascendSpend.mjs";
 import { AscendRecord } from "./submit/ascendRecord.mjs";
-import { AscendMint } from "./submit/ascendMint.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 import { HealthGate } from "./health.mjs";
 
@@ -101,9 +100,6 @@ async function main() {
   // Ascend gasless run-record submitter (Hall of Fame + bones).
   const ascendRecord = new AscendRecord({ provider, cfg });
 
-  // Ascend gasless NFT relic mint submitter (tradeable ERC-721 gear; enabled when ASCEND_GEAR_ADDRESS is set).
-  const ascendMint = new AscendMint({ provider, cfg });
-
   const stakeRootCron = new StakeRootCron({ provider, cfg });
   stakeRootCron.start();
 
@@ -117,7 +113,6 @@ async function main() {
     withdraw,
     ascendSpend,
     ascendRecord,
-    ascendMint,
     health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });
