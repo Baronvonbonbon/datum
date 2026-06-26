@@ -28,6 +28,7 @@ import { ClickBatch } from "./submit/clickRegistry.mjs";
 import { ActionAttest } from "./submit/actionAttest.mjs";
 import { Withdraw } from "./submit/withdraw.mjs";
 import { AscendSpend } from "./submit/ascendSpend.mjs";
+import { AscendRecord } from "./submit/ascendRecord.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 import { HealthGate } from "./health.mjs";
 
@@ -96,6 +97,9 @@ async function main() {
   // Ascend (roguelike) gasless shop-spend submitter (enabled when ASCEND_BANK_ADDRESS is set).
   const ascendSpend = new AscendSpend({ provider, cfg });
 
+  // Ascend gasless run-record submitter (Hall of Fame + bones).
+  const ascendRecord = new AscendRecord({ provider, cfg });
+
   const stakeRootCron = new StakeRootCron({ provider, cfg });
   stakeRootCron.start();
 
@@ -108,6 +112,7 @@ async function main() {
     actionAttest,
     withdraw,
     ascendSpend,
+    ascendRecord,
     health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });
