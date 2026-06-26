@@ -27,6 +27,7 @@ import { HttpServer } from "./http.mjs";
 import { ClickBatch } from "./submit/clickRegistry.mjs";
 import { ActionAttest } from "./submit/actionAttest.mjs";
 import { Withdraw } from "./submit/withdraw.mjs";
+import { AscendSpend } from "./submit/ascendSpend.mjs";
 import { StakeRootCron } from "./submit/stakeRootV2.mjs";
 import { HealthGate } from "./health.mjs";
 
@@ -92,6 +93,9 @@ async function main() {
   // Gasless withdraw submitter (the relay pays gas for user-signed cash-outs).
   const withdraw = new Withdraw({ provider, cfg });
 
+  // Ascend (roguelike) gasless shop-spend submitter (enabled when ASCEND_BANK_ADDRESS is set).
+  const ascendSpend = new AscendSpend({ provider, cfg });
+
   const stakeRootCron = new StakeRootCron({ provider, cfg });
   stakeRootCron.start();
 
@@ -103,6 +107,7 @@ async function main() {
     clickBatch,
     actionAttest,
     withdraw,
+    ascendSpend,
     health, // /health reflects settlement config + migration state
     bulletinGateway: null, // out-of-scope for the skeleton
   });

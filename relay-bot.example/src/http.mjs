@@ -21,13 +21,14 @@ import {
 const MAX_BODY_BYTES = 16 * 1024; // 16 KB is plenty for a click/claim envelope
 
 export class HttpServer {
-  constructor({ cfg, provider, claimQueue, clickBatch, actionAttest, withdraw, health, bulletinGateway }) {
+  constructor({ cfg, provider, claimQueue, clickBatch, actionAttest, withdraw, ascendSpend, health, bulletinGateway }) {
     this.cfg = cfg;
     this.provider = provider;
     this.claimQueue = claimQueue;
     this.clickBatch = clickBatch;
     this.actionAttest = actionAttest;
     this.withdraw = withdraw;
+    this.ascendSpend = ascendSpend;
     this.health = health;
     this.bulletinGateway = bulletinGateway;
     this._server = null;
@@ -66,6 +67,7 @@ export class HttpServer {
     if (req.method === "POST" && path === "/click") return this._postClick(req, res);
     if (req.method === "POST" && path === "/action-attest") return this._postActionAttest(req, res);
     if (req.method === "POST" && path === "/withdraw") return this._postWithdraw(req, res);
+    if (req.method === "POST" && path === "/ascend/spend") return this._postAscendSpend(req, res);
     if (req.method === "POST" && path === "/claim") return this._postClaim(req, res);
     if (req.method === "GET" && path.startsWith("/bulletin/")) {
       const cid = decodeURIComponent(path.slice("/bulletin/".length));
@@ -140,6 +142,18 @@ export class HttpServer {
       sendJson(res, result.ok ? 200 : 400, result);
     } catch (e) {
       sendJson(res, 500, { error: "withdraw-failed", reason: String(e?.message ?? e) });
+    }
+  }
+
+  async _postAscendSpend(req, res) {
+    const body = await readJsonBody(req);
+    if (!body.ok) return sendJson(res, 400, { error: body.reason });
+    if (!this.ascendSpend || !this.ascendSpend.enabled) return sendJson(res, 501, { error: "ascend-spend-disabled" });
+    try {
+      const result = await this.ascendSpend.submit(body.json);
+      sendJson(res, result.ok ? 200 : 400, result);
+    } catch (e) {
+      sendJson(res, 500, { error: "ascend-spend-failed", reason: String(e?.message ?? e) });
     }
   }
 
